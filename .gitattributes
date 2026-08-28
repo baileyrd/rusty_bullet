@@ -1,0 +1,8 @@
+# Force LF so shebang scripts and CI don't break on a CRLF checkout.
+* text=auto eol=lf
+
+*.replay binary
+*.capture binary
+*.pdf binary
+*.png binary
+*.jpg binary
