@@ -277,6 +277,8 @@ name = "rb_capture_ingest"
 version = "0.1.0"
 dependencies = [
  "rb_domain",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
