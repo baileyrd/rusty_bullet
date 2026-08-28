@@ -14,6 +14,13 @@ name = "rb_domain"
 version = "0.1.0"
 
 [[package]]
+name = "rb_physics_bullet"
+version = "0.1.0"
+dependencies = [
+ "rb_domain",
+]
+
+[[package]]
 name = "rb_replay_ingest"
 version = "0.1.0"
 dependencies = [
