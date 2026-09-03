@@ -307,6 +307,7 @@ version = "0.1.0"
 dependencies = [
  "rb_capture_ingest",
  "rb_domain",
+ "rb_physics_bullet",
  "rb_replay_ingest",
 ]
 
