@@ -3,6 +3,9 @@
 *.pdb
 .DS_Store
 
+# CMake build output for the BakkesMod plugin (generated, platform-specific).
+/bakkesmod-plugin/rusty_bullet_capture/build/
+
 # Local BakkesMod captures and replay fixtures are large binary artifacts
 # and may contain data from the user's own matches; keep them out of git.
 /captures/
