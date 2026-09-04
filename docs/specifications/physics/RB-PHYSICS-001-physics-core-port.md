@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.84.0
+- Version: 0.85.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -5279,14 +5279,82 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     of a likely-separate post-dodge spin-rate mismatch matching `FR-069`.
     Both need their own dedicated investigation before a fix is
     attempted; neither has been isolated further than described above.
+  - **Root cause of the pre-dodge orientation-rate divergence: an
+    inertia-cancellation mismatch, not a miscalibrated constant.** Reading
+    RocketSim's own real `Car.cpp::_UpdateAirTorque` (the source
+    `AIR_CONTROL_TORQUE` was ported from, per `FR-068`) shows it computes
+    `torque = ... * CAR_AIR_CONTROL_TORQUE` from stick input exactly as
+    `FR-068` already confirmed, but then applies it as
+    `_rigidBody.applyTorque(_rigidBody.m_invInertiaTensorWorld.inverse() *
+    (torque - damping) * CAR_TORQUE_SCALE)` — pre-multiplying by the car's
+    own *actual* (non-inverted) world inertia tensor before handing the
+    result to Bullet's own `applyTorque`, which itself divides by the
+    inverse inertia tensor again during integration. The two cancel: real
+    Rocket League's `CAR_AIR_CONTROL_TORQUE` is, by construction, an
+    inertia-*independent* direct angular-acceleration input, not a genuine
+    physical torque — and the same pre-multiplication pattern appears at
+    the dodge-torque (`Car.cpp` line 631) and autoroll-torque (line 867)
+    call sites. This port's own `RigidBody::apply_torque`
+    (`crates/rb_physics_bullet/src/body.rs`) and `integrate.rs` implement
+    the standard, non-cancelling model already confirmed correct against
+    real Bullet by `FR-046` (`angular_velocity += inv_inertia_world *
+    total_torque * dt`) — meaning every existing call site that reuses a
+    borrowed RocketSim constant this way (confirmed for
+    `AIR_CONTROL_TORQUE`; not yet checked for anything else) has its
+    intended angular acceleration silently divided by this car's own
+    moment of inertia, a scaling step real Rocket League's own code never
+    applies.
+    - **Quantitative confirmation.** This car's own box `I_zz` (yaw axis),
+      via the already-confirmed-correct formula in `body.rs`
+      (`local_inertia`), is `CAR_MASS/3 * (CAR_HALF_EXTENTS.x² +
+      CAR_HALF_EXTENTS.y²) ≈ 330,581`. The predicted candidate
+      steady-state yaw angular acceleration under the current model is
+      therefore `AIR_CONTROL_TORQUE * AIR_CONTROL_YAW_SCALE / I_zz =
+      1,000,000 * (95/130) / 330,581 ≈ 2.211` rad/s² — matching the
+      isolated fixture's own empirically-measured candidate yaw
+      acceleration (`≈2.2` rad/s²) to three significant figures, while the
+      *recorded* car's own measured yaw acceleration over the same window
+      is `≈9.12` rad/s² (a `≈4.1x` gap), matching an independent, purely
+      empirical measurement of the same ratio (`≈4.13`–`4.15x`) made
+      before this mechanism was identified.
+    - **Rejected fix: scaling `AIR_CONTROL_TORQUE` uniformly.** A
+      temporary (fully reverted, never committed) experiment multiplying
+      `AIR_CONTROL_TORQUE` by `≈4.15x` improved the pure-yaw sub-phase but
+      *worsened* the subsequent pitch/roll sub-phase and the whole-window
+      aggregate — because the anisotropic box has a different actual
+      moment of inertia per axis, so a single uniform multiplier cannot
+      correct all three axes at once under a model that still divides by
+      inertia. This confirms the mismatch is architectural (a missing
+      inertia-cancellation step in how these specific borrowed constants
+      are applied), not a single miscalibrated number, and rules out a
+      one-line constant tweak as a valid fix — the same "naive global
+      factor investigated and rejected" pattern `FR-041` documented for a
+      different mechanic.
+    - **Scope of the finding.** Confirmed only for `AIR_CONTROL_TORQUE`.
+      `STEER_TORQUE` is a pure invented placeholder, not a ported real
+      constant (`FR-065`), so it isn't affected. The dodge's own spin kick
+      bypasses `apply_torque`/integration entirely via a direct
+      `angular_velocity +=` (so it isn't affected either, though
+      `FR-069`'s separate instantaneous-kick-vs-continuous-torque gap
+      still stands independently). `LANDING_AUTO_UPRIGHT_TORQUE` uses the
+      same `apply_torque` mechanism and so is a plausible further
+      instance, but this has not been independently confirmed against
+      RocketSim's own autoroll-torque call site with the same rigor as
+      `AIR_CONTROL_TORQUE` above.
   - **Non-goals (this requirement).** Does not implement `FR-069`'s
-    continuous-torque flip model, or investigate the pre-dodge
-    orientation-rate gap down to its own root cause — both are
-    substantial, separate pieces of work this finding only motivates and
-    scopes. Does not change any production code, constant, or mechanic —
-    `drive.rs` is unmodified. Does not claim the translation/rotation
-    split above is the *complete* explanation; only what a single real
-    maneuver's own recorded data directly shows.
+    continuous-torque flip model. Does not implement the architectural fix
+    the mechanism finding above points to — an inertia-independent
+    torque-application path for constants like `AIR_CONTROL_TORQUE` — a
+    substantial change with likely broad impact on the many existing
+    air-control tests that currently encode outcomes under the present
+    (standard, inertia-dividing) model, so it isn't started without
+    explicit confirmation first. Does not change any production code,
+    constant, or mechanic — `drive.rs` is unmodified (the scaling
+    experiment above was reverted before any commit). Does not claim the
+    translation/rotation split, or the `AIR_CONTROL_TORQUE` finding, is
+    the *complete* explanation for every remaining discrepancy; only what
+    this real maneuver's own recorded data and RocketSim's own real source
+    directly show.
   - **Acceptance criteria.** The new fixture's own first frame is
     grounded/neutral by construction (verified: `is_grounded_and_neutral`
     accepts it without special-casing); `score_capture_against_candidate`
@@ -5294,13 +5362,21 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `cars.pairs_compared == 347` (every frame matched, confirming the
     fixture's own internal timestamp continuity); the isolated divergence
     is large enough (`cars.mean_position_distance > 1000` uu,
-    `mean_ball_distance > 100` uu) to be unambiguous, not marginal.
-  - **Verification plan.** 1 new `rb_verify_cli` test (11 total) against
+    `mean_ball_distance > 100` uu) to be unambiguous, not marginal. The
+    mechanism finding's own quantitative confirmation (predicted vs.
+    measured candidate yaw acceleration) matches to three significant
+    figures, and the rejected-scaling experiment left the working tree
+    clean (empty `git diff`).
+  - **Verification plan.** 1 new `rb_verify_cli` test (10 total) against
     the new fixture, asserting the frame/pair counts and the loose
     known-bad divergence bounds above (documenting the current state, not
     defending it). No `rb_physics_bullet` production code touched, so no
-    new tests there. Full workspace `fmt`/`clippy`/`test` green (396
-    tests).
+    new tests there — the mechanism finding is analytical (RocketSim's own
+    published source plus this port's already-confirmed inertia formula
+    and integration model), not something a test asserts against; the
+    scaling experiment that tested and rejected the naive fix was reverted
+    without being committed. Full workspace `fmt`/`clippy`/`test` green
+    (396 tests, unchanged from the isolated-replay pass above).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -6787,6 +6863,23 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.85.0 (2026-09-04): `RB-PHYSICS-001-FR-079`'s own entry extended with a
+  mechanism-level root cause for the pre-dodge orientation-rate
+  divergence it left open: RocketSim's real `Car.cpp::_UpdateAirTorque`
+  (and its dodge-torque/autoroll-torque call sites) pre-multiply by the
+  car's own actual inertia tensor to cancel Bullet's inverse-inertia
+  integration step, making `AIR_CONTROL_TORQUE` an inertia-independent
+  direct angular-acceleration input in real Rocket League — while this
+  port's own `apply_torque`/`integrate.rs` divide by the car's actual
+  moment of inertia as usual, silently under-applying it. Confirmed
+  quantitatively (predicted `≈2.211` rad/s² vs. measured `≈2.2` rad/s² for
+  the candidate, vs. `≈9.12` rad/s² for the real car). A naive uniform
+  `≈4.15x` scale-up of the constant was tried and rejected (helps yaw,
+  hurts pitch/roll) as documented negative evidence that the fix must be
+  architectural, not a scalar tweak. No production code changed (the
+  scaling experiment was reverted before commit); the actual fix — an
+  inertia-independent torque-application path — is scoped as a Non-goal
+  pending explicit go-ahead given its likely broad test impact.
 - 0.84.0 (2026-09-04): `RB-PHYSICS-001-FR-079` implemented — an isolated
   replay of `FR-077`'s own abrupt-derailment dodge, seeded fresh from the
   exact real state right before it (a new 347-frame real fixture,
@@ -6796,7 +6889,7 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
   dodge fires, which the dodge's own orientation-relative impulse then
   amplifies into a dramatically different translation kick, on top of a
   likely-separate post-dodge spin-rate mismatch matching `FR-069`. 1 new
-  `rb_verify_cli` test (11 total; 396 workspace-wide). No production code
+  `rb_verify_cli` test (10 total; 396 workspace-wide). No production code
   changed — `FR-005` itself still hasn't started; see `FR-079`'s own
   entry for the full evidence chain.
 - 0.83.0 (2026-09-04): `RB-VERIFY-003-FR-004`'s diagnostic actually ran

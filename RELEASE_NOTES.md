@@ -6,6 +6,52 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Found the mechanism: real air control cancels its own inertia, this port doesn't
+**2026-09-04** · `RB-PHYSICS-001-FR-079`
+
+- Picked up the concrete next step the previous entry left open — isolating
+  the pre-dodge orientation-rate divergence's own root cause — and traced
+  it to a specific, quantitatively-confirmed mechanism, not a scale error.
+- Read RocketSim's own real `Car.cpp::_UpdateAirTorque` directly (fetched
+  and grepped from raw source, not trusted from a summarized fetch): it
+  computes air-control torque from stick input, then applies it as
+  `applyTorque(invInertiaTensorWorld.inverse() * (torque - damping) *
+  CAR_TORQUE_SCALE)` — pre-multiplying by the car's own *actual*
+  (non-inverted) inertia tensor before Bullet's own integration divides by
+  the inverse again. The two cancel. The same pattern appears at the
+  dodge-torque and autoroll-torque call sites. Real Rocket League's
+  `CAR_AIR_CONTROL_TORQUE` is, by construction, an inertia-*independent*
+  direct angular-acceleration input, not a genuine physical torque.
+- This port's own `apply_torque`/`integrate.rs` implement the standard,
+  non-cancelling model (already confirmed correct against real Bullet by
+  `RB-PHYSICS-001-FR-046`) — so reusing a borrowed RocketSim constant like
+  `AIR_CONTROL_TORQUE` through it silently divides the intended angular
+  acceleration by this car's own moment of inertia, a step real Rocket
+  League's own code never applies.
+- **Quantitative confirmation.** This car's own `I_zz ≈ 330,581` (from the
+  already-confirmed box-inertia formula) predicts a candidate yaw
+  acceleration of `1,000,000 * (95/130) / 330,581 ≈ 2.211` rad/s² under
+  the current model — matching the isolated fixture's own measured
+  candidate value (`≈2.2` rad/s²) almost exactly, while the *real*
+  recorded car's own measured acceleration over the same window is `≈9.12`
+  rad/s² (a `≈4.1x` gap, matching an earlier, independent purely-empirical
+  measurement of the same ratio).
+- **Tried and rejected: a uniform rescale.** Temporarily multiplying
+  `AIR_CONTROL_TORQUE` by `≈4.15x` improved the pure-yaw sub-phase but
+  *worsened* pitch/roll and the whole-window aggregate — the anisotropic
+  box has a different actual moment of inertia per axis, so one number
+  can't fix all three under a model that still divides by inertia. This
+  is documented negative evidence: the fix has to be architectural (an
+  inertia-independent torque-application path), not a constant tweak.
+  Fully reverted before commit; no production code changed.
+- The actual fix isn't started — it's scoped as a Non-goal pending
+  explicit go-ahead, since it's expected to touch many existing
+  air-control tests that currently encode outcomes under the present
+  model. See `RB-PHYSICS-001-FR-079`'s own spec entry for the full
+  mechanism writeup.
+
+---
+
 ## Isolated the dodge: it's the maneuver, and it's more than one thing
 **2026-09-04** · `RB-PHYSICS-001-FR-079`
 

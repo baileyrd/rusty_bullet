@@ -97,8 +97,20 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   amplifies into a translation kick pointing in a different world
   direction than the recording's, on top of a likely-separate post-dodge
   spin-rate mismatch matching `RB-PHYSICS-001-FR-069`'s already-
-  documented, unimplemented continuous flip torque — see
-  `RB-PHYSICS-001-FR-079`'s own entry for the full evidence chain.
+  documented, unimplemented continuous flip torque. That pre-dodge
+  divergence has since been traced to its own mechanism: RocketSim's real
+  `Car.cpp::_UpdateAirTorque` (and its dodge-torque/autoroll-torque call
+  sites) pre-multiply by the car's own actual inertia tensor to cancel
+  Bullet's inverse-inertia integration step, making `CAR_AIR_CONTROL_TORQUE`
+  an inertia-independent direct angular-acceleration input in real Rocket
+  League — while this port's own `apply_torque`/`integrate.rs` divide by
+  the car's actual moment of inertia as usual, silently under-applying it.
+  Confirmed quantitatively (predicted `≈2.211` rad/s² vs. measured `≈2.2`
+  rad/s² candidate yaw acceleration, vs. `≈9.12` rad/s² for the real car).
+  A naive uniform `≈4.15x` rescale of the constant was tried and rejected
+  — it helps yaw but hurts pitch/roll, confirming the mismatch is
+  architectural, not a scalar miscalibration. No production code changed;
+  see `RB-PHYSICS-001-FR-079`'s own entry for the full evidence chain.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

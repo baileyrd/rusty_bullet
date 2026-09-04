@@ -1970,11 +1970,37 @@
   different world direction than the recording's, on top of a
   likely-separate post-dodge spin-rate mismatch (a periodic beat pattern
   in rotation distance) consistent with `FR-069`'s own finding. 1 new
-  `rb_verify_cli` test (11 total) documents the isolated-replay divergence
+  `rb_verify_cli` test (10 total) documents the isolated-replay divergence
   as a regression baseline; full workspace `fmt`/`clippy`/`test` green
   (396 tests). No production code changed; `FR-005` still hasn't started
   — see that entry's own updated text and `FR-079`'s own spec entry for
   the full evidence chain.
+- `RB-PHYSICS-001-FR-079` extended: the pre-dodge orientation-rate
+  divergence's own mechanism, found. RocketSim's real
+  `Car.cpp::_UpdateAirTorque` (and its dodge-torque/autoroll-torque call
+  sites) pre-multiply their torque by the car's own actual (non-inverted)
+  world inertia tensor before calling Bullet's own `applyTorque`, which
+  itself divides by the inverse inertia tensor again during integration —
+  the two cancel, making `CAR_AIR_CONTROL_TORQUE` an inertia-independent
+  direct angular-acceleration input in real Rocket League, not a genuine
+  physical torque. This port's own `apply_torque`/`integrate.rs` implement
+  the standard, non-cancelling model (confirmed correct against real
+  Bullet by `FR-046`), so reusing `AIR_CONTROL_TORQUE` there silently
+  divides it by this car's own moment of inertia. Confirmed quantitatively:
+  predicted candidate yaw acceleration `≈2.211` rad/s² (from this port's
+  own confirmed box-inertia formula) matches the measured `≈2.2` rad/s²
+  almost exactly, versus the real car's own measured `≈9.12` rad/s² (a
+  `≈4.1x` gap matching an independent empirical measurement). A naive
+  uniform `≈4.15x` rescale of the constant was tried and rejected —
+  it helps the pure-yaw sub-phase but worsens pitch/roll and the whole
+  window, confirming the mismatch is architectural (a missing
+  inertia-cancellation step), not a single miscalibrated number. No
+  production code changed (the rescale experiment was fully reverted
+  before commit); the actual fix — an inertia-independent
+  torque-application path for constants ported this way — is scoped but
+  not started, pending explicit go-ahead given its likely broad impact on
+  existing air-control tests. See `FR-079`'s own spec entry for the full
+  mechanism writeup.
 
 ## In progress
 
@@ -2010,16 +2036,18 @@
    Blocked).
 2. `RB-PHYSICS-001-FR-005` (real-data constant calibration) itself: an
    isolated replay of the abrupt-derailment dodge (`FR-079`) confirmed the
-   maneuver as the proximate cause and refined the picture — an
-   orientation-rate divergence during the grounded jump hold, *before*
-   the dodge fires, amplified by the dodge's own orientation-relative
-   impulse into a translation kick pointing in a very different world
-   direction than the recording, plus a likely-separate post-dodge
-   spin-rate mismatch consistent with `FR-069`'s own finding. The
-   concrete next step is now isolating the pre-dodge orientation-rate
-   divergence's own root cause (during sustained air-control input while
-   the ground jump is held) — not yet started; see `FR-079`'s own spec
-   entry for the full evidence.
+   maneuver as the proximate cause, and the pre-dodge orientation-rate
+   divergence it left open has now been traced to a specific mechanism —
+   this port's `apply_torque`/`integrate.rs` divide the borrowed
+   `AIR_CONTROL_TORQUE` constant by the car's own actual moment of
+   inertia, where real Rocket League's own source deliberately cancels
+   that division (see `FR-079`'s extended entry for the full mechanism and
+   the quantitative confirmation). A naive uniform rescale was tried and
+   rejected. The concrete next step is deciding whether to implement the
+   actual architectural fix — an inertia-independent torque-application
+   path for constants ported this way — which is expected to touch many
+   existing air-control tests; not yet started, awaiting explicit
+   go-ahead given that scope.
 
 ## Validation
 
