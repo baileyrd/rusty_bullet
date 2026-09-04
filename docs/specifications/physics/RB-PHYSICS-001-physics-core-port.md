@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.82.0
+- Version: 0.83.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -579,26 +579,39 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   that carries both bodies' mass/inertia contributions instead of assuming
   one side is a static plane. `PhysicsWorld::step` now detects and resolves
   a ball-vs-car contact every step a car is present.
-- `RB-PHYSICS-001-FR-005` (open, unblocked, not yet started): Calibrate
-  gravity/restitution/friction constants against real recorded ground
-  truth now that `RB-VERIFY-001`/`RB-VERIFY-002` produce real data
-  (`PHASE-0-EXIT` closed) and a real capture exists, rather than relying
-  on the current placeholder defaults. Prerequisite plumbing to actually
-  produce a real fidelity score is implemented as `FR-076`/`FR-077`, and
-  `FR-077`'s own first real run against the real capture now exists (see
-  that entry's Interpretation note) — a very large whole-run divergence
-  (mean car position distance `4508.71` uu against a `5120`-uu
-  half-length field), consistent with total trajectory divergence rather
-  than a small, directly-calibratable gap. This requirement still hasn't
-  started: per `FR-077`'s own Non-goals, a single whole-run number isn't
-  yet the right shape of evidence to tune individual constants from —
-  the natural next step is a diagnostic look at how divergence grows
-  frame-by-frame within that same run (gradual compounding vs. an abrupt
-  early derailment), not blindly curve-fitting constants against a
-  fully-decorrelated trajectory. That diagnostic is now implemented as
-  `RB-VERIFY-003-FR-004` (see that spec's Requirements) — it still needs
-  to be run against this same real capture before this requirement
-  starts.
+- `RB-PHYSICS-001-FR-005` (open, unblocked, not yet started, but now
+  genuinely actionable): Calibrate gravity/restitution/friction constants
+  against real recorded ground truth now that `RB-VERIFY-001`/
+  `RB-VERIFY-002` produce real data (`PHASE-0-EXIT` closed) and a real
+  capture exists, rather than relying on the current placeholder
+  defaults. Prerequisite plumbing to actually produce a real fidelity
+  score is implemented as `FR-076`/`FR-077`, and `FR-077`'s own first
+  real run against the real capture now exists (see that entry's
+  Interpretation note) — a very large whole-run divergence (mean car
+  position distance `4508.71` uu against a `5120`-uu half-length field),
+  consistent with total trajectory divergence rather than a small,
+  directly-calibratable gap. The recommended follow-up diagnostic,
+  `RB-VERIFY-003-FR-004`, has now actually run against this same real
+  capture (see that spec's Verification plan for the full per-window
+  numbers): the divergence is **abrupt**, not gradual — near-perfect for
+  the run's first ~4 seconds, then a sharp derailment coinciding almost
+  exactly with a diagonal dodge maneuver in the recorded input (a held
+  first jump followed ~0.18s later by a second jump press with
+  `pitch=-1, roll=-1`), after which the two trajectories fluctuate in a
+  persistently large but roughly bounded range rather than growing
+  further. Leading hypothesis, **not yet isolated or confirmed**: this
+  port's dodge applies the flip's entire spin as a single instantaneous
+  angular-velocity kick, while `FR-069` already found and documented (but
+  left unimplemented) that real Rocket League's flip spin is a continuous
+  per-tick torque over a `0.65`s window — a structurally different
+  mechanism whose result would plausibly diverge sharply from an
+  instantaneous kick. This requirement still hasn't started, but now has
+  a concrete, falsifiable starting point: replay this same dodge in
+  isolation from the same seed state and compare this port's kick against
+  a properly time-integrated torque model, rather than blindly curve-
+  fitting constants against what is (before the derailment) already a
+  near-exact match and (after it) a fully decorrelated trajectory either
+  way.
 - `RB-PHYSICS-001-FR-006` (car-vs-car collision, implemented): A general
   separating-axis test between two oriented boxes (`collision::box_vs_box`),
   producing either a clipped face manifold (0-4 points) or a single
@@ -6682,6 +6695,16 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.83.0 (2026-09-04): `RB-VERIFY-003-FR-004`'s diagnostic actually ran
+  against `FR-077`'s own real capture — the divergence is abrupt, not
+  gradual: near-perfect for ~4 seconds, then a sharp derailment
+  coinciding with a diagonal dodge in the recorded input. `FR-005`'s
+  entry now names a concrete, falsifiable leading hypothesis (this port's
+  instantaneous dodge-spin kick vs. `FR-069`'s already-documented,
+  unimplemented continuous flip torque) and a starting point (replay the
+  dodge in isolation and compare). See `RB-VERIFY-003`'s Verification
+  plan for the full numbers and reasoning. No code change — a reading of
+  real data, not a fix; `FR-005` itself still hasn't started.
 - 0.82.0 (2026-09-04): `RB-VERIFY-003-FR-004`'s divergence-growth
   diagnostic (referenced from `FR-005`'s own entry and `FR-077`'s
   Non-goals) is now implemented — `rb_domain::divergence::score_windows`

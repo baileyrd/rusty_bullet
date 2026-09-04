@@ -1,13 +1,14 @@
 # RB-VERIFY-003 — Divergence Scoring
 
-- Version: 0.10.0
+- Version: 0.11.0
 - Status: Draft (all four functional requirements implemented and wired
   into `rb_verify_cli`; the first three run end-to-end against a real
   replay AND a real BakkesMod capture, closing `PHASE-0-EXIT`'s own
-  literal exit criterion; the fourth, a divergence-growth diagnostic, is
-  implemented and sanity-checked against the synthetic capture fixture
-  but not yet run against the real capture; open questions remain about
-  calibrating an actual "good enough" threshold, see Open questions)
+  literal exit criterion; the fourth, a divergence-growth diagnostic, has
+  now run against the real capture too, showing the divergence is abrupt
+  — a sharp derailment around a dodge maneuver — rather than gradual, see
+  Verification plan; open questions remain about calibrating an actual
+  "good enough" threshold, see Open questions)
 - Owners: baileyrd
 - Depends on: RB-VERIFY-001, RB-VERIFY-002
 - Supersedes: none
@@ -206,9 +207,11 @@ None beyond what applies to the frame data itself (see
   first window starts at the first matched pair's own timestamp even
   when earlier recorded frames had no match; a run with no matched pairs
   returns no windows. `rb-verify --self-growth` was run manually against
-  the synthetic capture fixture end-to-end without erroring (see
-  Verification plan); the real capture run itself is still pending the
-  owner's own machine.
+  the synthetic capture fixture, and then for real against
+  `RB-PHYSICS-001-FR-077`'s own real capture (see Verification plan for
+  the full numbers) — the divergence there is **abrupt**, not gradual: a
+  sharp derailment localized to roughly seconds 3–5 of the run, not a
+  slow accumulation from frame 0.
 
 ## Verification plan
 
@@ -295,11 +298,107 @@ rb-verify -- --self-growth crates/rb_capture_ingest/fixtures/example.capture.jso
 fixture: `t=11.78s frames=5 ball mean/max=0.75/2.17 uu car mean
 pos/rot/vel=58.75 uu / 0.05 rad / 600.40 uu/s` — a single window, since the
 fixture's own 5 frames all fall within one second, proving the CLI mode
-runs end-to-end without erroring. This is not yet the diagnostic's real
-purpose: running it against `RB-PHYSICS-001-FR-077`'s own real capture
-(`test2.jsonl`, ~23 seconds) — the run that would actually show whether
-that run's divergence grew gradually or abruptly — still needs the owner
-to do that on their own machine, the same as `FR-077`'s own run did.
+runs end-to-end without erroring.
+
+**Run for real, 2026-09-04, against `RB-PHYSICS-001-FR-077`'s own real
+capture** (`test2.jsonl`, owner's machine, default `window_secs = 1.0` and
+`max_timestamp_delta_secs = 0.02`), and independently reproduced bit-for-bit
+against the same capture file in this sandbox:
+
+```
+t=   0.00s  frames= 120  ball mean/max=    0.04/    0.06 uu  car mean pos/rot/vel=    2.23 uu / 0.01 rad /     0.96 uu/s
+t=   1.00s  frames= 120  ball mean/max=    0.05/    0.05 uu  car mean pos/rot/vel=    2.33 uu / 0.01 rad /     0.27 uu/s
+t=   2.00s  frames= 120  ball mean/max=    0.05/    0.05 uu  car mean pos/rot/vel=    2.33 uu / 0.01 rad /     0.27 uu/s
+t=   3.00s  frames= 120  ball mean/max=    0.05/    0.05 uu  car mean pos/rot/vel=   33.81 uu / 0.06 rad /   164.41 uu/s
+t=   4.00s  frames= 120  ball mean/max=    0.05/    0.05 uu  car mean pos/rot/vel= 1314.54 uu / 1.37 rad /  2886.90 uu/s
+t=   5.00s  frames= 120  ball mean/max=   81.84/  659.64 uu  car mean pos/rot/vel= 4329.74 uu / 1.80 rad /  2796.35 uu/s
+t=   6.00s  frames= 120  ball mean/max= 2001.30/ 3290.44 uu  car mean pos/rot/vel= 5625.86 uu / 1.99 rad /  1718.71 uu/s
+t=   7.00s  frames= 120  ball mean/max= 4554.02/ 5673.98 uu  car mean pos/rot/vel= 7026.50 uu / 2.34 rad /  1854.51 uu/s
+t=   8.00s  frames= 120  ball mean/max= 4897.99/ 5583.16 uu  car mean pos/rot/vel= 7813.11 uu / 1.97 rad /  1423.04 uu/s
+t=   9.00s  frames= 120  ball mean/max= 3756.35/ 4277.88 uu  car mean pos/rot/vel= 7647.53 uu / 2.31 rad /  1201.30 uu/s
+t=  10.00s  frames= 120  ball mean/max= 2922.14/ 3285.62 uu  car mean pos/rot/vel= 6728.06 uu / 2.14 rad /  3137.57 uu/s
+t=  11.00s  frames= 120  ball mean/max= 2377.77/ 2602.75 uu  car mean pos/rot/vel= 6560.45 uu / 2.24 rad /  2719.04 uu/s
+t=  12.00s  frames= 120  ball mean/max= 2269.64/ 2713.51 uu  car mean pos/rot/vel= 7429.03 uu / 2.34 rad /  2006.91 uu/s
+t=  13.00s  frames= 120  ball mean/max= 3591.46/ 4448.78 uu  car mean pos/rot/vel= 8410.51 uu / 2.67 rad /  1849.93 uu/s
+t=  14.00s  frames= 120  ball mean/max= 4449.55/ 4477.16 uu  car mean pos/rot/vel= 8411.24 uu / 2.80 rad /  2031.26 uu/s
+t=  15.00s  frames= 120  ball mean/max= 4013.29/ 4309.90 uu  car mean pos/rot/vel= 7184.78 uu / 2.53 rad /  1827.48 uu/s
+t=  16.00s  frames= 120  ball mean/max= 3242.05/ 3693.23 uu  car mean pos/rot/vel= 5800.41 uu / 2.91 rad /  1646.69 uu/s
+t=  17.00s  frames= 120  ball mean/max= 2429.83/ 2773.42 uu  car mean pos/rot/vel= 4287.66 uu / 2.99 rad /  2181.36 uu/s
+t=  18.00s  frames= 120  ball mean/max= 2202.96/ 2244.60 uu  car mean pos/rot/vel= 3138.45 uu / 3.10 rad /  2051.70 uu/s
+t=  19.00s  frames= 120  ball mean/max= 2081.18/ 2158.41 uu  car mean pos/rot/vel= 2585.94 uu / 3.14 rad /   906.61 uu/s
+t=  20.00s  frames= 120  ball mean/max= 1940.91/ 1990.24 uu  car mean pos/rot/vel= 2994.16 uu / 3.14 rad /   632.83 uu/s
+t=  21.00s  frames= 120  ball mean/max= 1951.13/ 1971.75 uu  car mean pos/rot/vel= 3366.79 uu / 3.14 rad /   313.14 uu/s
+t=  22.00s  frames= 120  ball mean/max= 2020.38/ 2079.41 uu  car mean pos/rot/vel= 3493.50 uu / 3.14 rad /    35.56 uu/s
+t=  23.00s  frames=  58  ball mean/max= 2114.62/ 2151.14 uu  car mean pos/rot/vel= 3498.14 uu / 3.14 rad /     0.26 uu/s
+```
+
+23×120 + 58 = 2,818 frames total, matching `FR-077`'s own whole-run
+`frames compared: 2818` exactly; the largest single window max
+(`5673.98` uu at `t=7`) matches `FR-077`'s own whole-run `max ball
+distance: 5673.98 uu` exactly — the two code paths agree, as the
+single-window-reproduces-`score` unit test already guarantees
+structurally.
+
+**Interpretation: this is abrupt, not gradual.** Seconds 0–2 track the
+recording almost perfectly (ball mean `~0.04–0.05` uu; car position mean
+`~2.2–2.3` uu, rotation `~0.01` rad, velocity `<1` uu/s — a car sitting
+motionless at its kickoff spawn with all-zero input is a trivial case to
+match exactly). The car's own divergence starts climbing at `t=3`
+(`33.81` uu) and explodes by `t=4` (`1314.54` uu, `1.37` rad,
+`2886.90` uu/s) — a roughly 40x jump in one second — while the ball is
+*still* essentially untouched (`0.05` uu mean) the whole time. Only at
+`t=5` does the ball begin diverging too (`81.84`/`659.64` uu), peaking at
+`t=7` (`5673.98` uu max) once the now-badly-diverged car reaches the
+ball's vicinity and touches it differently than the recording did (or
+doesn't touch it at all). After that the two trajectories fluctuate in a
+persistently large but roughly bounded range (ball mean mostly
+`2000–4900` uu, car position mean `2600–8400` uu) rather than continuing
+to grow without bound — consistent with two now-chaotically-independent
+trajectories bouncing around the same bounded arena, not a runaway
+blowup. Rotation distance climbs to the hard cap `π` (`3.14` rad, see
+`Quat::angle_to`'s range) by `t=19` and stays saturated there — the
+candidate's orientation becomes fully decorrelated from the recording's.
+This is exactly the "abrupt: a specific early mechanic mismatch derailing
+the whole run" branch `RB-PHYSICS-001-FR-077`'s own Interpretation note
+and this spec's Open Questions both flagged as the alternative to
+gradual, evenly-distributed compounding error — and it's the one this
+real run actually shows.
+
+**What the recorded input was doing right then.** Reading `test2.jsonl`
+directly around the derailment: the car sits completely stationary at its
+kickoff spawn (all-zero input) until `t=3.433`, when throttle and then
+boost engage and it accelerates diagonally toward the ball — explaining
+why divergence is exactly zero before that instant (nothing to get wrong)
+and only starts growing once the car actually starts moving. At
+`t=4.133` the car (now moving at `~1130` uu/s) presses jump on the ground
+and holds it for roughly `0.33` s (a long hold, engaging this port's own
+variable-jump-height hold-acceleration, `RB-PHYSICS-001`'s `FR-015`).
+While still ascending, at `t=4.317` — about `0.18` s after releasing the
+first jump — a second jump press lands with `pitch=-1, roll=-1` held: a
+**diagonal dodge** (this port's `drive::apply_input`, edge-triggered on
+`input.jump && !jump_held`, correctly fires exactly once here, not
+repeatedly, despite the second press itself being held for a further
+`~0.14` s — ruling out a spurious repeated-trigger bug in this port's own
+edge detection). The car's divergence from the recording explodes in
+almost exactly this same window (`t=4`–`5`).
+**Leading hypothesis, not yet isolated or confirmed**: this port's own
+dodge implementation applies the flip's entire spin as a single
+instantaneous angular-velocity kick (`drive.rs`: "a single instantaneous
+spin kick, not a continuous torque"), while `RB-PHYSICS-001-FR-069`
+already found and documented, but explicitly left unimplemented, that
+real Rocket League's flip spin is a continuous per-tick torque applied
+over a fixed `0.65` s window shaped by the real car's own inertia tensor
+— a structurally different mechanism whose resulting orientation and
+angular velocity would plausibly diverge sharply from an instantaneous
+kick, especially compounded with `FR-078`'s own still-approximate
+hitbox/inertia and the other already-documented steering/handbrake gaps
+(`FR-065`/`FR-066`). This is a concrete, falsifiable next step for
+`RB-PHYSICS-001-FR-005` to start from — replaying just this one dodge in
+isolation from the same seed state and comparing this port's kick against
+a properly time-integrated torque model — rather than a proven root
+cause; no code has been changed based on this reading, and no other
+candidate mechanic in this same window (the boost-charged approach, the
+held first jump, or the ball touch itself) has been ruled out.
 
 ## Traceability
 
@@ -311,18 +410,23 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
   exit — a first real candidate-engine run now exists
   (`RB-PHYSICS-001-FR-077`: `frames compared: 2818, mean ball distance:
   2206.08 uu, ..., mean car position/rotation/velocity distance: 4508.71
-  uu / 2.12 rad / 1421.73 uu/s, ...` — see that spec's own Interpretation
-  note for the full numbers and reasoning), but it doesn't actually answer
-  this question yet: the divergence is consistent with total trajectory
-  decorrelation over the run's own ~23-second span, not a bounded gap a
-  threshold could meaningfully separate "good" from "bad" against. This
-  question stays open until the divergence-growth diagnostic now
-  implemented as `RB-VERIFY-003-FR-004` (see Requirements) is actually
-  run against that same real capture, giving a number this question can
-  actually be answered from. Applies to ball scoring, car scoring, and
-  the timestamp-alignment tolerance
-  (`rb_verify_cli::DEFAULT_MAX_TIMESTAMP_DELTA_SECS`) alike — all three
-  are currently reasoned defaults, not empirically tuned ones.
+  uu / 2.12 rad / 1421.73 uu/s, ...`), and `RB-VERIFY-003-FR-004`'s
+  divergence-growth diagnostic has now actually run against that same
+  capture (see Verification plan for the full per-window numbers and
+  Interpretation): the divergence is **abrupt**, not gradual — near-zero
+  for the run's first ~4 seconds, then a sharp derailment coinciding with
+  a diagonal dodge maneuver, after which the trajectories fluctuate in a
+  persistently large but roughly bounded range rather than growing
+  further. That's real evidence of the run's *shape*, but it still
+  doesn't by itself answer "what threshold": a single dodge maneuver is
+  one data point, not a distribution across many runs/maneuvers a
+  threshold could be calibrated against. This question stays open until
+  `RB-PHYSICS-001-FR-005` has fixed enough of what this one run surfaced
+  to produce a run whose divergence looks bounded rather than fully
+  decorrelated. Applies to ball scoring, car scoring, and the
+  timestamp-alignment tolerance (`rb_verify_cli::DEFAULT_MAX_TIMESTAMP_DELTA_SECS`)
+  alike — all three are currently reasoned defaults, not empirically
+  tuned ones.
 - Whether `max_timestamp_delta_secs` should ever become adaptive (e.g.
   derived from each sequence's own observed average tick interval) rather
   than a single caller-supplied constant — not needed yet since no real
@@ -330,6 +434,18 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.11.0 (2026-09-04): Ran `rb-verify --self-growth` for real against
+  `RB-PHYSICS-001-FR-077`'s own real capture (`test2.jsonl`). The
+  divergence is abrupt, not gradual: near-perfect for the run's first
+  ~4 seconds, then a sharp derailment coinciding with a diagonal dodge
+  maneuver (a held first jump followed by a second jump press with
+  `pitch=-1, roll=-1`), after which ball and car distances fluctuate in a
+  persistently large but roughly bounded range. Leading (not yet
+  isolated/confirmed) hypothesis: this port's instantaneous dodge-spin
+  kick vs. `RB-PHYSICS-001-FR-069`'s already-documented, unimplemented
+  continuous flip torque. See Verification plan for the full per-window
+  numbers and reasoning, and Open Questions for what this does and
+  doesn't resolve. No code change — a reading of real data, not a fix.
 - 0.10.0 (2026-09-04): `RB-VERIFY-003-FR-004` implemented — a new
   `rb_domain::divergence::score_windows` partitions the same
   nearest-timestamp-matched pairs `score` uses into consecutive

@@ -1944,10 +1944,18 @@
   existing `score_capture_against_candidate`/`--self` mode. 4 new
   `rb_domain::divergence` tests (14 total) and 3 new `rb_verify_cli`
   tests (9 total); full workspace `fmt`/`clippy`/`test` green (395
-  tests). Manually run once against the synthetic capture fixture,
-  confirming the CLI mode runs end-to-end — the real run this diagnostic
-  exists for, against `FR-077`'s own `test2.jsonl`, is still pending the
-  owner's own machine (see Next).
+  tests). Manually run once against the synthetic capture fixture, then
+  for real against `FR-077`'s own `test2.jsonl` (23 one-second windows) —
+  the divergence is **abrupt, not gradual**: near-perfect for the run's
+  first ~4 seconds, then a sharp derailment coinciding with a diagonal
+  dodge in the recorded input (a held first jump followed ~0.18s later by
+  a second jump press with `pitch=-1, roll=-1`), after which the
+  trajectories fluctuate in a persistently large but bounded range rather
+  than growing further. Leading, not-yet-isolated hypothesis: this port's
+  instantaneous dodge-spin kick vs. `FR-069`'s already-documented,
+  unimplemented continuous flip torque. See `RB-VERIFY-003`'s
+  Verification plan and `RB-PHYSICS-001-FR-005`'s own entry for the full
+  numbers and reasoning; `FR-005` itself still hasn't started (see Next).
 
 ## In progress
 
@@ -1981,17 +1989,17 @@
 1. (Optional, owner-side, non-blocking) The manual BakkesMod-overlay
    single-timestamp cross-checks for `RB-VERIFY-001`/`RB-VERIFY-002` (see
    Blocked).
-2. Running the now-implemented `RB-VERIFY-003-FR-004` divergence-growth
-   diagnostic (`rb-verify --self-growth`) against `FR-077`'s own real
-   capture (`test2.jsonl`) on the owner's machine — the run that would
-   actually show whether that run's divergence grew gradually (many
-   small modeling errors compounding, pointing at broad constant
-   calibration) or abruptly (one specific early mechanic mismatch
-   derailing the whole run, pointing at a targeted fix instead). Only
-   sanity-checked so far against the synthetic capture fixture (see
-   Validation); recommended before `RB-PHYSICS-001-FR-005` (real-data
-   constant calibration) starts, since blind curve-fitting against a
-   fully-decorrelated trajectory isn't sound.
+2. `RB-PHYSICS-001-FR-005` (real-data constant calibration) itself: the
+   divergence-growth diagnostic has now run for real (see Validation and
+   `RB-PHYSICS-001-FR-005`'s own spec entry) and found the divergence
+   abrupt — a sharp derailment around `t≈4-5s` coinciding with a diagonal
+   dodge — with a concrete, falsifiable leading hypothesis (this port's
+   instantaneous dodge-spin kick vs. `FR-069`'s already-documented,
+   unimplemented continuous flip torque). The natural next step is to
+   replay that exact dodge in isolation from the same seed state and
+   compare this port's kick against a properly time-integrated torque
+   model, rather than blind curve-fitting against a fully-decorrelated
+   whole run — not yet started.
 
 ## Validation
 
@@ -2030,9 +2038,21 @@
   11.78s frames= 5 ball mean/max= 0.75/ 2.17 uu car mean pos/rot/vel=
   58.75 uu / 0.05 rad / 600.40 uu/s` — a single window, since the
   fixture's own 5 frames all fall within one second; confirms the new
-  `--self-growth` CLI mode runs end-to-end. Not the diagnostic's real
-  purpose — running it against `FR-077`'s own real capture is still
-  pending the owner's own machine (see Next).
+  `--self-growth` CLI mode runs end-to-end.
+- `cargo run -p rb_verify_cli --bin rb-verify -- --self-growth
+  test2.jsonl` (manual, owner's machine, 2026-09-04, default
+  `window_secs = 1.0`, `RB-PHYSICS-001-FR-077`'s own real-capture run,
+  independently reproduced bit-for-bit in this sandbox against the same
+  capture file): 23 one-second windows, near-perfect for the first ~4
+  (`ball mean ~0.05` uu, `car pos mean ~2-34` uu) then a sharp derailment
+  at `t=4` (`car pos mean 1314.54` uu) peaking in ball divergence at `t=7`
+  (`max 5673.98` uu, matching `FR-077`'s own whole-run max exactly) before
+  fluctuating in a bounded range for the rest of the run — see
+  `RB-VERIFY-003`'s Verification plan for the full per-window numbers and
+  `RB-PHYSICS-001-FR-005`'s own entry for the abrupt-derailment
+  interpretation (a diagonal dodge in the recorded input, and the leading
+  hypothesis this port's instantaneous dodge kick vs. `FR-069`'s
+  documented-but-unimplemented continuous flip torque).
 
 ## Risks and decisions needed
 

@@ -6,6 +6,52 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The divergence is abrupt: a dodge derails the run at ~4 seconds
+**2026-09-04** · `RB-VERIFY-003-FR-004`, `RB-PHYSICS-001-FR-005`
+
+- Ran the divergence-growth diagnostic from the previous entry for real
+  against `RB-PHYSICS-001-FR-077`'s own real capture (`test2.jsonl`) —
+  independently reproduced bit-for-bit in this sandbox once the owner
+  shared the capture file:
+  ```
+  t=   0.00s  frames= 120  ball mean/max=    0.04/    0.06 uu  car mean pos/rot/vel=    2.23 uu / 0.01 rad /     0.96 uu/s
+  t=   3.00s  frames= 120  ball mean/max=    0.05/    0.05 uu  car mean pos/rot/vel=   33.81 uu / 0.06 rad /   164.41 uu/s
+  t=   4.00s  frames= 120  ball mean/max=    0.05/    0.05 uu  car mean pos/rot/vel= 1314.54 uu / 1.37 rad /  2886.90 uu/s
+  t=   5.00s  frames= 120  ball mean/max=   81.84/  659.64 uu  car mean pos/rot/vel= 4329.74 uu / 1.80 rad /  2796.35 uu/s
+  t=   7.00s  frames= 120  ball mean/max= 4554.02/ 5673.98 uu  car mean pos/rot/vel= 7026.50 uu / 2.34 rad /  1854.51 uu/s
+  ```
+  (full 23-window table in `RB-VERIFY-003`'s Verification plan). Total
+  frames (2,818) and the largest single-window max ball distance
+  (`5673.98` uu) match `FR-077`'s own whole-run numbers exactly.
+- **This answers the open gradual-vs-abrupt question: it's abrupt.** The
+  first ~4 seconds track the recording almost perfectly (the car sits
+  motionless at kickoff, trivial to match). Divergence then explodes
+  within about one second and the ball follows a second later, after
+  which both fluctuate in a persistently large but roughly bounded range
+  rather than continuing to grow — two now-chaotically-independent
+  trajectories in the same arena, not a runaway blowup.
+- **Read the recorded input directly at that exact moment.** The car
+  presses jump at `t=4.133` and holds it `~0.33`s, then — while still
+  ascending — presses jump again at `t=4.317` with `pitch=-1, roll=-1`
+  held: a diagonal dodge. This port's own dodge-trigger edge detection
+  fires exactly once here, correctly, ruling out a repeated-trigger bug.
+- **Leading hypothesis, not yet isolated or confirmed**: this port
+  applies a dodge's entire spin as one instantaneous angular-velocity
+  kick, while `RB-PHYSICS-001-FR-069` already found (but left
+  unimplemented) that real Rocket League's flip spin is a continuous
+  per-tick torque over a `0.65`s window shaped by the real inertia
+  tensor — a structurally different mechanism plausibly responsible for
+  exactly this kind of sharp departure.
+- This gives `RB-PHYSICS-001-FR-005` a concrete, falsifiable starting
+  point — replay this one dodge in isolation from the same seed state and
+  compare this port's kick against a properly time-integrated torque
+  model — rather than blind curve-fitting against a run that's a
+  near-exact match before the derailment and fully decorrelated after it
+  either way. `FR-005` itself hasn't started. No code changed; this is a
+  reading of real data recorded in `RB-VERIFY-003` and `RB-PHYSICS-001`.
+
+---
+
 ## Implemented the divergence-growth diagnostic
 **2026-09-04** · `RB-VERIFY-003-FR-004`
 

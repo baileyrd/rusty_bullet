@@ -83,10 +83,16 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   is now implemented as `RB-VERIFY-003-FR-004`: a windowed
   `rb_domain::divergence::score_windows` (sharing a `matched_pairs`/
   `score_pairs` pipeline with the existing `score`, so the two can't
-  drift apart) and a new `rb-verify --self-growth` CLI mode, sanity-checked
-  against the synthetic capture fixture. Running it against `FR-077`'s own
-  real capture — the run that would actually answer gradual-vs-abrupt —
-  is still pending the owner's own machine.
+  drift apart) and a new `rb-verify --self-growth` CLI mode. Run for real
+  against `FR-077`'s own `test2.jsonl`: the divergence is **abrupt**, not
+  gradual — near-perfect for ~4 seconds, then a sharp derailment
+  coinciding with a diagonal dodge in the recorded input, after which the
+  trajectories fluctuate in a bounded range rather than growing further.
+  Leading, not-yet-isolated hypothesis: this port's instantaneous
+  dodge-spin kick vs. `RB-PHYSICS-001-FR-069`'s already-documented,
+  unimplemented continuous flip torque — see `RB-VERIFY-003`'s
+  Verification plan and `RB-PHYSICS-001-FR-005`'s own entry for the full
+  reasoning.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation
