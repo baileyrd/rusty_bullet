@@ -2028,6 +2028,26 @@
   `integrate.rs` tests plus 1 combined `drive.rs` air-control test
   (replacing 3 old ones) added. Full workspace `fmt`/`clippy`/`test` green
   (397 tests). See `FR-079`'s own spec entry for the full writeup.
+- `RB-PHYSICS-001-FR-079`'s residual pre-dodge gap traced further: a
+  separate pitch/roll sign bug, found (not yet fixed). Isolating the exact
+  per-tick behavior during the fixture's own second pre-dodge sub-phase
+  (`pitch=-1, roll=-1` held, `t≈4.24`–`4.32`s) found the candidate's
+  angular-velocity change over a single tick to be almost exactly the
+  *negative* of the recorded car's own, at only `1.54°` orientation
+  distance — far too small a gap to explain a sign flip via accumulated
+  drift. Fetching RocketSim's real `Car.cpp`/`Car.h` directly confirmed
+  why: `_UpdateAirTorque` applies pitch and roll about `dirPitch_right =
+  -GetRightDir()` and `dirRoll_forward = -GetForwardDir()` — the
+  *negative* of the car's own right/forward axes (only yaw's `dirYaw_up`
+  is unnegated) — while this port's `drive.rs` applies both about the
+  *positive* `right_axis(car)`/`forward`. Yaw itself is unaffected in both
+  real and this port, consistent with Phase A of the same fixture already
+  tracking well after the inertia-cancellation fix. No production code
+  changed; the fix (negate `right_axis`/`forward` for pitch/roll only) is
+  scoped but not started, since it flips visible pitch/roll behavior for
+  every existing air-control test — the same threshold applied to the
+  inertia-cancellation fix itself. See `FR-079`'s own spec entry for the
+  full writeup.
 
 ## In progress
 
@@ -2064,16 +2084,17 @@
 2. `RB-PHYSICS-001-FR-005` (real-data constant calibration) itself: an
    isolated replay of the abrupt-derailment dodge (`FR-079`) confirmed the
    maneuver as the proximate cause; the pre-dodge orientation-rate
-   divergence it left open was traced to a specific mechanism (an
-   inertia-cancellation mismatch in how air control's own torque is
-   applied) and that fix is now implemented, measurably shrinking the
-   specific gap targeted (`~40%`) though not the isolated fixture's own
-   whole-trajectory score, since `RB-PHYSICS-001-FR-069`'s separate
-   post-dodge spin-rate mismatch still dominates it. The concrete next
-   steps, neither yet started: isolate the residual `~7°` pre-dodge gap's
-   own root cause, and decide whether to implement `FR-069`'s
-   continuous-torque flip model — see `FR-079`'s own spec entry for the
-   full evidence.
+   divergence it left open was traced to and fixed at its inertia-
+   cancellation mechanism, then the residual `~7°` gap that fix left was
+   traced further to a separate pitch/roll sign bug (real Rocket League
+   applies both about the *negative* of the car's own right/forward axes;
+   this port applies both about the positive axes) — found, not yet
+   fixed. The concrete next steps: decide whether to implement that sign
+   fix (small in code size, but flips visible pitch/roll behavior for
+   every existing air-control test) and whether to implement `FR-069`'s
+   continuous-torque flip model, the largest remaining piece of the
+   isolated dodge's own divergence — neither started; see `FR-079`'s own
+   spec entry for the full evidence.
 
 ## Validation
 

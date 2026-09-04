@@ -6,6 +6,57 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Isolated the residual gap: pitch and roll apply about the wrong sign of their own axis
+**2026-09-04** · `RB-PHYSICS-001-FR-079`
+
+- Picked up the concrete next step the previous entry left open —
+  isolating the residual `~7°` pre-dodge gap the inertia-cancellation fix
+  didn't close — and found a further, separate, well-confirmed bug.
+- Compared candidate vs. real angular velocity tick-by-tick during the
+  isolated fixture's own second pre-dodge sub-phase (`pitch=-1, roll=-1`
+  held, `t≈4.24`–`4.32`s, jump released). At `t=4.2417`, orientation
+  distance between real and candidate is only `1.54°` — far too small to
+  rotate a torque vector's world-frame direction by anywhere near `180°`.
+  Yet the very next tick's angular-velocity change is already almost
+  exactly the *negative* of the real one: real `(+0.056, +0.331)` vs.
+  candidate `(-0.047, -0.332)` — nearly equal magnitude, opposite sign,
+  on both axes simultaneously.
+- Re-deriving the candidate's own predicted acceleration from its own
+  formula reproduces its own (wrong-signed) output exactly — this port's
+  code faithfully executes its own formula; the bug is in the formula's
+  sign, not an implementation slip.
+- **Confirmed against RocketSim's real source directly, not just
+  inferred.** Fetching `Car.cpp`/`Car.h` shows `_UpdateAirTorque` doesn't
+  use the car's plain `GetRightDir()`/`GetForwardDir()` for pitch/roll at
+  all: `dirPitch_right = -GetRightDir()`, `dirRoll_forward =
+  -GetForwardDir()` — the *negative* of the car's own right/forward axes.
+  Only `dirYaw_up = GetUpDir()` is unnegated. This port's `drive.rs`
+  applies pitch and roll about the *positive* `right_axis(car)`/`forward`
+  — the same functions already correctly used, unnegated, for
+  throttle/steering, so this isn't a project-wide axis-convention
+  mismatch, only a pitch/roll-specific one. Negating the candidate's own
+  predicted acceleration (equivalent to RocketSim's own double negation)
+  gives `(+5.7, +39.9)` — matching the real `(+6.7, +39.7)` far more
+  closely than the unnegated version ever could.
+- Yaw was never affected by this bug in either real or this port,
+  consistent with the earlier finding that Phase A of the same fixture
+  (pure yaw input) already tracks real acceleration closely after the
+  inertia-cancellation fix.
+- Investigated via a temporary, never-committed example script (deleted
+  after use, per this project's own established convention for throwaway
+  per-frame investigation) plus a direct fetch of RocketSim's real source
+  — no production code changed.
+- What's still open: the fix itself (negate `right_axis`/`forward` for
+  pitch/roll specifically) is scoped but not started — small in code
+  size, but it flips visible pitch/roll behavior for every existing
+  air-control test, the same threshold applied to the inertia-
+  cancellation fix before it. Whether the dodge's own pitch/roll-direction
+  impulse computation shares this same sign issue hasn't been checked
+  either. See `RB-PHYSICS-001-FR-079`'s own spec entry for the full
+  writeup.
+
+---
+
 ## Implemented the fix: air control now applies real Rocket League's own numbers
 **2026-09-04** · `RB-PHYSICS-001-FR-079`
 

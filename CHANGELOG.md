@@ -127,7 +127,18 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   residual gap still gets amplified by the dodge's own orientation-
   relative impulse and `RB-PHYSICS-001-FR-069`'s separate, still-unfixed
   post-dodge spin-rate mismatch continues to dominate that aggregate
-  metric. All pre-existing `rb_physics_bullet` tests pass unchanged; see
+  metric. All pre-existing `rb_physics_bullet` tests pass unchanged. That
+  residual `~7°` gap has since been traced further: isolating per-tick
+  angular velocity during the fixture's own second pre-dodge sub-phase
+  found the candidate's change to be almost exactly the *negative* of the
+  recorded car's own, at only `1.54°` orientation distance — far too
+  small a gap to explain via accumulated drift. RocketSim's real
+  `Car.cpp`/`Car.h` confirm why: `_UpdateAirTorque` applies pitch and roll
+  about `dirPitch_right = -GetRightDir()`/`dirRoll_forward =
+  -GetForwardDir()` (the *negative* of the car's own axes; only yaw's
+  `dirYaw_up` is unnegated), while this port applies both about the
+  *positive* axes. Found, not yet fixed — the fix flips visible pitch/roll
+  behavior for every existing air-control test. See
   `RB-PHYSICS-001-FR-079`'s own entry for the full evidence chain.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
