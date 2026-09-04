@@ -49,6 +49,12 @@ pub fn integrate_velocities(body: &mut RigidBody, dt: f32) {
     let inv_mass = body.inv_mass();
     body.linear_velocity += body.total_force() * (inv_mass * dt);
     body.angular_velocity += body.inv_inertia_world().mul_vec3(&body.total_torque()) * dt;
+    // RB-PHYSICS-001-FR-079: a second, separate accumulator for inputs that
+    // are already a direct angular-acceleration rate (not divided by
+    // inertia) — see `RigidBody::total_angular_accel`'s own doc comment for
+    // why this has to be a distinct term rather than folded into the
+    // inertia-scaled one above.
+    body.angular_velocity += body.total_angular_acceleration() * dt;
 
     let angvel = body.angular_velocity.length();
     if angvel * dt > MAX_ANGVEL {
@@ -172,6 +178,30 @@ mod tests {
         integrate_velocities(&mut s, 0.5);
         // dv = F/m * dt = (0,0,-20)/2 * 0.5 = (0,0,-5)
         assert!((s.linear_velocity - Vec3::new(0.0, 0.0, -5.0)).length() < 1e-6);
+    }
+
+    #[test]
+    fn angular_acceleration_input_is_not_divided_by_inertia() {
+        // RB-PHYSICS-001-FR-079: unlike apply_torque, apply_angular_acceleration
+        // must feed angular_velocity directly (accel * dt), bypassing
+        // inv_inertia_world entirely — that's the whole point of the
+        // separate accumulator.
+        let mut s = RigidBody::sphere(1.0, 1_000.0, Vec3::ZERO);
+        s.apply_angular_acceleration(Vec3::new(0.0, 0.0, 4.0));
+        integrate_velocities(&mut s, 0.5);
+        assert!((s.angular_velocity - Vec3::new(0.0, 0.0, 2.0)).length() < 1e-6);
+    }
+
+    #[test]
+    fn angular_acceleration_and_torque_accumulators_are_independent() {
+        let mut s = RigidBody::sphere(1.0, 1.0, Vec3::ZERO);
+        s.apply_torque(Vec3::new(1.0, 0.0, 0.0));
+        s.apply_angular_acceleration(Vec3::new(0.0, 2.0, 0.0));
+        assert_eq!(s.total_torque(), Vec3::new(1.0, 0.0, 0.0));
+        assert_eq!(s.total_angular_acceleration(), Vec3::new(0.0, 2.0, 0.0));
+        s.clear_forces();
+        assert_eq!(s.total_torque(), Vec3::ZERO);
+        assert_eq!(s.total_angular_acceleration(), Vec3::ZERO);
     }
 
     #[test]

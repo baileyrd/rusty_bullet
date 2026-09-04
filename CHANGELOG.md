@@ -109,8 +109,26 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   rad/s² candidate yaw acceleration, vs. `≈9.12` rad/s² for the real car).
   A naive uniform `≈4.15x` rescale of the constant was tried and rejected
   — it helps yaw but hurts pitch/roll, confirming the mismatch is
-  architectural, not a scalar miscalibration. No production code changed;
-  see `RB-PHYSICS-001-FR-079`'s own entry for the full evidence chain.
+  architectural, not a scalar miscalibration. That architectural fix is
+  now implemented: `RigidBody` gained a second, inertia-independent
+  accumulator (`apply_angular_acceleration`/`total_angular_accel`,
+  integrated with no `inv_inertia_world` multiply), and `drive.rs`'s air
+  control now applies RocketSim's own real `CAR_AIR_CONTROL_TORQUE` values
+  directly (`AIR_CONTROL_PITCH_TORQUE`/`AIR_CONTROL_YAW_TORQUE`/
+  `AIR_CONTROL_ROLL_TORQUE` = 130/95/400) through it, scaled by a
+  newly-fetched real constant (`CAR_TORQUE_SCALE ≈ 0.095882`, RocketSim's
+  own `RLConst.h`) — replacing the old placeholder-plus-ratio scheme
+  through `apply_torque`. An independent check (real constants alone)
+  predicts `≈9.109` rad/s² for full yaw input, matching the recorded car's
+  own measured `≈9.12` rad/s² even more tightly. On the isolated fixture,
+  the specific pre-dodge orientation gap this investigation targeted
+  shrank `~40%` (`~12.5°`→`~7.4°`), though the fixture's own
+  whole-trajectory divergence stayed essentially flat — expected, since a
+  residual gap still gets amplified by the dodge's own orientation-
+  relative impulse and `RB-PHYSICS-001-FR-069`'s separate, still-unfixed
+  post-dodge spin-rate mismatch continues to dominate that aggregate
+  metric. All pre-existing `rb_physics_bullet` tests pass unchanged; see
+  `RB-PHYSICS-001-FR-079`'s own entry for the full evidence chain.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

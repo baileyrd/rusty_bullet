@@ -6,6 +6,60 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Implemented the fix: air control now applies real Rocket League's own numbers
+**2026-09-04** · `RB-PHYSICS-001-FR-079`
+
+- Implemented the architectural fix the previous entry identified but
+  didn't yet make: an inertia-independent torque-application path for
+  air control, matching what real Rocket League's own source actually
+  does.
+- `RigidBody` (`body.rs`) gained a second force accumulator,
+  `total_angular_accel`, fed by a new `apply_angular_acceleration`.
+  `integrate_velocities` (`integrate.rs`) folds it into `angular_velocity`
+  directly (`+= total_angular_accel * dt`) — no `inv_inertia_world`
+  multiply at all, exactly mirroring what real Rocket League's own
+  inertia pre-multiply/cancel achieves.
+- `drive.rs`'s three air-control constants were replaced with RocketSim's
+  own real, unscaled `CAR_AIR_CONTROL_TORQUE` values directly
+  (`AIR_CONTROL_PITCH_TORQUE = 130.0`, `AIR_CONTROL_YAW_TORQUE = 95.0`,
+  `AIR_CONTROL_ROLL_TORQUE = 400.0`), applied via
+  `apply_angular_acceleration` and scaled by a newly-fetched real
+  constant: RocketSim's own `RLConst.h` defines `CAR_TORQUE_SCALE = 2 *
+  M_PI / (1 << 16) * 1000 ≈ 0.095882`.
+- **A second, independent confirmation.** Computing the real car's own
+  expected acceleration purely from RocketSim's real constants — no
+  reference to this port's own model at all — predicts `95.0 *
+  0.095882 ≈ 9.109` rad/s² for full yaw input. The recorded car's own
+  independently-measured yaw acceleration from the same isolated-replay
+  window: `≈9.12` rad/s². This is a tighter match than the old model's own
+  internal self-consistency check ever managed, and it doesn't depend on
+  this port's own formulas at all.
+- **Real-data effect: measured, partial improvement.** Re-running the
+  divergence-growth diagnostic at `0.05`s windows against the isolated
+  `dodge-derailment.capture.jsonl` fixture shows the specific pre-dodge
+  orientation gap this whole investigation targeted shrink from `~0.22`
+  rad (`~12.5°`) to `~0.13` rad (`~7.4°`) at the same point — a real
+  ~40% reduction, measured directly. The fixture's own *whole-trajectory*
+  divergence didn't shrink to match (`cars.mean_position_distance` even
+  rose slightly, `≈2449`→`≈2792` uu) — not a sign the fix is wrong: a
+  residual gap still gets amplified by the dodge's own
+  orientation-relative impulse, and `RB-PHYSICS-001-FR-069`'s own
+  separate, still-unfixed instantaneous-kick-vs-continuous-torque
+  post-dodge spin-rate mismatch continues to dominate that aggregate
+  score regardless of how small the pre-dodge gap gets.
+- All 336 pre-existing `rb_physics_bullet` tests pass unchanged — they
+  assert qualitative behavior (direction, clamping), not the old model's
+  exact values, despite the underlying acceleration magnitudes changing
+  substantially (roughly 2-4x per axis). 2 new `integrate.rs` tests confirm
+  the new accumulator bypasses `inv_inertia_world`; the three old per-axis
+  air-control tests collapsed into 1 combined test against the new formula.
+- What's still open: the residual `~7°` pre-dodge gap's own root cause,
+  and `FR-069`'s continuous-torque flip model — both scoped as future
+  work, neither started. See `RB-PHYSICS-001-FR-079`'s own spec entry for
+  the full writeup.
+
+---
+
 ## Found the mechanism: real air control cancels its own inertia, this port doesn't
 **2026-09-04** · `RB-PHYSICS-001-FR-079`
 

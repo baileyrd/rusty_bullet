@@ -2001,6 +2001,33 @@
   not started, pending explicit go-ahead given its likely broad impact on
   existing air-control tests. See `FR-079`'s own spec entry for the full
   mechanism writeup.
+- `RB-PHYSICS-001-FR-079`'s inertia-cancellation fix, implemented.
+  `RigidBody` gained a second, inertia-independent accumulator
+  (`apply_angular_acceleration`/`total_angular_accel`, integrated with no
+  `inv_inertia_world` multiply at all — `body.rs`/`integrate.rs`), and
+  `drive.rs`'s air control now applies RocketSim's own real
+  `CAR_AIR_CONTROL_TORQUE` values directly
+  (`AIR_CONTROL_PITCH_TORQUE=130.0`/`AIR_CONTROL_YAW_TORQUE=95.0`/
+  `AIR_CONTROL_ROLL_TORQUE=400.0`) through it, scaled by a newly-fetched
+  real constant (`CAR_TORQUE_SCALE = 2π/65536*1000 ≈ 0.095882`, from
+  RocketSim's own `RLConst.h`) — replacing the old
+  placeholder-plus-ratio scheme through `apply_torque`. A second,
+  independent quantitative check (real constants alone, no reference to
+  this port's own model) predicts `≈9.109` rad/s² for full yaw input,
+  matching the recorded car's own measured `≈9.12` rad/s² even more
+  tightly than the pre-fix self-consistency check did. Real-data effect on
+  the isolated `dodge-derailment.capture.jsonl` fixture: the specific
+  pre-dodge orientation gap this investigation targeted shrank `~40%`
+  (`~12.5°`→`~7.4°`), while the fixture's own whole-trajectory divergence
+  stayed essentially flat — expected, not a regression, since a residual
+  gap still gets amplified by the dodge's own orientation-relative impulse
+  and `RB-PHYSICS-001-FR-069`'s separate, still-unfixed post-dodge
+  spin-rate mismatch continues to dominate that aggregate metric. All 336
+  pre-existing `rb_physics_bullet` tests pass unchanged (they assert
+  qualitative behavior, not the old model's exact values); 2 new
+  `integrate.rs` tests plus 1 combined `drive.rs` air-control test
+  (replacing 3 old ones) added. Full workspace `fmt`/`clippy`/`test` green
+  (397 tests). See `FR-079`'s own spec entry for the full writeup.
 
 ## In progress
 
@@ -2036,31 +2063,34 @@
    Blocked).
 2. `RB-PHYSICS-001-FR-005` (real-data constant calibration) itself: an
    isolated replay of the abrupt-derailment dodge (`FR-079`) confirmed the
-   maneuver as the proximate cause, and the pre-dodge orientation-rate
-   divergence it left open has now been traced to a specific mechanism —
-   this port's `apply_torque`/`integrate.rs` divide the borrowed
-   `AIR_CONTROL_TORQUE` constant by the car's own actual moment of
-   inertia, where real Rocket League's own source deliberately cancels
-   that division (see `FR-079`'s extended entry for the full mechanism and
-   the quantitative confirmation). A naive uniform rescale was tried and
-   rejected. The concrete next step is deciding whether to implement the
-   actual architectural fix — an inertia-independent torque-application
-   path for constants ported this way — which is expected to touch many
-   existing air-control tests; not yet started, awaiting explicit
-   go-ahead given that scope.
+   maneuver as the proximate cause; the pre-dodge orientation-rate
+   divergence it left open was traced to a specific mechanism (an
+   inertia-cancellation mismatch in how air control's own torque is
+   applied) and that fix is now implemented, measurably shrinking the
+   specific gap targeted (`~40%`) though not the isolated fixture's own
+   whole-trajectory score, since `RB-PHYSICS-001-FR-069`'s separate
+   post-dodge spin-rate mismatch still dominates it. The concrete next
+   steps, neither yet started: isolate the residual `~7°` pre-dodge gap's
+   own root cause, and decide whether to implement `FR-069`'s
+   continuous-torque flip model — see `FR-079`'s own spec entry for the
+   full evidence.
 
 ## Validation
 
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
-- `cargo test --workspace`: pass (396 tests: 27 in `rb_domain` (incl. 4
-  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 335 in
-  `rb_physics_bullet`, 14 in `rb_replay_ingest` (incl. real-fixture
-  integration test), 10 in `rb_capture_ingest` (incl. synthetic-fixture
-  test), 11 in `rb_verify_cli` (incl. `score_capture_against_candidate`'s
-  and `score_capture_growth`'s happy-path runs against the synthetic
-  capture fixture, and `RB-PHYSICS-001-FR-079`'s isolated-dodge-replay
-  regression baseline against the new real fixture), plus doc-tests)
+- `cargo test --workspace`: pass (397 tests: 27 in `rb_domain` (incl. 4
+  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 336 in
+  `rb_physics_bullet` (incl. 2 new `integrate.rs` tests confirming
+  `apply_angular_acceleration` bypasses `inv_inertia_world`, and 1
+  combined `drive.rs` air-control test replacing 3 old ones,
+  `RB-PHYSICS-001-FR-079`'s inertia-cancellation fix), 14 in
+  `rb_replay_ingest` (incl. real-fixture integration test), 10 in
+  `rb_capture_ingest` (incl. synthetic-fixture test), 10 in `rb_verify_cli`
+  (incl. `score_capture_against_candidate`'s and `score_capture_growth`'s
+  happy-path runs against the synthetic capture fixture, and
+  `RB-PHYSICS-001-FR-079`'s isolated-dodge-replay regression baseline
+  against the new real fixture), plus doc-tests)
 - `cargo run -p rb_replay_ingest --bin corpus_check` (local only, not CI):
   40/40 real owner replays parsed cleanly, 2026-08-28
 - `cargo run -p rb_verify_cli --bin rb-verify -- <replay> <capture>`
@@ -2119,6 +2149,20 @@
   `0.6`s period) consistent with a spin-rate mismatch matching `FR-069`'s
   own finding. See `RB-PHYSICS-001-FR-079`'s own spec entry for the full
   evidence chain.
+- `RB-PHYSICS-001-FR-079`'s inertia-cancellation fix, re-run against the
+  same fixture post-fix (2026-09-04, this sandbox): `cargo run -p
+  rb_verify_cli --bin rb-verify -- --self
+  crates/rb_capture_ingest/fixtures/dodge-derailment.capture.jsonl` now
+  gives `frames compared: 347, mean ball distance: 729.95 uu, max ball
+  distance: 3311.68 uu, car pairs compared: 347, mean car position/
+  rotation/velocity distance: 2792.31 uu / 1.63 rad / 2177.49 uu/s` — the
+  whole-trajectory numbers barely moved (as expected, see the entry
+  above). The comparable, targeted number is finer-grained: `--self-growth
+  ... 0.05` shows the last full pre-dodge window (`t=4.27s`, ending just
+  before the dodge fires at `t=4.317`) at `car mean rot = 0.13 rad`
+  (`~7.4°`), down from the pre-fix `~0.22 rad` (`~12.5°`) measured at the
+  same point — the ~40% reduction cited in `FR-079`'s own entry, measured
+  directly rather than asserted.
 
 ## Risks and decisions needed
 

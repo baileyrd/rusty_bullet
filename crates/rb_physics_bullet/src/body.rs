@@ -171,6 +171,19 @@ pub struct RigidBody {
 
     total_force: Vec3,
     total_torque: Vec3,
+    /// Accumulates inputs applied via `apply_angular_acceleration` — kept
+    /// separate from `total_torque` because it's integrated *without* the
+    /// inverse-inertia-tensor multiply `total_torque` gets (see
+    /// `integrate::integrate_velocities`). Exists for constants that are
+    /// already a direct angular-acceleration rate by construction (e.g.
+    /// air control), the same way real Rocket League's own `Car.cpp`
+    /// applies them — see `RB-PHYSICS-001-FR-079`'s spec entry for the full
+    /// finding (`_UpdateAirTorque` pre-multiplies by the actual, non-inverted
+    /// inertia tensor specifically to cancel Bullet's own inverse-inertia
+    /// integration step). Feeding such a constant through `apply_torque`
+    /// instead would silently divide it by this body's own moment of
+    /// inertia, a step real Rocket League's own code never applies.
+    total_angular_accel: Vec3,
 
     /// `RB-PHYSICS-001-FR-037` — set by `update_sleep_state` once this
     /// body's velocity has stayed below both sleep thresholds for
@@ -225,6 +238,7 @@ impl RigidBody {
             inv_inertia_world: Mat3::IDENTITY,
             total_force: Vec3::ZERO,
             total_torque: Vec3::ZERO,
+            total_angular_accel: Vec3::ZERO,
             is_sleeping: false,
             sleep_timer: 0.0,
         };
@@ -377,6 +391,14 @@ impl RigidBody {
         self.total_torque += torque;
     }
 
+    /// For a constant that is already a direct angular-acceleration rate by
+    /// construction (see `total_angular_accel`'s own doc comment) — a
+    /// genuine physical torque belongs in `apply_torque` instead, since only
+    /// that path gets divided by this body's own moment of inertia.
+    pub fn apply_angular_acceleration(&mut self, accel: Vec3) {
+        self.total_angular_accel += accel;
+    }
+
     pub fn apply_impulse(&mut self, impulse: Vec3, rel_pos: Vec3) {
         self.linear_velocity += impulse * self.inv_mass;
         self.angular_velocity += self.inv_inertia_world.mul_vec3(&rel_pos.cross(&impulse));
@@ -385,6 +407,7 @@ impl RigidBody {
     pub fn clear_forces(&mut self) {
         self.total_force = Vec3::ZERO;
         self.total_torque = Vec3::ZERO;
+        self.total_angular_accel = Vec3::ZERO;
     }
 
     pub fn total_force(&self) -> Vec3 {
@@ -393,6 +416,10 @@ impl RigidBody {
 
     pub fn total_torque(&self) -> Vec3 {
         self.total_torque
+    }
+
+    pub fn total_angular_acceleration(&self) -> Vec3 {
+        self.total_angular_accel
     }
 
     /// `RB-PHYSICS-001-FR-037` — call once per step, after this body's
