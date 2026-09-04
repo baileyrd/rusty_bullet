@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.83.0
+- Version: 0.84.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -605,13 +605,18 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   left unimplemented) that real Rocket League's flip spin is a continuous
   per-tick torque over a `0.65`s window — a structurally different
   mechanism whose result would plausibly diverge sharply from an
-  instantaneous kick. This requirement still hasn't started, but now has
-  a concrete, falsifiable starting point: replay this same dodge in
-  isolation from the same seed state and compare this port's kick against
-  a properly time-integrated torque model, rather than blindly curve-
-  fitting constants against what is (before the derailment) already a
-  near-exact match and (after it) a fully decorrelated trajectory either
-  way.
+  instantaneous kick. `FR-079` then actually carried out that isolated
+  replay: it confirms the maneuver as the proximate cause (divergence
+  reproduces standalone with no earlier-drift head start) but refines the
+  hypothesis into two parts — an orientation-rate divergence that begins
+  smoothly *during the grounded jump hold, before the dodge itself fires*
+  (reaching `~12.5°` by the time the dodge triggers), which the dodge's
+  own orientation-relative impulse then amplifies into a dramatically
+  different translation kick, plus a likely-separate post-dodge spin-rate
+  mismatch consistent with `FR-069`'s own finding. This requirement still
+  hasn't started; the concrete next step is now isolating the pre-dodge
+  orientation-rate divergence's own root cause (see `FR-079`'s own entry
+  for the full evidence), not yet the dodge's spin model in isolation.
 - `RB-PHYSICS-001-FR-006` (car-vs-car collision, implemented): A general
   separating-axis test between two oriented boxes (`collision::box_vs_box`),
   producing either a clipped face manifold (0-4 points) or a single
@@ -5209,6 +5214,93 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     18.0"` across `crates/rb_physics_bullet/src/*.rs`, run after the
     change, confirmed only the four intentional/historical references
     remain (the negative-comparison test and three doc comments).
+- `RB-PHYSICS-001-FR-079` (isolated dodge-derailment investigation,
+  findings recorded, no fix yet): the concrete next step
+  `RB-VERIFY-003-FR-004`'s real run called for — replaying `FR-077`'s own
+  real capture's abrupt-derailment dodge in isolation from the same seed
+  state — was carried out, and it both confirms the maneuver as the
+  proximate cause and refines *why* into a more precise, multi-part
+  picture than the original single-hypothesis framing.
+  - **Isolated-replay confirmation.** A new real fixture,
+    `crates/rb_capture_ingest/fixtures/dodge-derailment.capture.jsonl`
+    (347 frames, `t=4.117`–`7.0` s excerpted directly from `FR-077`'s own
+    `test2.jsonl`), starts at the last grounded, neutral instant before
+    the recorded jump — `rb_verify_cli`'s existing `is_grounded_and_neutral`
+    heuristic selects it as frame 0 with no new code needed.
+    `score_capture_against_candidate` against this fixture alone (no
+    ~4-second head start of otherwise-correct simulation) still produces
+    a large divergence (`mean_ball_distance ≈ 730` uu, `cars.mean_position_distance
+    ≈ 2449` uu over the isolated 347 frames) — confirming the derailment
+    is not an artifact of compounded earlier drift; the maneuver itself
+    reproduces it standalone. Encoded as a permanent regression baseline:
+    `rb_verify_cli::tests::isolated_replay_of_the_real_dodge_still_diverges_sharply`.
+  - **Finer-grained reading refines the picture beyond "the dodge alone."**
+    Stepping `score_capture_growth` down to `0.05`s windows (and, deeper
+    still, comparing per-frame `Quat::angle_to` distance directly against
+    `simulate_recorded`'s own output) shows the car's *orientation* begins
+    drifting smoothly — not abruptly — starting from the ground jump
+    itself (`t≈4.13`), reaching `~0.22` rad (`~12.5°`) by the moment the
+    second jump press fires the dodge at `t=4.317`, while linear velocity
+    still tracks closely (within `~80` uu/s) up to that same instant. The
+    dodge itself then does two separate, simultaneous things:
+    1. **Translation.** At the exact dodge frame, the recorded car's
+       velocity gains mostly a `+X` component (`389→1009` uu on X, `1138→
+       1112` uu on Y — a modest Y change); the candidate's velocity
+       instead gains mostly a large *negative* `Y` component (`308→646`
+       on X, `1134→−1077` uu on Y — Y flips sign entirely). Since this
+       port's dodge impulse (`drive.rs`) is computed relative to the
+       car's *own current* `forward`/`right_axis` — themselves a function
+       of its current orientation — the pre-existing `~12.5°` orientation
+       gap from the jump-hold window is enough to rotate an otherwise
+       correctly-shaped impulse into a qualitatively different world
+       direction. The translation mismatch is a **consequence** of the
+       earlier orientation drift, not an independent bug in the dodge
+       impulse formula itself.
+    2. **Rotation.** After the dodge, `Quat::angle_to` distance shows a
+       periodic beat pattern — rising toward the `π` cap, falling back
+       toward `~0.5` rad, rising again, with a period of roughly
+       `0.5`–`0.6` s — the signature of two bodies spinning at different,
+       nearly-constant rates drifting in and out of phase, not a one-time
+       offset. This is consistent with (though not yet isolated as fully
+       explaining) `FR-069`'s already-documented instantaneous-kick-vs-
+       continuous-torque architecture gap: a fixed-rate `5.5` rad/s kick
+       applied all at once versus real Rocket League's `FLIP_TORQUE_X =
+       260`/`FLIP_TORQUE_Y = 224` continuous torque integrated over a
+       `0.65`s window would plausibly produce different net spin *rates*,
+       not just different total displacement.
+  - **What this changes about `FR-005`'s own starting point.** The
+    original hypothesis (this port's instantaneous dodge-spin kick as
+    *the* cause) was too narrow: the evidence points to an earlier,
+    smaller, and currently unexplained orientation-rate divergence during
+    the initial grounded-jump-hold-plus-sustained-air-control window
+    (`t≈4.13`–`4.32`, well before the dodge itself fires) as the true
+    first departure, which the dodge's own orientation-relative impulse
+    then amplifies into a dramatically different-looking outcome — on top
+    of a likely-separate post-dodge spin-rate mismatch matching `FR-069`.
+    Both need their own dedicated investigation before a fix is
+    attempted; neither has been isolated further than described above.
+  - **Non-goals (this requirement).** Does not implement `FR-069`'s
+    continuous-torque flip model, or investigate the pre-dodge
+    orientation-rate gap down to its own root cause — both are
+    substantial, separate pieces of work this finding only motivates and
+    scopes. Does not change any production code, constant, or mechanic —
+    `drive.rs` is unmodified. Does not claim the translation/rotation
+    split above is the *complete* explanation; only what a single real
+    maneuver's own recorded data directly shows.
+  - **Acceptance criteria.** The new fixture's own first frame is
+    grounded/neutral by construction (verified: `is_grounded_and_neutral`
+    accepts it without special-casing); `score_capture_against_candidate`
+    against it produces `frames_compared == 347` and
+    `cars.pairs_compared == 347` (every frame matched, confirming the
+    fixture's own internal timestamp continuity); the isolated divergence
+    is large enough (`cars.mean_position_distance > 1000` uu,
+    `mean_ball_distance > 100` uu) to be unambiguous, not marginal.
+  - **Verification plan.** 1 new `rb_verify_cli` test (11 total) against
+    the new fixture, asserting the frame/pair counts and the loose
+    known-bad divergence bounds above (documenting the current state, not
+    defending it). No `rb_physics_bullet` production code touched, so no
+    new tests there. Full workspace `fmt`/`clippy`/`test` green (396
+    tests).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -6695,6 +6787,18 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.84.0 (2026-09-04): `RB-PHYSICS-001-FR-079` implemented — an isolated
+  replay of `FR-077`'s own abrupt-derailment dodge, seeded fresh from the
+  exact real state right before it (a new 347-frame real fixture,
+  `dodge-derailment.capture.jsonl`), confirming the maneuver as the
+  proximate cause and refining the leading hypothesis: an orientation-rate
+  divergence begins smoothly during the grounded jump hold, *before* the
+  dodge fires, which the dodge's own orientation-relative impulse then
+  amplifies into a dramatically different translation kick, on top of a
+  likely-separate post-dodge spin-rate mismatch matching `FR-069`. 1 new
+  `rb_verify_cli` test (11 total; 396 workspace-wide). No production code
+  changed — `FR-005` itself still hasn't started; see `FR-079`'s own
+  entry for the full evidence chain.
 - 0.83.0 (2026-09-04): `RB-VERIFY-003-FR-004`'s diagnostic actually ran
   against `FR-077`'s own real capture — the divergence is abrupt, not
   gradual: near-perfect for ~4 seconds, then a sharp derailment

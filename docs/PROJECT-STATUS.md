@@ -1956,6 +1956,25 @@
   unimplemented continuous flip torque. See `RB-VERIFY-003`'s
   Verification plan and `RB-PHYSICS-001-FR-005`'s own entry for the full
   numbers and reasoning; `FR-005` itself still hasn't started (see Next).
+- `RB-PHYSICS-001-FR-079` (isolated dodge-derailment investigation,
+  findings recorded, no fix yet): replayed `FR-077`'s own abrupt-
+  derailment dodge in isolation, seeded fresh from the real recorded state
+  right before it (a new 347-frame real fixture,
+  `dodge-derailment.capture.jsonl`, excerpted from `test2.jsonl`) —
+  confirming the maneuver as the proximate cause (divergence reproduces
+  standalone, ruling out compounded earlier drift) and refining the
+  hypothesis: an orientation-rate divergence begins smoothly *during the
+  grounded jump hold*, before the dodge itself fires (reaching `~12.5°`
+  by the time it triggers), which the dodge's own orientation-relative
+  impulse then amplifies into a translation kick pointing in a completely
+  different world direction than the recording's, on top of a
+  likely-separate post-dodge spin-rate mismatch (a periodic beat pattern
+  in rotation distance) consistent with `FR-069`'s own finding. 1 new
+  `rb_verify_cli` test (11 total) documents the isolated-replay divergence
+  as a regression baseline; full workspace `fmt`/`clippy`/`test` green
+  (396 tests). No production code changed; `FR-005` still hasn't started
+  — see that entry's own updated text and `FR-079`'s own spec entry for
+  the full evidence chain.
 
 ## In progress
 
@@ -1989,29 +2008,31 @@
 1. (Optional, owner-side, non-blocking) The manual BakkesMod-overlay
    single-timestamp cross-checks for `RB-VERIFY-001`/`RB-VERIFY-002` (see
    Blocked).
-2. `RB-PHYSICS-001-FR-005` (real-data constant calibration) itself: the
-   divergence-growth diagnostic has now run for real (see Validation and
-   `RB-PHYSICS-001-FR-005`'s own spec entry) and found the divergence
-   abrupt — a sharp derailment around `t≈4-5s` coinciding with a diagonal
-   dodge — with a concrete, falsifiable leading hypothesis (this port's
-   instantaneous dodge-spin kick vs. `FR-069`'s already-documented,
-   unimplemented continuous flip torque). The natural next step is to
-   replay that exact dodge in isolation from the same seed state and
-   compare this port's kick against a properly time-integrated torque
-   model, rather than blind curve-fitting against a fully-decorrelated
-   whole run — not yet started.
+2. `RB-PHYSICS-001-FR-005` (real-data constant calibration) itself: an
+   isolated replay of the abrupt-derailment dodge (`FR-079`) confirmed the
+   maneuver as the proximate cause and refined the picture — an
+   orientation-rate divergence during the grounded jump hold, *before*
+   the dodge fires, amplified by the dodge's own orientation-relative
+   impulse into a translation kick pointing in a very different world
+   direction than the recording, plus a likely-separate post-dodge
+   spin-rate mismatch consistent with `FR-069`'s own finding. The
+   concrete next step is now isolating the pre-dodge orientation-rate
+   divergence's own root cause (during sustained air-control input while
+   the ground jump is held) — not yet started; see `FR-079`'s own spec
+   entry for the full evidence.
 
 ## Validation
 
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
-- `cargo test --workspace`: pass (395 tests: 27 in `rb_domain` (incl. 4
+- `cargo test --workspace`: pass (396 tests: 27 in `rb_domain` (incl. 4
   new `score_windows` tests, `RB-VERIFY-003-FR-004`), 335 in
   `rb_physics_bullet`, 14 in `rb_replay_ingest` (incl. real-fixture
   integration test), 10 in `rb_capture_ingest` (incl. synthetic-fixture
-  test), 9 in `rb_verify_cli` (incl. `score_capture_against_candidate`'s
+  test), 11 in `rb_verify_cli` (incl. `score_capture_against_candidate`'s
   and `score_capture_growth`'s happy-path runs against the synthetic
-  capture fixture), plus doc-tests)
+  capture fixture, and `RB-PHYSICS-001-FR-079`'s isolated-dodge-replay
+  regression baseline against the new real fixture), plus doc-tests)
 - `cargo run -p rb_replay_ingest --bin corpus_check` (local only, not CI):
   40/40 real owner replays parsed cleanly, 2026-08-28
 - `cargo run -p rb_verify_cli --bin rb-verify -- <replay> <capture>`
@@ -2053,6 +2074,23 @@
   interpretation (a diagonal dodge in the recorded input, and the leading
   hypothesis this port's instantaneous dodge kick vs. `FR-069`'s
   documented-but-unimplemented continuous flip torque).
+- `RB-PHYSICS-001-FR-079`'s isolated dodge-derailment investigation
+  (2026-09-04, this sandbox, against the new real fixture): seeding fresh
+  at the last grounded/neutral instant before the maneuver
+  (`t=4.117s`) and simulating only the 347-frame excerpt reproduces the
+  same large divergence standalone (`mean_ball_distance ≈ 730` uu,
+  `cars.mean_position_distance ≈ 2449` uu), ruling out compounded earlier
+  drift. Finer-grained (`0.05`s window, then per-frame) reading shows
+  orientation distance climbing smoothly to `~0.22` rad (`~12.5°`) by the
+  moment the dodge fires, and the dodge's own velocity change pointing in
+  a qualitatively different world direction for the candidate (`ΔY ≈
+  -2211` uu/s) than the recording (`ΔX ≈ +619` uu/s, `ΔY` small) —
+  consistent with the dodge impulse being computed correctly relative to
+  the car's own (already-diverged) orientation. Post-dodge rotation
+  distance then shows a periodic beat pattern (`~0.5`–`3.1` rad, `~0.5`–
+  `0.6`s period) consistent with a spin-rate mismatch matching `FR-069`'s
+  own finding. See `RB-PHYSICS-001-FR-079`'s own spec entry for the full
+  evidence chain.
 
 ## Risks and decisions needed
 

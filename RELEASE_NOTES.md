@@ -6,6 +6,48 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Isolated the dodge: it's the maneuver, and it's more than one thing
+**2026-09-04** · `RB-PHYSICS-001-FR-079`
+
+- Carried out the concrete next step the previous entry called for:
+  replaying the real capture's abrupt-derailment dodge in isolation, from
+  the exact recorded state right before it, instead of the whole run's
+  own much-earlier kickoff seed.
+- Built a new 347-frame real fixture,
+  `crates/rb_capture_ingest/fixtures/dodge-derailment.capture.jsonl`
+  (excerpted directly from the same real capture, `t=4.117s`–`7.0s`),
+  starting at the last grounded, neutral instant before the recorded
+  jump — the existing seed-frame heuristic picks it up as-is, no new
+  production code needed. Seeding fresh here removes the whole run's own
+  ~4 seconds of otherwise near-perfectly-tracked prior simulation.
+- **Confirmed: the maneuver itself is the cause, not compounded drift.**
+  The isolated replay still diverges sharply on its own (mean car
+  position distance `~2449` uu over the isolated 347 frames) — recorded
+  as a permanent regression baseline test,
+  `rb_verify_cli::tests::isolated_replay_of_the_real_dodge_still_diverges_sharply`.
+- **Refined the hypothesis into two parts, from reading per-frame data
+  directly.** Orientation distance grows *smoothly*, starting from the
+  ground jump itself and *before* the dodge fires — reaching `~12.5°` by
+  the moment the second jump press triggers it. Since this port's dodge
+  impulse is computed relative to the car's own current orientation, that
+  modest pre-existing gap is enough to rotate the impulse into a
+  completely different world direction: the real car's velocity gains
+  mostly `+X`; the candidate's gains mostly a large *negative* `Y`
+  instead. After the dodge, rotation distance shows a periodic beat
+  pattern (rising toward `π`, falling to `~0.5` rad, and back, roughly
+  every half-second) — the signature of a spin-*rate* mismatch, distinct
+  from the translation issue and consistent with `RB-PHYSICS-001-FR-069`'s
+  already-documented, unimplemented continuous flip torque.
+- This means the original single hypothesis (the dodge's spin kick alone)
+  was too narrow. The real first departure is an as-yet-unexplained
+  orientation-rate divergence during the grounded jump hold's sustained
+  air-control input, *before* the dodge — that's the next thing to
+  isolate, not the dodge's spin model on its own. No production code
+  changed; `RB-PHYSICS-001-FR-005` still hasn't started. See
+  `RB-PHYSICS-001-FR-079`'s own spec entry for the full evidence chain.
+
+---
+
 ## The divergence is abrupt: a dodge derails the run at ~4 seconds
 **2026-09-04** · `RB-VERIFY-003-FR-004`, `RB-PHYSICS-001-FR-005`
 

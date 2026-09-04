@@ -198,6 +198,13 @@ mod tests {
         )
     }
 
+    fn dodge_derailment_fixture() -> &'static str {
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../rb_capture_ingest/fixtures/dodge-derailment.capture.jsonl"
+        )
+    }
+
     #[test]
     fn scores_a_real_replay_against_the_synthetic_capture_fixture() {
         let score = score_replay_against_capture(
@@ -300,5 +307,41 @@ mod tests {
 
         std::fs::remove_file(&path).ok();
         assert!(matches!(result, Err(IngestError::Malformed(_))));
+    }
+
+    /// `RB-PHYSICS-001-FR-079`'s isolated-replay investigation: this
+    /// fixture is a 347-frame excerpt of `RB-PHYSICS-001-FR-077`'s own
+    /// real capture, starting at the exact grounded, neutral instant
+    /// (`t=4.117s`) right before the recorded input performs the ground
+    /// jump and diagonal dodge that `RB-VERIFY-003-FR-004`'s
+    /// divergence-growth diagnostic identified as the whole run's abrupt
+    /// derailment point. Seeding fresh here — instead of at the whole
+    /// run's own much-earlier kickoff seed frame — removes ~4 seconds of
+    /// otherwise near-perfectly-tracked simulation, isolating whether the
+    /// jump/dodge maneuver itself (not compounded earlier drift) is
+    /// responsible. It is: divergence still explodes immediately, at
+    /// almost the same magnitude as the full run's own window, confirming
+    /// the maneuver itself as the proximate cause (see
+    /// `RB-PHYSICS-001-FR-079`'s own spec entry for the full evidence
+    /// chain, including the pre-dodge orientation drift and the resulting
+    /// dodge-impulse direction mismatch). These are the current, known-bad
+    /// numbers — a documented baseline this test's own bounds should
+    /// tighten once a fix lands, not a target to defend.
+    #[test]
+    fn isolated_replay_of_the_real_dodge_still_diverges_sharply() {
+        let score = score_capture_against_candidate(
+            dodge_derailment_fixture(),
+            DEFAULT_MAX_TIMESTAMP_DELTA_SECS,
+        )
+        .unwrap();
+
+        assert_eq!(score.frames_compared, 347);
+        assert_eq!(score.cars.pairs_compared, 347);
+        // Known-bad baseline (2026-09-04): mean car position distance
+        // ~2449 uu, mean ball distance ~730 uu. Bounded loosely below to
+        // catch a regression that makes this worse, not to pin the exact
+        // figure.
+        assert!(score.cars.mean_position_distance > 1000.0);
+        assert!(score.mean_ball_distance > 100.0);
     }
 }

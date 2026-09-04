@@ -88,11 +88,17 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   gradual — near-perfect for ~4 seconds, then a sharp derailment
   coinciding with a diagonal dodge in the recorded input, after which the
   trajectories fluctuate in a bounded range rather than growing further.
-  Leading, not-yet-isolated hypothesis: this port's instantaneous
-  dodge-spin kick vs. `RB-PHYSICS-001-FR-069`'s already-documented,
-  unimplemented continuous flip torque — see `RB-VERIFY-003`'s
-  Verification plan and `RB-PHYSICS-001-FR-005`'s own entry for the full
-  reasoning.
+  `RB-PHYSICS-001-FR-079` then replayed that exact dodge in isolation,
+  seeded fresh from the real recorded state right before it (a new real
+  fixture, `dodge-derailment.capture.jsonl`) — confirming the maneuver as
+  the proximate cause and refining the hypothesis: an orientation-rate
+  divergence begins smoothly during the grounded jump hold, *before* the
+  dodge fires, which the dodge's own orientation-relative impulse then
+  amplifies into a translation kick pointing in a different world
+  direction than the recording's, on top of a likely-separate post-dodge
+  spin-rate mismatch matching `RB-PHYSICS-001-FR-069`'s already-
+  documented, unimplemented continuous flip torque — see
+  `RB-PHYSICS-001-FR-079`'s own entry for the full evidence chain.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

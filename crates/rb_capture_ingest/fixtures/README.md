@@ -35,3 +35,19 @@ change history).
   correct against the format's own schema — it says nothing about whether
   that schema matches what a real BakkesMod plugin would actually produce,
   since none has been written yet.
+
+## `dodge-derailment.capture.jsonl`
+
+A **real, 347-frame excerpt** of the owner's own real BakkesMod capture
+from `RB-VERIFY-002-FR-001` (the same file `RB-PHYSICS-001-FR-077`'s own
+real-capture run used, elsewhere referred to as `test2.jsonl`) — frames
+`t=4.117s` through `t=7.0s`, covering the exact ground jump and diagonal
+dodge `RB-PHYSICS-001-FR-079`'s investigation identified as the whole
+run's abrupt-derailment trigger. The first frame is deliberately the last
+grounded, neutral instant before the jump begins, so `rb_verify_cli`'s own
+`is_grounded_and_neutral` seed-frame heuristic selects it immediately —
+seeding a candidate simulation here isolates this one maneuver from the
+whole run's own ~4 seconds of otherwise near-perfectly-tracked prior
+simulation. See `RB-PHYSICS-001-FR-079`'s spec entry for the full
+evidence chain this fixture backs, and `rb_verify_cli::tests::isolated_replay_of_the_real_dodge_still_diverges_sharply`
+for the regression test built on it.
