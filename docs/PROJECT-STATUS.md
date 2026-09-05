@@ -2122,6 +2122,33 @@
   new test (`rb_physics_bullet` 336 → 337); `rb_verify_cli`'s ratchet
   tightened to `< 600` uu. Full workspace `fmt`/`clippy`/`test` green (398
   tests).
+- `RB-PHYSICS-001-FR-080` step (b), implemented: the real continuous flip
+  replaces the instantaneous `DODGE_ANGULAR_SPEED` kick. A per-car
+  `drive::DodgeFlip { rel_torque, elapsed }` (replacing the
+  `dodge_flip_active` flag through `apply_driven_forces` and
+  `PhysicsWorld`) drives, every airborne step for `FLIP_TORQUE_TIME =
+  0.65` s, the real `FLIP_TORQUE_X = 260`/`FLIP_TORQUE_Y = 224` torque —
+  inertia-cancelled, per-tick (`/ tickTimeScale`), without
+  `CAR_TORQUE_SCALE`, so `clamp_angular_speed` pins the car at
+  `MAX_CAR_ANGULAR_SPEED` from the third tick and holds it — with stick
+  air control and the landing assist locked out meanwhile, pitch for
+  `FLIP_PITCHLOCK_EXTRA_TIME = 0.3` s more, and `FLIP_Z_DAMP_120 = 0.35`
+  bleeding vertical speed per tick from `0.15` s to the window's end
+  (settling at exactly the fixture's `-15.5` uu/s under gravity). Landing
+  clears the state; `FR-016`'s jump-press cancel stays as the interim,
+  now ending the real flip too (and retracting the same step's already
+  accumulated flip torque — a bug the rewritten cancel tests caught).
+  Measured alone on the isolated fixture: `cars.mean_position_distance`
+  `≈573` → `≈259` uu (`-55%`), max `≈2005` → `≈528` uu, mean velocity
+  `≈744` → `≈377` uu/s; ball unchanged. What remains has a shape now: the
+  rotation gap grows inside the flip window while both `|ω|` traces are
+  pinned at `5.5` — an *axis* mismatch, which the fixture's pitch stick
+  held in the flip's own sign would produce through the real flip cancel's
+  `pitchScale = 1 - |pitch|` — so step (c) is the next measurement, with
+  `FR-071`'s damping behind it for the post-window velocity growth. 12
+  tests rewritten, 9 new (`rb_physics_bullet` 337 → 345);
+  `rb_verify_cli`'s ratchet tightened to `< 300` uu. Full workspace
+  `fmt`/`clippy`/`test` green (406 tests).
 
 ## In progress
 
@@ -2167,32 +2194,37 @@
    `RB-PHYSICS-001-FR-080` (real continuous flip torque, replacing this
    port's instantaneous `DODGE_ANGULAR_SPEED` kick and its `DODGE_SPEED`
    placeholder): a settled design, blast radius, and three-step
-   sequencing are in that entry. Step (a) (`DODGE_SPEED → 500`) is done
-   and measured (`-39%` on the fixture's car divergence); steps (b) (flip
-   state, cap-and-hold torque, z-damping, pitch lock, air-control lockout)
-   and (c) (the real pitch-hold flip cancel replacing `FR-016`'s) are not
-   started. `FR-071`'s air-control damping is next in line after those
-   (the post-window decay the fixture shows). See `FR-080`'s own spec
-   entry.
+   sequencing are in that entry. Step (a) (`DODGE_SPEED → 500`, `-39%` on
+   the fixture's car divergence) and step (b) (the real flip state,
+   cap-and-hold torque, z-damping, pitch lock, and air-control lockout,
+   a further `-55%`, to `≈259` uu) are done and measured; step (c) (the
+   real pitch-hold flip cancel replacing `FR-016`'s) is not started, and
+   the fixture's remaining in-window rotation gap at a pinned `|ω|` is
+   exactly the axis mismatch a held pitch would produce through it.
+   `FR-071`'s air-control damping is next in line after that (the
+   post-window velocity growth the fixture shows). See `FR-080`'s own
+   spec entry.
 
 ## Validation
 
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
-- `cargo test --workspace`: pass (398 tests: 27 in `rb_domain` (incl. 4
-  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 337 in
+- `cargo test --workspace`: pass (406 tests: 27 in `rb_domain` (incl. 4
+  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 345 in
   `rb_physics_bullet` (incl. 2 new `integrate.rs` tests confirming
   `apply_angular_acceleration` bypasses `inv_inertia_world`, 1 combined
   `drive.rs` air-control test replacing 3 old ones,
-  `RB-PHYSICS-001-FR-079`'s inertia-cancellation fix, and 1 new
+  `RB-PHYSICS-001-FR-079`'s inertia-cancellation fix, 1 new
   standstill-backward-dodge test for `RB-PHYSICS-001-FR-080` step (a)'s
-  `16/15` factor), 14 in
+  `16/15` factor, and 8 new `drive.rs` plus 1 new `world.rs` test for
+  step (b)'s real flip torque, lockout, pitch lock, and vertical bleed,
+  with 12 existing dodge/flip-cancel tests rewritten), 14 in
   `rb_replay_ingest` (incl. real-fixture integration test), 10 in
   `rb_capture_ingest` (incl. synthetic-fixture test), 10 in `rb_verify_cli`
   (incl. `score_capture_against_candidate`'s and `score_capture_growth`'s
   happy-path runs against the synthetic capture fixture, and
   `RB-PHYSICS-001-FR-079`'s isolated-dodge-replay ratchet against the real
-  fixture, `cars.mean_position_distance < 1000` uu), plus doc-tests)
+  fixture, `cars.mean_position_distance < 300` uu), plus doc-tests)
 - `cargo run -p rb_replay_ingest --bin corpus_check` (local only, not CI):
   40/40 real owner replays parsed cleanly, 2026-08-28
 - `cargo run -p rb_verify_cli --bin rb-verify -- <replay> <capture>`
@@ -2287,6 +2319,19 @@
   `572.93`). `--self-growth ... 0.05`: the window containing the dodge
   tick (`t=4.32s`) is now `vel 125.81 uu/s` (from `1032.35`); the
   pre-dodge windows are unchanged (`t=4.27s` still `0.03 rad`).
+- `RB-PHYSICS-001-FR-080` step (b) (the real continuous flip torque,
+  vertical bleed, pitch lock, and air-control lockout) re-run against the
+  same fixture (2026-09-05, this sandbox): `rb-verify --self` now gives
+  `frames compared: 347, mean ball distance: 729.95 uu, max ball distance:
+  3311.68 uu, car pairs compared: 347, mean car position/rotation/velocity
+  distance: 259.26 uu / 1.22 rad / 376.60 uu/s, max car
+  position/rotation/velocity distance: 528.12 uu / 3.13 rad / 1018.75
+  uu/s` (car position `572.93` → `259.26`). `--self-growth ... 0.05`: the
+  dodge-tick window (`t=4.32s`) is unchanged at `vel 125.81 uu/s`; the
+  rotation gap then climbs `0.05 → 1.33 rad` across the flip window
+  (`t=4.37s` to `4.97s`) with the velocity gap flat at `≈92 uu/s`, and
+  only after the window does velocity grow (`182` at `t=5.02s`, `524` at
+  `t=5.57s`) while rotation falls back to `0.38 rad` by `t=5.42s`.
 
 ## Risks and decisions needed
 

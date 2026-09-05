@@ -170,9 +170,23 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   fixture: `cars.mean_position_distance` `≈937` → `≈573` uu (`-39%`), and
   the dodge-tick window's velocity gap `≈1032` → `≈126` uu/s — that jump
   was almost entirely the placeholder. One new test; the `rb_verify_cli`
-  ratchet tightened to `< 600` uu. See `RB-PHYSICS-001-FR-079`'s and
-  `FR-080`'s own entries for the full evidence chain and the remaining
-  steps (b)/(c).
+  ratchet tightened to `< 600` uu. `FR-080` step (b) is now done too: a
+  per-car `drive::DodgeFlip { rel_torque, elapsed }` replaces the
+  `dodge_flip_active` flag and the instantaneous `DODGE_ANGULAR_SPEED`
+  kick (removed) with the real mechanism — `FLIP_TORQUE_X = 260`/
+  `FLIP_TORQUE_Y = 224` applied inertia-cancelled and per-tick without
+  `CAR_TORQUE_SCALE` for `FLIP_TORQUE_TIME = 0.65` s (so the existing
+  angular-speed cap holds the car at `5.5` rad/s from the third tick),
+  stick air control and the landing assist locked out meanwhile, pitch
+  locked `FLIP_PITCHLOCK_EXTRA_TIME = 0.3` s longer, `FLIP_Z_DAMP_120 =
+  0.35` bleeding vertical speed per tick from `0.15` s, landing clearing
+  the state. `FR-016`'s jump-press cancel stays as the interim, now ending
+  the real flip too. Measured alone: `cars.mean_position_distance` `≈573`
+  → `≈259` uu (`-55%`), max `≈2005` → `≈528` uu; the remaining rotation
+  gap grows inside the flip window at a pinned `|ω|`, an axis mismatch
+  pointing at the real flip cancel, step (c). 12 tests rewritten, 9 new;
+  ratchet `< 300` uu. See `RB-PHYSICS-001-FR-079`'s and `FR-080`'s own
+  entries for the full evidence chain and the remaining step (c).
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

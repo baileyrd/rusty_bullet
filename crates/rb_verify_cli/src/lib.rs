@@ -333,10 +333,13 @@ mod tests {
     /// orientation gap but not the aggregate), `~937` uu (after the
     /// pitch/roll sign fix for air control and the dodge), `~573` uu (after
     /// `DODGE_SPEED` became the real `FLIP_INITIAL_VEL_SCALE = 500`,
-    /// `RB-PHYSICS-001-FR-080` step (a)). Mean ball distance has stayed
-    /// `~730` uu throughout — the ball is only touched late in the fixture,
-    /// so its divergence follows the car's own post-dodge path, which
-    /// `FR-080`'s still-unimplemented continuous flip torque now dominates.
+    /// `RB-PHYSICS-001-FR-080` step (a)), `~259` uu (after the real
+    /// continuous flip torque, vertical bleed, pitch lock, and air-control
+    /// lockout replaced the instantaneous spin kick, `FR-080` step (b)).
+    /// Mean ball distance has stayed `~730` uu throughout — the ball is
+    /// only touched late in the fixture, so its divergence follows the
+    /// car's own post-dodge path, which `FR-080`'s still-pending real flip
+    /// cancel (step (c)) and `FR-071`'s damping now dominate.
     #[test]
     fn isolated_replay_of_the_real_dodge_stays_under_its_last_recorded_divergence() {
         let score = score_capture_against_candidate(
@@ -347,11 +350,11 @@ mod tests {
 
         assert_eq!(score.frames_compared, 347);
         assert_eq!(score.cars.pairs_compared, 347);
-        // Ratchet (2026-09-04): mean car position distance ~573 uu, mean
-        // ball distance ~730 uu after `DODGE_SPEED` became the real 500.
-        // Bounded loosely above to catch a regression, not to pin the exact
-        // figure.
-        assert!(score.cars.mean_position_distance < 600.0);
+        // Ratchet (2026-09-04): mean car position distance ~259 uu, mean
+        // ball distance ~730 uu after the real flip torque landed (`FR-080`
+        // step (b)). Bounded loosely above to catch a regression, not to
+        // pin the exact figure.
+        assert!(score.cars.mean_position_distance < 300.0);
         assert!(score.mean_ball_distance < 1000.0);
     }
 }

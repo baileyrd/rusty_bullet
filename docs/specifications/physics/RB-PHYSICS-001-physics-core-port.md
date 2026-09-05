@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.90.0
+- Version: 0.91.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -817,6 +817,11 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   touch re-arms the double jump," a documented simplification of real
   Rocket League's actual flip-duration window. No new physics constants —
   this is a state-flag-gated zeroing action, not a magnitude to calibrate.
+  (Since `RB-PHYSICS-001-FR-080` step (b), the flag is the real
+  `Option<DodgeFlip>` flip state, landing clears it, and this cancel also
+  ends the real flip's remaining torque, pitch lock, and vertical bleed —
+  the trigger and the outright zeroing stand until that requirement's step
+  (c) replaces them with the real pitch-hold scale.)
   `RB-PHYSICS-001-FR-070` later fetched RocketSim's real `Car.cpp` and found
   this simplification runs deeper than the flip-duration window alone: real
   Rocket League's own flip-cancel mechanism (continuous pitch-stick input,
@@ -4532,7 +4537,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     implementation (the "false precision" objection above no longer holds:
     `FR-079` found the real torque is applied inertia-independently, so
     the spin rate does not depend on the hitbox inertia tensor at all —
-    it pins to `CAR_MAX_ANG_SPEED`, which this port already has).
+    it pins to `CAR_MAX_ANG_SPEED`, which this port already has) — and
+    its step (b) adopted it, removing `DODGE_ANGULAR_SPEED`.
   - **Acceptance criteria.** `drive::DODGE_ANGULAR_SPEED`'s own doc
     comment states the confirmed real mechanism (a continuous per-axis
     torque over a fixed 0.65s window with no decay, not an instantaneous
@@ -4705,7 +4711,9 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `DODGE_ANGULAR_SPEED` remains a single instantaneous kick, scaled by
     the same normalized direction as the linear impulse but still an
     architecture mismatch `RB-PHYSICS-001-FR-069`'s own Non-goals already
-    established. Does not touch `RB-PHYSICS-001-FR-005`'s real-data
+    established (`RB-PHYSICS-001-FR-080` step (b) later adopted it; the
+    normalized direction this requirement introduced is exactly what
+    that flip's `rel_torque` is built from). Does not touch `RB-PHYSICS-001-FR-005`'s real-data
     calibration, no longer blocked on `PHASE-0-EXIT` (now closed), but not itself started.
   - **Acceptance criteria.** A diagonal dodge (both `pitch` and `roll` at or
     above `DODGE_DEADZONE`) produces the same total linear-impulse
@@ -5588,8 +5596,10 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `isolated_replay_of_the_real_dodge_stays_under_its_last_recorded_divergence`
     and turned into the ratchet described above (10 `rb_verify_cli` tests,
     unchanged). Full workspace `fmt`/`clippy`/`test` green (397 tests).
-- `RB-PHYSICS-001-FR-080` (real continuous flip torque — scoped; step
-  (a), the real dodge impulse magnitude, implemented): `FR-069` confirmed
+- `RB-PHYSICS-001-FR-080` (real continuous flip torque — steps (a), the
+  real dodge impulse magnitude, and (b), the flip state, torque, vertical
+  bleed, pitch lock, and air-control lockout, implemented; step (c), the
+  real flip cancel, scoped): `FR-069` confirmed
   the mechanism as a documentation
   finding and `FR-079` made it the dominant remaining piece of the
   isolated dodge's own divergence. This entry scopes actually adopting
@@ -5744,9 +5754,9 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     why `FR-031`'s "false precision" reasoning never applied to it (a
     mass-independent velocity change) and the `~1%` real-capture
     confirmation. Both dodge blocks (ground and wall-jump) changed
-    identically. Nothing else about the dodge changed — the instant spin
-    kick, `DODGE_ANGULAR_SPEED`, and `FR-016`'s flip cancel are steps (b)
-    and (c).
+    identically. Nothing else about the dodge changed in step (a) — the
+    instant spin kick and `DODGE_ANGULAR_SPEED` were step (b)'s, and
+    `FR-016`'s flip cancel is step (c)'s.
     - **Real-data effect, measured alone.** Isolated fixture, whole run:
       `cars.mean_position_distance` `≈937` → `≈573` uu (`-39%`), mean
       velocity distance `≈1369` → `≈744` uu/s, max position `≈2606` →
@@ -5766,7 +5776,106 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
       other `DODGE_SPEED` assertion is symbolic and passed unchanged.
       `rb_verify_cli`'s ratchet tightened to `cars.mean_position_distance
       < 600` uu. Full workspace `fmt`/`clippy`/`test` green (398 tests).
-  - **Blast radius.** `drive.rs`: the three dodge-spin tests
+  - **Step (b), implemented: the real flip state, torque, vertical
+    bleed, pitch lock, and air-control lockout.** Exactly the proposed
+    design above, read against RocketSim's `_UpdateAirTorque` and
+    `_UpdateDoubleJumpOrFlip` once more while writing it:
+    1. **State.** New `pub struct drive::DodgeFlip { rel_torque: (f32,
+       f32), elapsed: f32 }` (`Copy`, `PartialEq`); `apply_driven_forces`'s
+       `dodge_flip_active: &mut bool` became `dodge_flip: &mut
+       Option<DodgeFlip>` and `PhysicsWorld::car_dodge_flip_active:
+       Vec<bool>` became `car_dodge_flip: Vec<Option<DodgeFlip>>`
+       (defaulting `None`; `from_frame`'s hidden-state caveat unchanged).
+       Both dodge blocks set `Some(DodgeFlip { rel_torque: (-norm_roll,
+       dodge_forward), elapsed: 0.0 })` — `flipRelTorque = (-dodgeDir.y,
+       dodgeDir.x)` symbol for symbol — and no longer touch
+       `angular_velocity` at all; the plain double jump clears it, and so
+       now does any `on_ground` step (RocketSim's `isOnGround` reset). A
+       wall touch leaves it alone, as RocketSim's `numWheelsInContact < 3`
+       does.
+    2. **Torque.** Every airborne step with `elapsed < FLIP_TORQUE_TIME`
+       applies `apply_angular_acceleration((forward * rel.0 *
+       FLIP_TORQUE_X + right * rel.1 * FLIP_TORQUE_Y) / tick_scale)`,
+       `tick_scale = dt * 120`, with **no** `CAR_TORQUE_SCALE` (documented
+       on `FLIP_TORQUE_X` as the reference's own omission) — before the
+       stick air-control block, the same order as RocketSim (the dodge's
+       own step therefore still gets that step's ordinary air-control
+       pitch, ≈`0.1` rad/s, and the flip torque starts on the *next* step
+       with `elapsed == dt`). The existing `clamp_angular_speed` supplies
+       the cap-and-hold unchanged.
+    3. **Lockout and pitch lock.** While the torque applies, the stick
+       air-control block and this port's own landing-orientation assist
+       are skipped entirely (`doAirControl = false`); for
+       `FLIP_PITCHLOCK_EXTRA_TIME` after it, air control runs with the
+       pitch term zeroed (`pitchTorqueScale = 0`), yaw and roll normal.
+       The assist's "no active stick input" gate reads the raw stick, so a
+       pitch held through the lock still counts as active input.
+    4. **Vertical bleed and clock.** At the end of every airborne call,
+       `elapsed += dt`, then while `FLIP_Z_DAMP_START ≤ elapsed ≤
+       FLIP_TORQUE_TIME` and (`vz < 0` or `elapsed < FLIP_Z_DAMP_END`),
+       `linear_velocity.z *= (1 - FLIP_Z_DAMP_120)^tick_scale` — the tail
+       of `_UpdateDoubleJumpOrFlip`, before this step's own
+       `integrate_velocities`, so gravity lands after the bleed exactly as
+       in the reference. `elapsed` keeps counting past the window until
+       landing.
+    5. **Constants**, all real and named as in `RLConst.h`:
+       `FLIP_TORQUE_X = 260.0`, `FLIP_TORQUE_Y = 224.0`, `FLIP_TORQUE_TIME =
+       0.65`, `FLIP_PITCHLOCK_EXTRA_TIME = 0.3` (public), `FLIP_Z_DAMP_120 =
+       0.35`, `FLIP_Z_DAMP_START = 0.15`, `FLIP_Z_DAMP_END = 0.21`,
+       `FLIP_REFERENCE_TICK_RATE = 120.0` (private). `DODGE_ANGULAR_SPEED`
+       is removed, with `MAX_CAR_ANGULAR_SPEED`'s "coincidence" note
+       replaced by why the cap is now load-bearing for the flip.
+       `FLIP_TORQUE_MIN_TIME = 0.41` and `FLIP_PITCHLOCK_TIME = 1.0` are
+       declared in `RLConst.h` but referenced nowhere in `Car.cpp`, so this
+       port doesn't carry them (recorded on `FLIP_TORQUE_TIME`).
+    6. **`FR-016`'s flip cancel, kept for now** as this port's own
+       interim: a further fresh press still zeroes `angular_velocity`, and
+       now also clears the `DodgeFlip` (ending the remaining torque, pitch
+       lock, and bleed) and retracts the flip acceleration already
+       accumulated that same step — found by the rewritten cancel tests,
+       which otherwise saw one tick of spin (`-1.87` rad/s) reappear right
+       after the zeroing. Step (c) replaces this trigger with the real
+       pitch-hold scale.
+    - **Real-data effect, measured alone.** Isolated fixture, whole run:
+      `cars.mean_position_distance` `≈573` → `≈259` uu (`-55%`), mean
+      velocity distance `≈744` → `≈377` uu/s, max position `≈2005` →
+      `≈528` uu, max velocity `≈1541` → `≈1019` uu/s, mean rotation
+      `1.28` → `1.22` rad; `mean_ball_distance` unchanged at `≈730`. At
+      `0.05`s windows the dodge-tick window is unchanged (`≈126` uu/s) and
+      the pre-dodge windows are untouched (`0.03` rad). What remains is
+      now visible in shape: the rotation gap grows roughly linearly
+      *inside* the flip window (`0.05` → `1.33` rad from `t = 4.32` to
+      `4.97` s, about `2` rad/s of mismatch while both `|ω|` traces are
+      pinned at `5.5`), then shrinks again, and the velocity gap only
+      starts growing after the window (`≈92` → `≈524` uu/s by `t = 5.57`
+      s). A rotation-rate mismatch at a pinned magnitude is an *axis*
+      mismatch — which is what the fixture's pitch stick, held in the
+      flip's own pitch sign, would produce through the real flip cancel's
+      `pitchScale = 1 - |pitch|` (zeroing the torque's pitch component,
+      leaving only its roll component to pin the cap) — so step (c) is the
+      next measurement, with `FR-071`'s damping behind it for the
+      post-window growth.
+    - **Tests.** `rb_physics_bullet` 337 → 345. Rewritten: the three
+      dodge-spin tests (now assert the dodge step's own air-control-only
+      spin, then exactly `FLIP_TORQUE_Y / 120` or `-FLIP_TORQUE_X / 120`
+      after one tick, with the `DodgeFlip` value pinned), the wall-jump
+      dodge test and the five flip-cancel tests (spin appears one step
+      later; the stale-flip regression guard now routes through a wall
+      touch, since landing clears the flip itself), plus their three
+      `world.rs` counterparts. New (`drive.rs`): cap reached on the third
+      tick and held within `1e-3` through step 76 then no torque past the
+      window; per-tick invariance at `1/60` vs `1/120`; air control and
+      the landing assist locked out while flipping; pitch locked for
+      `0.3` s after with yaw working, then pitch back; the vertical bleed
+      absent before `0.15` s, `×0.65` per tick inside, upward-only exempt
+      after `0.21` s, absent after `0.65` s; landing clears the state and
+      its torque; a wall-jump dodge restarts it. New (`world.rs`): under
+      real gravity, `|ω|` held at the cap mid-flip and `vz` settled within
+      `0.05` of `-(650/120)/0.35 = -15.476` uu/s at `0.5` s, then free
+      fall resuming after the window. `rb_verify_cli`'s ratchet tightened
+      to `cars.mean_position_distance < 300` uu. Full workspace
+      `fmt`/`clippy`/`test` green (406 tests).
+  - **Blast radius (as scoped).** `drive.rs`: the three dodge-spin tests
     (`dodge_gives_forward_velocity_and_spin_when_pitched_in_the_air`,
     `dodge_gives_lateral_velocity_and_spin_when_rolled_in_the_air`,
     `a_yaw_only_press_fires_a_sideways_dodge_like_roll`) assert
@@ -5793,15 +5902,18 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     velocity jump should fall from `≈1030` to the low hundreds of uu/s;
     what remains afterward is the post-window decay (`FR-071`'s damping,
     the next gap in line) and any residual dodge-direction subtlety.
-  - **Non-goals (this requirement).** Steps (b) and (c) are not yet
-    implemented — this entry is their scope, with only step (a) done. The
-    implementation will not take on `FR-071`'s
+  - **Non-goals (this requirement).** Step (c) is not yet implemented —
+    `FR-016`'s jump-press cancel stands as the interim, adapted to end the
+    real flip state. The implementation will not take on `FR-071`'s
     air-control damping (the post-window decay stays divergent until
     then), `DOUBLEJUMP_MAX_DELAY` (`1.25` s; this port has no
     double-jump/flip timeout at all — an adjacent gap worth its own
     entry), auto-flip/auto-roll (`FR-060`), or the real dodge's small
     upward component beyond what `FLIP_Z_DAMP` implies.
-  - **Acceptance criteria (for the implementation).** A forward dodge's
+  - **Acceptance criteria (for the implementation; all but the flip-cancel
+    and `DODGE_SPEED`-removal clauses met by step (b) — `DODGE_SPEED` is
+    kept by name, holding the real value, per this port's naming
+    convention).** A forward dodge's
     `|ω|` reaches `MAX_CAR_ANGULAR_SPEED` within three `1/120` s steps and
     stays within `1e-3` of it through `FLIP_TORQUE_TIME`, then receives no
     further flip torque; `vel.z` under gravity converges to
@@ -7301,6 +7413,24 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.91.0 (2026-09-05): `RB-PHYSICS-001-FR-080` step (b) implemented: the
+  real continuous flip replaces the instantaneous `DODGE_ANGULAR_SPEED`
+  kick. New per-car `drive::DodgeFlip { rel_torque, elapsed }` state
+  (replacing the `dodge_flip_active` flag in `apply_driven_forces` and
+  `PhysicsWorld`); every airborne step for `FLIP_TORQUE_TIME = 0.65` s
+  applies `FLIP_TORQUE_X = 260`/`FLIP_TORQUE_Y = 224` inertia-cancelled,
+  per-tick, without `CAR_TORQUE_SCALE`, so `clamp_angular_speed` holds the
+  car at `MAX_CAR_ANGULAR_SPEED` from the third tick; stick air control and
+  the landing assist are locked out meanwhile, pitch for
+  `FLIP_PITCHLOCK_EXTRA_TIME = 0.3` s more; `FLIP_Z_DAMP_120 = 0.35` bleeds
+  `vz` per tick between `0.15` s and the window's end; landing clears the
+  state. `FR-016`'s jump-press cancel stays as the interim (now ending the
+  real flip too), pending step (c). Measured alone on the isolated
+  fixture: `cars.mean_position_distance` `≈573` → `≈259` uu (`-55%`), max
+  `≈2005` → `≈528` uu, mean velocity `≈744` → `≈377` uu/s; the remaining
+  rotation gap grows inside the flip window at a pinned `|ω|` — an axis
+  mismatch pointing at the fixture's held pitch and the real flip cancel,
+  step (c). `rb_physics_bullet` 337 → 345, ratchet `< 300` uu, 406 tests.
 - 0.90.0 (2026-09-04): `RB-PHYSICS-001-FR-080` step (a) implemented:
   `drive::DODGE_SPEED` is now RocketSim's real `FLIP_INITIAL_VEL_SCALE =
   500.0` (from the `1400.0` placeholder), and the backward dodge's

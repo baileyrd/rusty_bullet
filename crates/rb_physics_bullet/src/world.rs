@@ -99,12 +99,14 @@ fn clamp_ball_velocity(ball: &mut RigidBody) {
 /// `0.0`) that `drive::apply_driven_forces` uses to give the ground jump
 /// variable height — armed to `drive::JUMP_HOLD_MAX_DURATION` by a fresh
 /// ground-jump press, counted down while `jump` stays held, and zeroed
-/// immediately on release — and a remembered cancelable-flip flag
-/// (`car_dodge_flip_active`, starting `false`) that `drive::apply_driven_forces`
-/// sets whenever a dodge fires, clears whenever a plain double jump fires
-/// (so a stale flag from an earlier dodge can't leak into a later,
-/// unrelated double jump), and spends on a further fresh press to
-/// flip-cancel the dodge's spin — all driving the car via
+/// immediately on release — and a remembered dodge flip in progress
+/// (`car_dodge_flip`, a `drive::DodgeFlip` starting `None`) that
+/// `drive::apply_driven_forces` starts whenever a dodge fires, drives the
+/// real flip torque, pitch lock, and vertical bleed from on every later
+/// airborne step (`RB-PHYSICS-001-FR-080`), clears on landing and whenever
+/// a plain double jump fires (so a stale flip from an earlier dodge can't
+/// leak into a later, unrelated double jump), and spends on a further
+/// fresh press to flip-cancel the dodge's spin — all driving the car via
 /// `drive::apply_driven_forces`. Since `RB-PHYSICS-001-FR-033`, `nets`
 /// (added via `with_net`) gives the ball a real mass-spring net to be
 /// caught by, resolved after every other contact each step, and since
@@ -118,7 +120,7 @@ pub struct PhysicsWorld {
     car_jump_held: Vec<bool>,
     car_double_jump_available: Vec<bool>,
     car_jump_hold_time_remaining: Vec<f32>,
-    car_dodge_flip_active: Vec<bool>,
+    car_dodge_flip: Vec<Option<drive::DodgeFlip>>,
     pub ground: StaticPlane,
     pub walls: Vec<StaticPlane>,
     /// Curved wall-to-floor/wall-to-ceiling fillets (`RB-PHYSICS-001-FR-020`),
@@ -208,7 +210,7 @@ impl PhysicsWorld {
             car_jump_held: Vec::new(),
             car_double_jump_available: Vec::new(),
             car_jump_hold_time_remaining: Vec::new(),
-            car_dodge_flip_active: Vec::new(),
+            car_dodge_flip: Vec::new(),
             ground,
             walls: Vec::new(),
             curves: Vec::new(),
@@ -308,7 +310,7 @@ impl PhysicsWorld {
     /// value via `set_car_boost`. Every other per-car runtime state
     /// `PhysicsWorld` tracks but a `PhysicsFrame` doesn't carry at all
     /// (`car_jump_held`, `car_double_jump_available`,
-    /// `car_jump_hold_time_remaining`, `car_dodge_flip_active`) is left at
+    /// `car_jump_hold_time_remaining`, `car_dodge_flip`) is left at
     /// `with_car`'s own fixed defaults (not held, double-jump available,
     /// zero hold time, no dodge in progress) — accurate only if `frame`
     /// captures a genuinely neutral, grounded moment. Choosing such a
@@ -420,7 +422,7 @@ impl PhysicsWorld {
     /// double jump starts available (`true`), matching a car that's
     /// effectively "just landed" before its first step; its jump-hold
     /// window starts at `0.0` (no ground jump in flight yet); its
-    /// cancelable-flip flag starts `false` (no dodge in flight yet).
+    /// dodge flip starts `None` (no dodge in flight yet).
     /// Callable more than once —
     /// `PhysicsWorld::new(ball, ground).with_car(a).with_car(b)` builds a
     /// two-car scene — since a car's `player_id` in `frame()` is just its
@@ -433,7 +435,7 @@ impl PhysicsWorld {
         self.car_jump_held.push(false);
         self.car_double_jump_available.push(true);
         self.car_jump_hold_time_remaining.push(0.0);
-        self.car_dodge_flip_active.push(false);
+        self.car_dodge_flip.push(None);
         self
     }
 
@@ -477,13 +479,14 @@ impl PhysicsWorld {
     /// gated on `wall_normal` — also computed up front from the car's
     /// position at the start of this step, like `on_ground`; the ground
     /// jump's variable height, driven by `jump_hold_time_remaining`; a
-    /// dodge's spin flip-canceled by a further press, driven by
-    /// `dodge_flip_active`) alongside gravity, so `input`'s forces/impulses
+    /// dodge's real continuous flip torque, pitch lock, and vertical
+    /// bleed, and its flip-cancel by a further press, driven by
+    /// `dodge_flip`) alongside gravity, so `input`'s forces/impulses
     /// (and friction adjustment) are part of the same velocity-prediction
     /// phase. Since `RB-PHYSICS-001-FR-057`, also calls
     /// `drive::clamp_angular_speed` right after `integrate_velocities`, so
-    /// this step's angular velocity — air control torque and any direct
-    /// writes (a dodge's kick, the landing-orientation assist) alike —
+    /// this step's angular velocity — air control and flip torque and any
+    /// direct writes (the landing-orientation assist, a flip cancel) alike —
     /// never leaves this function above `drive::MAX_CAR_ANGULAR_SPEED`.
     #[allow(clippy::too_many_arguments)]
     fn drive_and_integrate_velocities(
@@ -495,7 +498,7 @@ impl PhysicsWorld {
         jump_held: &mut bool,
         double_jump_available: &mut bool,
         jump_hold_time_remaining: &mut f32,
-        dodge_flip_active: &mut bool,
+        dodge_flip: &mut Option<drive::DodgeFlip>,
         base_friction: f32,
         gravity: Vec3,
         dt: f32,
@@ -511,7 +514,7 @@ impl PhysicsWorld {
             jump_held,
             double_jump_available,
             jump_hold_time_remaining,
-            dodge_flip_active,
+            dodge_flip,
             base_friction,
             dt,
         );
@@ -734,7 +737,7 @@ impl PhysicsWorld {
                 ),
                 jump_hold_time_remaining,
             ),
-            dodge_flip_active,
+            dodge_flip,
         ) in self
             .cars
             .iter_mut()
@@ -746,7 +749,7 @@ impl PhysicsWorld {
             .zip(self.car_jump_held.iter_mut())
             .zip(self.car_double_jump_available.iter_mut())
             .zip(self.car_jump_hold_time_remaining.iter_mut())
-            .zip(self.car_dodge_flip_active.iter_mut())
+            .zip(self.car_dodge_flip.iter_mut())
         {
             Self::drive_and_integrate_velocities(
                 car,
@@ -757,7 +760,7 @@ impl PhysicsWorld {
                 jump_held,
                 double_jump_available,
                 jump_hold_time_remaining,
-                dodge_flip_active,
+                dodge_flip,
                 *base_friction,
                 self.gravity,
                 dt,
@@ -2481,9 +2484,16 @@ mod tests {
             "expected the dodge to give ~DODGE_SPEED forward velocity, got {}",
             world.cars[0].linear_velocity.x
         );
+        // The real flip torque starts on the step after the dodge
+        // (RB-PHYSICS-001-FR-080), at FLIP_TORQUE_Y / 120 rad/s per tick —
+        // on top of the dodge step's own ordinary air-control pitch.
+        let head_start = world.cars[0].angular_velocity.y;
+        world.step(dt);
         assert!(
-            world.cars[0].angular_velocity.y.abs() > 0.0,
-            "expected the dodge to give the car a visible flip, got {:?}",
+            (world.cars[0].angular_velocity.y - head_start - crate::drive::FLIP_TORQUE_Y / 120.0)
+                .abs()
+                < 1e-3,
+            "expected one tick of the real flip torque about +right, got {:?} from {head_start}",
             world.cars[0].angular_velocity
         );
     }
@@ -2526,6 +2536,8 @@ mod tests {
             "expected the wall jump's upward component, got {}",
             world.cars[0].linear_velocity.z
         );
+        // The flip torque starts on the next step (RB-PHYSICS-001-FR-080).
+        world.step(1.0 / 60.0);
         assert!(
             world.cars[0].angular_velocity.length() > 0.0,
             "expected the wall-jump dodge to give the car a visible flip, got {:?}",
@@ -2666,15 +2678,16 @@ mod tests {
             },
         );
         world.step(dt);
+
+        // Release (the flip torque's first step — the car is now spinning,
+        // RB-PHYSICS-001-FR-080), then press again — flip-cancel.
+        world.set_car_input(0, rb_domain::ControllerInput::default());
+        world.step(dt);
         assert!(
             world.cars[0].angular_velocity.length() > 0.0,
             "expected the dodge to leave the car spinning, got {:?}",
             world.cars[0].angular_velocity
         );
-
-        // Release, then press again — flip-cancel.
-        world.set_car_input(0, rb_domain::ControllerInput::default());
-        world.step(dt);
         world.set_car_input(
             0,
             rb_domain::ControllerInput {
@@ -2730,18 +2743,20 @@ mod tests {
             },
         );
         world.step(dt);
-        assert!(world.cars[0].angular_velocity.length() > 0.0);
 
         // Release jump (so the next ground-jump press is a real fresh
-        // press), then land: zero out the spin and velocity by hand and
+        // press; also the flip torque's first step, so the car is now
+        // spinning), then land: zero out the spin and velocity by hand and
         // put the car back at its resting height, as if it had settled
         // flat — this test only cares about the *later* double jump, not
-        // about actually simulating the fall back down. dodge_flip_active
-        // is deliberately left stale (`true`) here: landing alone doesn't
-        // clear it — see the module doc comment — only a later
-        // double-jump-or-dodge press does.
+        // about actually simulating the fall back down. Since
+        // RB-PHYSICS-001-FR-080 the grounded step itself clears the flip;
+        // the plain double jump's own explicit clear (the belt to that
+        // brace, still exercised here) covers the wall-touch route that
+        // doesn't — see the module doc comment.
         world.set_car_input(0, rb_domain::ControllerInput::default());
         world.step(dt);
+        assert!(world.cars[0].angular_velocity.length() > 0.0);
         world.cars[0].angular_velocity = Vec3::ZERO;
         world.cars[0].position = Vec3::new(0.0, 0.0, 18.0);
         world.cars[0].linear_velocity = Vec3::ZERO;
@@ -2817,16 +2832,18 @@ mod tests {
             },
         );
         world.step(dt);
+
+        // Release and move off the wall (the flip torque's first step —
+        // the car is now spinning, RB-PHYSICS-001-FR-080), then press
+        // again — flip-cancel.
+        world.set_car_input(0, rb_domain::ControllerInput::default());
+        world.cars[0].position = Vec3::new(5000.0, 0.0, 1000.0);
+        world.step(dt);
         assert!(
             world.cars[0].angular_velocity.length() > 0.0,
             "expected the wall-jump dodge to leave the car spinning, got {:?}",
             world.cars[0].angular_velocity
         );
-
-        // Release, then move off the wall and press again — flip-cancel.
-        world.set_car_input(0, rb_domain::ControllerInput::default());
-        world.cars[0].position = Vec3::new(5000.0, 0.0, 1000.0);
-        world.step(dt);
         world.set_car_input(
             0,
             rb_domain::ControllerInput {
@@ -2841,6 +2858,64 @@ mod tests {
             Vec3::ZERO,
             "expected the second jump press to cancel the wall-jump dodge's spin outright, got {:?}",
             world.cars[0].angular_velocity
+        );
+    }
+
+    #[test]
+    fn a_dodging_car_holds_the_angular_speed_cap_and_the_real_vertical_bleed_equilibrium_under_gravity(
+    ) {
+        // RB-PHYSICS-001-FR-080, end to end under real gravity: the flip
+        // torque pins |ω| at MAX_CAR_ANGULAR_SPEED through the window, and
+        // FLIP_Z_DAMP_120's per-tick bleed against gravity settles vz at
+        // exactly -(650 / 120) / (1 - 0.65) ≈ -15.5 uu/s — the plateau the
+        // isolated dodge-derailment capture holds from t ≈ 4.47 to 4.97 s.
+        let ball = RigidBody::sphere(1.0, 1.0, Vec3::new(1000.0, 0.0, 1000.0));
+        let car = some_car(Vec3::new(0.0, 0.0, 1000.0));
+        let mut world = PhysicsWorld::new(ball, flat_ground()).with_car(car);
+        let dt = 1.0 / 120.0;
+        assert_eq!(world.gravity, Vec3::new(0.0, 0.0, -650.0));
+
+        // Airborne from the start: the first press is a fresh one, and the
+        // double jump is available, so this is a forward dodge.
+        world.set_car_input(
+            0,
+            rb_domain::ControllerInput {
+                jump: true,
+                pitch: Some(-1.0),
+                ..Default::default()
+            },
+        );
+        world.step(dt);
+        world.set_car_input(0, rb_domain::ControllerInput::default());
+
+        // 0.5 s in: well past FLIP_Z_DAMP_START, still inside the window.
+        for _ in 0..60 {
+            world.step(dt);
+        }
+        // vz' = 0.65 * vz - g * dt at rest ⇒ vz = -(g * dt) / (1 - 0.65).
+        let expected_vz = -(650.0 * dt) / (1.0 - (1.0 - 0.35));
+        assert!(
+            (world.cars[0].linear_velocity.z - expected_vz).abs() < 0.05,
+            "expected vz to settle at {expected_vz}, got {}",
+            world.cars[0].linear_velocity.z
+        );
+        assert!(
+            (world.cars[0].angular_velocity.length() - crate::drive::MAX_CAR_ANGULAR_SPEED).abs()
+                < 1e-3,
+            "expected |ω| held at the cap mid-flip, got {:?}",
+            world.cars[0].angular_velocity
+        );
+
+        // Past the window (≈0.84 s): the bleed is gone, so gravity
+        // accelerates the fall again, and the spin persists on its own
+        // (no angular damping, nothing else acting on a level-ish car).
+        for _ in 0..40 {
+            world.step(dt);
+        }
+        assert!(
+            world.cars[0].linear_velocity.z < expected_vz - 50.0,
+            "expected free fall to resume after FLIP_TORQUE_TIME, got vz={}",
+            world.cars[0].linear_velocity.z
         );
     }
 
