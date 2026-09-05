@@ -2075,6 +2075,34 @@
   (`cars.mean_position_distance < 1000` uu). Full workspace
   `fmt`/`clippy`/`test` green (397 tests). See `FR-079`'s own spec entry
   for the full writeup.
+- `RB-PHYSICS-001-FR-080` (real continuous flip torque), scoped — doc
+  only. Read the complete real mechanism from RocketSim's `Car.cpp`/
+  `RLConst.h`, not just the torque line: the flip torque goes through the
+  inertia-independent path `FR-079` built, but *without* `CAR_TORQUE_SCALE`
+  — a per-tick `Δω` of `≈1.87` (pitch) / `2.17` (roll) rad/s that reaches
+  `CAR_MAX_ANG_SPEED = 5.5` in three ticks and is held there by the
+  per-tick clamp (which this port already has from `FR-057`) for
+  `FLIP_TORQUE_TIME = 0.65` s; stick air control and damping are off
+  while flipping; flip cancel is `FR-070`'s pitch-hold `1 - |pitch|`
+  scale on the pitch torque only; `FLIP_Z_DAMP` bleeds `vel.z` `×0.65`
+  per tick from `0.15` s to the window's end; pitch stays locked `0.3` s
+  after. The isolated fixture confirms every piece to the tick: `|ω|`
+  reads exactly `5.50` from two ticks after the dodge through `t ≈ 4.967`
+  (`4.3167 + 0.65`), and `vel.z` holds at `-15.5` uu/s — precisely
+  gravity-per-tick over `(1 - 0.65)`. The same data confirms the real
+  initial dodge velocity is `FLIP_INITIAL_VEL_SCALE = 500` (`~1%` match
+  to the recorded dodge-tick `Δv`), so this port's `DODGE_SPEED = 1400`
+  placeholder is `2.8x` too large — most of the `≈1030` uu/s velocity
+  jump `FR-079` left at the dodge tick. Proposed design: `Option<DodgeFlip
+  { rel_torque: (forward, right), elapsed }>` replacing
+  `dodge_flip_active`, threaded like `jump_hold_time_remaining`; the spin
+  kick removed; per-step flip torque, z-damping, pitch lock, and
+  air-control lockout; the real flip cancel replacing `FR-016`'s
+  second-press zero. Blast radius: 3 dodge-spin tests, 8 flip-cancel
+  tests, `DODGE_SPEED`/`DODGE_ANGULAR_SPEED` removed. Sequencing:
+  `DODGE_SPEED → 500` first (measurable alone), then the flip state and
+  torque, then flip cancel. No code changed. See `FR-080`'s own spec
+  entry.
 
 ## In progress
 
@@ -2116,14 +2144,13 @@
    traced to a separate pitch/roll sign bug (in air control and the
    dodge) and fixed too — the pre-dodge divergence is now closed
    (`~0.03` rad) and the isolated fixture's own car divergence dropped
-   `-66%`. What remains is post-dodge, and the concrete next step is
-   `RB-PHYSICS-001-FR-069`'s continuous-torque flip model (real Rocket
-   League's `FLIP_TORQUE_X/Y` over a `0.65`s window, replacing this
-   port's instantaneous `DODGE_ANGULAR_SPEED` kick — the dominant remaining
-   piece, and a redesign needing per-car elapsed-flip-time state), with
-   `DODGE_SPEED`'s own placeholder magnitude and the real dodge's missing
-   vertical component as the smaller remaining gaps — none started; see
-   `FR-079`'s own spec entry for the full evidence.
+   `-66%`. What remains is post-dodge, and it is now scoped as
+   `RB-PHYSICS-001-FR-080` (real continuous flip torque, replacing this
+   port's instantaneous `DODGE_ANGULAR_SPEED` kick and its `DODGE_SPEED`
+   placeholder): a settled design, blast radius, and three-step
+   sequencing are in that entry, none of it started. `FR-071`'s
+   air-control damping is next in line after it (the post-window decay
+   the fixture shows). See `FR-080`'s own spec entry.
 
 ## Validation
 

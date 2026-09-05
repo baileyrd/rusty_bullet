@@ -153,8 +153,19 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   `~0.13` → `~0.03` rad across the three fixes) and the whole-fixture car
   position divergence dropped `≈2792` → `≈937` uu (`-66%`). What remains
   is post-dodge — `RB-PHYSICS-001-FR-069`'s continuous flip torque is now
-  the dominant remaining gap. See `RB-PHYSICS-001-FR-079`'s own entry for
-  the full evidence chain.
+  the dominant remaining gap, and is scoped for implementation as
+  `RB-PHYSICS-001-FR-080` (doc-only): the real flip torque is applied
+  inertia-independently but without `CAR_TORQUE_SCALE`, so it drives the
+  car to `CAR_MAX_ANG_SPEED` within three ticks and holds it there for
+  `0.65` s with stick air control off, bleeds vertical speed `×0.65`/tick
+  from `0.15` s, locks pitch `0.3` s after, and cancels via `FR-070`'s
+  pitch-hold scale — each piece confirmed to the tick by the isolated
+  fixture (`|ω|` pinned at exactly `5.50` through `t ≈ 4.967`, `vel.z` at
+  the `-15.5` uu/s damping equilibrium). The same data confirms the real
+  initial dodge velocity is `500` (`FLIP_INITIAL_VEL_SCALE`), so
+  `DODGE_SPEED = 1400` is `2.8x` too large. See `RB-PHYSICS-001-FR-079`'s
+  and `FR-080`'s own entries for the full evidence chain and the proposed
+  design.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

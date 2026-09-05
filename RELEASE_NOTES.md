@@ -6,6 +6,60 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Scoped the real flip torque: it's "slam into the spin cap and hold it for 0.65 s"
+**2026-09-04** · `RB-PHYSICS-001-FR-080`
+
+- Scoped adopting `FR-069`'s continuous flip torque — the dominant gap
+  `FR-079` left — by reading the *complete* real mechanism from
+  RocketSim's `Car.cpp`/`RLConst.h`, not just the torque line, and
+  checking every piece against the isolated real fixture. Doc-only; no
+  code changed.
+- **The torque has no `CAR_TORQUE_SCALE`.** It goes through the same
+  inertia-cancelled path `FR-079` built, but unscaled: `flipRelTorque *
+  (260, 224)` integrated over a tick is a `Δω` of `≈1.87` rad/s (pitch)
+  or `2.17` rad/s (roll) *per tick* — reaching `CAR_MAX_ANG_SPEED = 5.5`
+  in three ticks and then held there by the per-tick clamp (which this
+  port already has from `FR-057`) for `FLIP_TORQUE_TIME = 0.65` s. The
+  "continuous torque" is really: drive to the cap along the flip axis and
+  hold it.
+- **The rest of the mechanism**: all stick air control and damping are
+  off while flipping (except during a flip cancel); flip cancel is
+  `FR-070`'s pitch-hold `1 - |pitch|` scale on the pitch torque only, and
+  a second jump press does nothing; `FLIP_Z_DAMP` bleeds vertical speed
+  `×0.65` per tick from `0.15` s to the window's end (unconditionally
+  until `0.21` s, then only while falling); pitch stays locked for `0.3`
+  s after the window; landing resets everything.
+- **The real capture confirms every piece to the tick.** `|ω|` goes
+  `3.40 → 5.22 → 5.50` in two ticks after the dodge at `t = 4.3167` and
+  reads exactly `5.50` every tick through `t = 4.975` — the window end is
+  `4.3167 + 0.65 = 4.967`. `vel.z` drops `222 → 131 → 24 → -5` from `t ≈
+  4.467` (`FLIP_Z_DAMP_START`), then holds at `-15.5` uu/s until `t ≈
+  4.967`: exactly gravity-per-tick over `(1 - 0.65)`. Nothing here is
+  inferred from this port's own model.
+- **A bonus constant, confirmed from the same data.** The recorded
+  dodge-tick `Δv` is `≈620` uu/s; RocketSim's `FLIP_INITIAL_VEL_SCALE =
+  500` with `FR-059`'s side-speed scale at the recorded forward speed
+  predicts `626`. This port's `DODGE_SPEED = 1400` placeholder is `2.8x`
+  too large — and it's a mass-independent velocity change, so the old
+  "false precision" objection never applied. That is most of the `≈1030`
+  uu/s velocity jump `FR-079` left at the dodge tick.
+- **Proposed design**: `Option<DodgeFlip { rel_torque: (forward, right),
+  elapsed }>` replacing `dodge_flip_active`, threaded like
+  `jump_hold_time_remaining`; the spin kick removed; per-step flip torque
+  through `apply_angular_acceleration` (divided by `dt / (1/120)` so the
+  step is per-tick at any rate), vertical damping, pitch lock, and
+  air-control lockout; the real flip cancel replacing `FR-016`'s
+  second-press zero. Blast radius: 3 dodge-spin tests, 8 flip-cancel
+  tests, `DODGE_SPEED`/`DODGE_ANGULAR_SPEED` removed, new tests for the
+  cap-and-hold, the damping equilibrium, the pitch lock, and the
+  direction-gated cancel.
+- **Sequencing**, each step measurable alone against the fixture: (a)
+  `DODGE_SPEED → 500`; (b) flip state, torque, z-damping, pitch lock,
+  lockout; (c) real flip cancel. `FR-071`'s damping (the post-window decay
+  the fixture shows at `≈3.9`/s) is next in line after that.
+
+---
+
 ## Fixed the sign bug — in air control and the dodge — and the pre-dodge gap is closed
 **2026-09-04** · `RB-PHYSICS-001-FR-079`
 
