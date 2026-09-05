@@ -6,6 +6,45 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The wheel and suspension model is scoped: the plan before the code
+**2026-09-05** · `RB-PHYSICS-001-FR-082`
+
+- Everything left in the isolated fixture after the airborne phase —
+  the post-jump velocity gap, the bouncing landing, the missed ball,
+  and the hitbox offset against the floor — is one missing subsystem,
+  and `FR-065`/`FR-066` had already found real steering and handbrake
+  live in it. So, as `FR-080` did for the flip, the plan comes first.
+- **The real mechanism, complete**, from RocketSim's `btVehicleRL.cpp`
+  and `Car.cpp`: four wheels on `51.2` uu raycasts from the Octane
+  mounts, spring-damper suspension (`500`, `25`/`40`, front/back force
+  scales, never pulling down), tire friction as per-wheel impulses
+  with lateral, handbrake, and non-sticky curves, an analog handbrake,
+  the throttle/brake/coast rules, the speed-to-steer-angle curves, a
+  half-g sticky force into the ground, a jump along the car's own up
+  once three wheels touch, and auto-roll. One correction on the way:
+  the spring rest is the declared length *minus* the `12` uu travel,
+  so the springs sit `≈1.5` uu compressed, not `≈13`; the `12` is how
+  far past rest the ray still finds the floor after a jump.
+- **The constants land on the recording by themselves.** Balancing
+  the four springs against the car's weight plus the sticky half-g
+  gives a rest height of `17.03` uu against the recorded `17.0` (and
+  `17.68` without the sticky term); the ray keeps the wheels touching
+  until the car has risen `13.4` uu, the fixture's four ticks of
+  post-jump throttle gain; the landing's `0.13` s no-bounce stop is
+  the damping acting over the full travel while the spring only
+  engages below rest.
+- **Design, blast radius, sequencing.** Per-car wheel state, a raycast
+  over the static scene, the chassis on its real mount for static
+  contact, and `STEER_TORQUE`, `HANDBRAKE_FRICTION_MULTIPLIER`, and the
+  central throttle force retired rather than tuned. Three steps: (a)
+  flat-ground wheels with today's tire forces, (b) real tire friction
+  and steering (closing `FR-065`/`FR-066`, and the ball hit), (c) the
+  rest of the arena. The test churn will be the largest of any entry,
+  because every grounded test encodes the box stand-in.
+- No code changed; `420` tests unchanged.
+
+---
+
 ## The car's hitbox is where the real one is, for every ball and car contact
 **2026-09-05** · `RB-PHYSICS-001-FR-081` finding 5
 

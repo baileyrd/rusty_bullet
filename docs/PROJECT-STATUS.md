@@ -2263,6 +2263,23 @@
   `car_box` (`rb_physics_bullet` 353 → 359). The isolated fixture is
   unchanged, as expected (its car never reaches the ball; static contact
   untouched). Full workspace `fmt`/`clippy`/`test` green (420 tests).
+- `RB-PHYSICS-001-FR-082` scoped (documentation only): the
+  wheel/suspension/tire model, read complete from RocketSim's
+  `btVehicleRL.cpp` and `Car.cpp` — tick order; the four Octane wheel
+  mounts, radii, and `26.755`/`25.055` uu spring rests (the declared
+  rests minus the `12` uu travel; `FR-081` finding 1's "compressed
+  `≈13` uu" wording corrected); the `51.2` uu raycast; the
+  spring-damper (`500`, `25`/`40`, force scales `35.75`/`54.265`,
+  floored at zero); the tire friction impulses with the lateral,
+  handbrake, and non-sticky curves; the analog handbrake; the
+  throttle/brake/coast logic; the steer-angle curves; the sticky
+  force; the car-up jump on a three-wheel ground test; auto-roll.
+  The constants reproduce the recorded rest height (`17.03` vs
+  `17.0`, and only with the half-g sticky force) and the fixture's
+  four ticks of post-jump contact. Design, blast radius (the largest
+  test churn of any entry: every grounded test encodes the box
+  stand-in), and a three-step sequencing are in the entry. No code
+  changed; 420 tests unchanged.
 
 ## In progress
 
@@ -2321,17 +2338,22 @@
    chain of five findings with a cost-ranked sequencing. Finding 2 (the
    dodge impulse's flattened axes) and finding 5 (the hitbox offset, for
    body-vs-body contact — against static surfaces it is inseparable from
-   the wheels, see the entry) are done. Next step: scope a
-   wheel/suspension model as its own entry — four spring-damper raycast
-   wheels at RocketSim's real mounts (`FRONT/BACK_WHEELS_OFFSET`,
-   `*_WHEEL_SUS_REST`, `SUSPENSION_STIFFNESS = 500`,
-   `WHEELS_DAMPING_COMPRESSION/RELAXATION = 25/40`, `MAX_SUSPENSION_TRAVEL
-   = 12`) with longitudinal/lateral tire forces, replacing the car's
-   box-on-ground contact, `STEER_TORQUE`, `HANDBRAKE_FRICTION_MULTIPLIER`,
-   and the jump's contact cut-off, folding in `FR-065`/`FR-066` and
-   findings 1 and 4 — the largest remaining piece of the physics core, and
-   the only route to the fixture's landing and its ball hit. See
-   `FR-081`'s own spec entry.
+   the wheels, see the entry) are done, and the wheel/suspension/tire
+   model is now scoped as `RB-PHYSICS-001-FR-082`: the complete real
+   mechanism from `btVehicleRL`/`_UpdateWheels`, the derivations that
+   land its constants on the recorded rest height and post-jump
+   contact, a settled design, the blast radius, and a three-step
+   sequencing. Next step: `FR-082` step (a) — flat-ground wheels with
+   the old tire forces: the wheel descriptors, a raycast against the
+   ground plane, the spring-damper suspension with the sticky force,
+   the chassis on `hitbox_center()` for static contact, `on_ground`
+   from the wheel count, and the jump along the car's up — measurable
+   on the rest height (`17.0`), the fixture's post-jump contact ticks,
+   and its no-bounce landing, which also stops the port's spurious
+   airborne read at `t = 5.758` and the `≈800` uu/s sideways dodge.
+   Then (b) tire friction (closing `FR-065`/`FR-066` and the ball
+   hit), then (c) the rest of the arena. See `FR-082`'s own spec
+   entry.
 
 ## Validation
 

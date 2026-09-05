@@ -227,7 +227,13 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   wheels with the hitbox `18.4` uu clear of the ground and a wheel-less
   offset box would drop a seeded car `18` uu; the unoffset box stands in
   for the wheel support until the suspension model, which is next as its
-  own entry.
+  own entry. That entry now exists: `RB-PHYSICS-001-FR-082` scopes the
+  wheel/suspension/tire model complete from RocketSim's `btVehicleRL`
+  and `_UpdateWheels` (raycast wheels, spring-damper suspension, tire
+  friction curves, analog handbrake, throttle/brake/coast, steer-angle
+  curves, sticky force, car-up jump, auto-roll), shows its constants
+  reproduce the recorded rest height and post-jump contact, and fixes
+  the design and a three-step sequencing before any code.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

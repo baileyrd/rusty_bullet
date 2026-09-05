@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.96.0
+- Version: 0.97.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -6280,6 +6280,327 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     the re-measured `--self` / `--self-growth 0.05` numbers in
     `PROJECT-STATUS.md`, and the ratchet; the full workspace stays green
     (420 tests).
+- `RB-PHYSICS-001-FR-082` (wheel/suspension/tire model — scoped,
+  documentation only): `FR-065`/`FR-066` established that real steering
+  and real handbrake friction live in a wheeled-vehicle model this port's
+  single rigid box cannot express, and `FR-081` traced everything left in
+  the isolated `dodge-derailment` fixture after the airborne phase
+  (findings 1, 3, 4, and the static half of 5) to the same missing
+  subsystem. This entry scopes adopting it: the complete real mechanism
+  as read from RocketSim's `btVehicleRL.cpp`/`.h`, `Car.cpp`
+  (`_PreTickUpdate`, `_BulletSetup`, `_UpdateWheels`, `_UpdateJump`,
+  `_UpdateAutoRoll`), `CarConfig.cpp`, and `RLConst.h`; what its constants
+  predict and what the real capture confirms; the proposed design for
+  this port; the blast radius; and a three-step sequencing — so the
+  implementation can start from a settled plan, as `FR-080`'s did. No
+  physics changed.
+  - **The real mechanism, complete.**
+    1. **Tick order** (`_PreTickUpdate`): `updateVehicleFirst` (each
+       wheel's world transform, its raycast, and its friction impulse are
+       computed but not applied) → `wheelsWithContact` and `isOnGround =
+       numWheelsInContact >= 3` → `forwardSpeed = v · forward` →
+       `_UpdateWheels` (handbrake value, engine/brake force, steer angle,
+       per-wheel friction factors, sticky force) → air torque and flip if
+       fewer than three wheels touch, else `isFlipping = false` →
+       `_UpdateJump` → `_UpdateAutoFlip` → `_UpdateDoubleJumpOrFlip` →
+       `_UpdateAutoRoll` when throttle is held and one to three wheels (or
+       the chassis) touch → `updateVehicleSecond` (suspension impulses,
+       then the friction impulses) → `_UpdateBoost`. Every vehicle impulse
+       lands on the rigid body *before* Bullet's `stepSimulation`, i.e.
+       before the contact solver sees the body — the same position this
+       port's `apply_driven_forces` already occupies.
+    2. **Geometry** (`_BulletSetup`, `CarConfig.cpp`, Octane): four
+       wheels at `FRONT_WHEELS_OFFSET = (51.25, ±25.90, 20.755)` and
+       `BACK_WHEELS_OFFSET = (-33.75, ±29.50, 20.755)` uu in the car's
+       frame (the same `20.755` the hitbox is mounted at, finding 5),
+       radii `12.5` front / `15.0` back, ray direction `(0, 0, -1)` and
+       axle `(0, -1, 0)` in the car's frame, and spring rest lengths
+       `FRONT/BACK_WHEEL_SUS_REST = 38.755 / 37.055` **minus**
+       `MAX_SUSPENSION_TRAVEL = 12` → `26.755 / 25.055` uu. Per wheel:
+       `SUSPENSION_STIFFNESS = 500`, `WHEELS_DAMPING_COMPRESSION = 25`,
+       `WHEELS_DAMPING_RELAXATION = 40`, `SUSPENSION_FORCE_SCALE_FRONT =
+       35.75`, `SUSPENSION_FORCE_SCALE_BACK = 54.265`, no force cap. A
+       correction to `FR-081` finding 1's wording: the springs are not
+       "compressed `≈13` uu at rest" — the spring's own rest is the
+       `26.755` figure and it sits `≈1.5` uu compressed; the `12` uu is the
+       *travel* the ray reaches beyond rest, which is what keeps the
+       wheels in contact after a jump (below).
+    3. **Raycast** (`btVehicleRL::rayCast`, every tick per wheel): from
+       the mount, along the car's down axis, length `rest + travel +
+       radius - SUSPENSION_SUBTRACTION (0.05)` = `51.205` front /
+       `52.005` back uu, against the static scene (and other bodies; the
+       chassis itself is excluded). On a hit: `suspensionLength` = (hit
+       distance along the car's up) `- radius`, clamped to `rest ± 12`;
+       the contact normal is the surface's; `inv = 1 / (normal · up)` and
+       `relVel = (normal · velocity_at_contact) · inv` when `normal · up
+       > 0.1` (else `relVel = 0`, `inv = 10`); against a *static* object,
+       when the hit is shorter than `rest_unsubtracted + radius - 0.05`
+       (the wheel bottom is through the surface), an `extraPushback`
+       impulse is taken from Bullet's `resolveSingleCollision` with the
+       shortfall as penetration and divided by the wheel count. No hit:
+       `suspensionLength = rest + 12`, `relVel = 0`, normal `= -down`.
+    4. **Suspension** (`updateSuspension`, applied in
+       `updateVehicleSecond`): per touching wheel `force = (rest -
+       suspensionLength) · 500 · inv - damping · relVel`, `damping = 25`
+       when compressing (`relVel < 0`) else `40`, times the front/back
+       force scale, floored at `0` ("RL never uses downwards suspension
+       forces"); applied as the impulse `normal · (force · dt +
+       extraPushback)` at the contact point (lever arm from the centre of
+       mass, so it also torques the body). Units: RocketSim runs these in
+       Bullet units (`uu / 50`) with the same `180` mass, and because
+       `a = k · Δx / m` scales identically on both sides, every stiffness,
+       damping, and force-scale number above is unit-invariant when
+       treated as *acceleration per uu of compression per unit mass* —
+       this port can use them in uu unchanged.
+    5. **Tire friction** (`calcFrictionImpulses`, applied in
+       `applyFrictionImpulses`): `frictionScale = mass / 3 = 60`. Per
+       touching wheel: the axle direction (including the steer angle) is
+       projected onto the surface and normalized; `forward = normal ×
+       axle`; `sideImpulse` from Bullet's `resolveSingleBilateral` along
+       the axle (the impulse that would zero the contact point's lateral
+       velocity through the contact's effective mass, i.e. ideal lateral
+       grip); rolling term: engine held → `-engineForce / frictionScale`;
+       no engine but brake → `clamp(-relVel_forward · 113.73963, ±brake)`
+       (`ROLLING_FRICTION_SCALE_MAGIC`, RocketSim's own "no idea where
+       this number comes from"); neither → `0`. `impulse = (forward ·
+       rolling · longFriction + axle · side · latFriction) ·
+       frictionScale`, applied `× dt` at the contact offset with its
+       component along the car's up removed (so tire forces never pitch
+       the body about the contact height). The magnitudes check out
+       against numbers this port already has: `THROTTLE_TORQUE_AMOUNT =
+       180 · 400` per wheel over four wheels is `1600` uu/s²
+       (`THROTTLE_ACCELERATION`, `FR-007`), `BRAKE_TORQUE_AMOUNT = 180 ·
+       (14.25 + 1/3)` per wheel through `frictionScale` over four wheels
+       is `3500` uu/s² (the real brake deceleration), and the proportional
+       band of the brake (`|relVel| < 52.5 / 113.74` Bullet units) is
+       `≈23` uu/s — `STOPPING_FORWARD_VEL = 25` to within rounding.
+    6. **`_UpdateWheels`, every tick.** Handbrake is an analog
+       `handbrakeVal` rising at `POWERSLIDE_RISE_RATE = 5`/s and falling at
+       `POWERSLIDE_FALL_RATE = 2`/s, clamped `[0, 1]`. Throttle: boost with
+       boost left forces `throttle = 1`; unless handbraking, throttle below
+       `THROTTLE_DEADZONE = 0.001` means *coasting* — engine `0`, brake
+       `COASTING_BRAKE_FACTOR = 0.15`, or full brake `1` below
+       `STOPPING_FORWARD_VEL = 25` uu/s; throttle against the direction of
+       travel above `25` uu/s means full brake and (above
+       `BRAKING_NO_THROTTLE_SPEED_THRESH = 0.01`) engine `0`. `engineForce
+       = throttle · THROTTLE_TORQUE_AMOUNT · DRIVE_SPEED_TORQUE_FACTOR_CURVE
+       (|forwardSpeed|)` — `FR-058`'s taper, exactly — divided by `4` when
+       fewer than three wheels touch; `brake = realBrake ·
+       BRAKE_TORQUE_AMOUNT`; both set on all four wheels. Steering: the
+       front two wheels get `steer · angle(|forwardSpeed|)` with
+       `STEER_ANGLE_FROM_SPEED_CURVE = {0: 0.53356, 500: 0.31930, 1000:
+       0.18203, 1500: 0.10570, 1750: 0.08507, 3000: 0.03454}` rad blended
+       toward `POWERSLIDE_STEER_ANGLE_FROM_SPEED_CURVE = {0: 0.39235, 2500:
+       0.12610}` by `handbrakeVal` (`FR-065`'s curve, and its inverted
+       shape relative to this port's `speed_factor`). Friction factors per
+       touching wheel: with `lat = |v_contact · latDir|` (`v_contact = ω ×
+       mount_offset + v`) and `long = |v_contact · longDir|`, the curve
+       input is `lat / (long + lat)` when `lat > 5` uu/s else `0`;
+       `latFriction = LAT_FRICTION_CURVE {0: 1.0, 1: 0.2}`, `longFriction =
+       LONG_FRICTION_CURVE` (empty → `1`); if `handbrakeVal > 0`, `lat *=
+       1 + (0.1 - 1) · handbrakeVal` and `long *= 1 + (LONG_FACTOR(input)
+       - 1) · handbrakeVal` with `HANDBRAKE_LONG_FRICTION_FACTOR_CURVE =
+       {0: 0.5, 1: 0.9}` (`FR-066`'s anisotropy), else `longFriction = 1`;
+       and when throttle is zero (not "sticky") both are scaled by
+       `NON_STICKY_FRICTION_FACTOR_CURVE {0: 0.1, 0.7075: 0.5, 1: 1.0}` of
+       the contact normal's `z`. Sticky force, whenever at least one wheel
+       touches the world: `applyCentralForce(upwardsDir · scale · g ·
+       mass)` with `upwardsDir` the normalized sum of the touching wheels'
+       contact normals, `g = -650`, and `scale = 0.5 + (1 - |upwardsDir.z|)`
+       when throttle is held or `|forwardSpeed| > 25`, else `0.5` — half a
+       g pressed into the floor at all times on the ground, a full g into
+       a vertical wall when driving on it.
+    7. **Jump** (`_UpdateJump`): `isOnGround` (three or more wheels) is
+       the jump's precondition and what resets `hasJumped` (with a
+       `JUMP_RESET_TIME_PAD = 1/40` s guard after a minimum-time jump so
+       the wheels' lingering contact cannot reset it early); the impulse
+       `JUMP_IMMEDIATE_FORCE = 875/3` and the hold force `JUMP_ACCEL =
+       4375/3` (`× 0.62` before `JUMP_MIN_TIME`) are along the **car's own
+       up axis**, not world `z` — identical on flat ground, different on
+       a wall or a curve. `FR-010`/`FR-015`'s constants are all confirmed;
+       only the direction and the ground test differ.
+    8. **Auto-roll** (`_UpdateAutoRoll`, `CAR_AUTOROLL_FORCE = 100`,
+       `CAR_AUTOROLL_TORQUE = 80`): with throttle held and one to three
+       wheels touching (or a chassis-world contact), a central force of
+       `100 · mass` toward the ground (along the averaged wheel-contact
+       normal) and an inertia-cancelled torque of `80` toward aligning the
+       car's up with it. This is the real counterpart of `FR-018`'s
+       retired landing assist — and it needs partial wheel contact and
+       throttle, so it could not exist before the wheels do.
+    9. **The chassis still collides.** The hitbox (a `btCompoundShape` at
+       `HITBOX_OFFSETS[OCTANE]`, finding 5) meets the arena with
+       `CAR_COLLISION_FRICTION = 0.3` / `CAR_COLLISION_RESTITUTION = 0.1`
+       and other cars with `CARCAR_COLLISION_FRICTION = 0.09` /
+       `RESTITUTION = 0.1` (`FR-063`); normally the wheels hold it `18.4`
+       uu clear of the floor and the box only touches when the car is on
+       its roof, its side, or a corner.
+  - **What the constants predict, and what the capture confirms.**
+    1. **Rest height.** Balancing the four springs against the car's
+       weight *plus the half-g sticky force* (`180 · 650 · 1.5`), with the
+       front deficit `39.255 - h` and back `40.055 - h` (`h` the mount
+       height): `2 · 500 · 35.75 · Δf + 2 · 500 · 54.265 · (Δf + 0.8) =
+       175500` gives `Δf = 1.47` uu, `h = 37.79`, origin `z = 17.03` —
+       RocketSim's `CAR_SPAWN_REST_Z = 17` and the fixture's recorded
+       `17.0` (without the sticky term it would be `17.68`). Every
+       constant above is load-bearing and they land on the recorded
+       number together.
+    2. **Contact after a jump.** The front ray reaches `51.205` uu below
+       the mount, so contact persists until the origin is `13.4` uu above
+       rest (`z ≈ 30.45`; back wheels `31.25`). At the jump's `292` uu/s
+       minus gravity, the sticky half-g, and the `0.62`-scaled hold that
+       is `≈4`–`5` ticks — the fixture's four ticks of `+77` uu/s
+       (`FR-081` finding 1), during which the springs are extended past
+       rest (force floored at `0`, so no downward spring pull) and only
+       the tires and the sticky force act. `driveSpeedScale / 4` once
+       fewer than three wheels touch tapers the gain, as the recorded
+       `+14, +19, +21, +23` uu/s steps do not — the ramp-*up* shape is the
+       tire's slip curve at a `17°` slip angle, to be checked in step (b).
+    3. **The landing.** The recording's wheels touch at origin `z ≈ 41`
+       with the nose `14°` down — consistent: the front mounts at `≈48.7`
+       uu are inside the `51.2` uu ray. From there the damping term acts
+       across the whole `12` uu of extension while the spring only engages
+       below rest (`z < 18.5`), which is exactly a soft, no-bounce `0.13`
+       s stop (`vz` `-312 → 0`) settling at `15.5`–`16` (rest `17.0` minus
+       the extra sticky-force compression at speed) — `FR-081` finding 4,
+       and the reason the port's rigid box (corner catch at `34.5`, `5.0`
+       rad/s kick, bounce to `+44` uu/s, hover at `22`) cannot be tuned
+       into it.
+    4. **The ball hit** (finding 3) follows: with the post-jump tire
+       forces the car arrives where the recording's does at `t = 5.758`.
+  - **What this port does instead.** Support and friction come from the
+    unoffset box's corners against the plane (rest `19.3`, finding 5's
+    stand-in); `on_ground` is that box touching the ground at the start
+    of the step, so every ground force cuts the tick the box lifts;
+    `THROTTLE_ACCELERATION` is a central force (right total, wrong point
+    of application and no per-wheel gating); steering is `STEER_TORQUE`
+    scaled *up* with speed (`FR-065`); handbrake is
+    `HANDBRAKE_FRICTION_MULTIPLIER` on the box's isotropic friction
+    (`FR-066`); coasting has no brake; there is no sticky force, no
+    auto-roll, and the jump is along world `z`. None of these constants
+    is wrong in a way tuning could fix; they sit on the wrong mechanism
+    (`FR-081`'s "do not tune any grounded constant before then").
+  - **Proposed design for this port.**
+    1. **Descriptors and state.** `drive::WHEELS: [WheelMount; 4]`
+       (`mount`, `radius`, `rest_length` (already minus travel),
+       `force_scale`, `is_front`) — Octane values only. Per car, in
+       `PhysicsWorld`: `car_wheels: Vec<[WheelState; 4]>` (`in_contact`,
+       `contact_point`, `contact_normal`, `suspension_length`,
+       `relative_velocity`, `inv_normal_dot_up`, `extra_pushback`,
+       `friction_impulse`) and `car_handbrake_value: Vec<f32>`;
+       `wheels_in_contact` derived. `frame()` and `PhysicsFrame` are
+       unchanged — wheel state is internal, exactly as `car_dodge_flip`
+       is. `from_frame` seeds no wheel state; the first step's raycast
+       establishes contact, so a car seeded at the recorded `z = 17.0`
+       is supported from its first tick (the property finding 5's
+       correction needed and could not have).
+    2. **Raycast against the static scene.** New
+       `collision::raycast_static(origin, direction, max_length,
+       &StaticScene) -> Option<RayHit { point, normal, fraction }>`,
+       nearest hit across `StaticPlane`, `StaticQuarterPipe`,
+       `StaticCornerFillet`, `StaticGoalWall`, `StaticBoundedWall` — each
+       shape's own `ray_vs_*`, the same per-shape decomposition
+       `contacts_vs_*` already follows. Other bodies are not raycast
+       (non-goal below).
+    3. **Step order** (`PhysicsWorld::step`): for each car, raycast the
+       four wheels from the *start-of-step* transform (replacing the
+       `car_on_ground` box test; `car_wall_normal` stays for the wall
+       jump until step (c) makes it the wheels' averaged normal) →
+       `wheels_in_contact`, `on_ground = wheels_in_contact >= 3` →
+       `drive::apply_driven_forces` computes, in the real order, the
+       handbrake value, engine/brake/steer, per-wheel friction factors and
+       impulses, the sticky force, then the existing air/jump/flip logic
+       gated on the new `on_ground` → the suspension impulses and the
+       friction impulses are applied to the car (`apply_impulse` at the
+       contact offsets, exactly the two `updateVehicleSecond` loops) →
+       velocity integration → the contact solve, where the car's static
+       contact now uses `hitbox_center()` (finishing finding 5) with
+       `CAR_COLLISION_FRICTION`/`RESTITUTION` → transform integration →
+       `clamp_angular_speed`. `resolveSingleBilateral` and
+       `resolveSingleCollision` are ported from Bullet's
+       `btContactConstraint.cpp` (the effective-mass and
+       penetration-error formulas `solver.rs` already carries in row
+       form; expose them as two small functions) under the existing zlib
+       attribution.
+    4. **What `drive.rs` loses.** `STEER_TORQUE` and its `speed_factor`,
+       `HANDBRAKE_FRICTION_MULTIPLIER`, `car_base_friction` and the
+       per-step `car.friction` swap, the central throttle force, and the
+       world-`z` jump direction — replaced by the steer-angle curves, the
+       handbrake value with its two factor curves, per-wheel engine/brake
+       with `drive_speed_taper` reused as `driveSpeedScale`, and the
+       car-up jump. `FR-065` and `FR-066` close with it. A small
+       `PiecewiseLinear` helper generalizes `DRIVE_SPEED_TAPER_BREAKPOINTS`
+       for the six new curves.
+    5. **Fixed-point subtlety worth stating now.** The brake's
+       proportional band (`113.74 × relVel`) at `120` Hz over-corrects
+       (`151.7/s` decay, per-tick factor `-0.26`), which is why RocketSim
+       rounds small `relVel` to zero only below `80` tps; at this port's
+       `120` Hz the real behaviour is the oscillating one and is kept.
+  - **Blast radius.** `world.rs` (`step`'s front half, four new per-car
+    vectors threaded through `with_car`/`from_frame`, `static_contact_
+    manifolds` reading `hitbox_center()` for cars); `drive.rs` (the
+    ground branch rewritten; the air branch, boost, jump hold, flip, and
+    air-control damping untouched apart from the jump direction);
+    `collision.rs` (five `ray_vs_*` routines and `raycast_static`);
+    `body.rs` (wheel descriptors; `standard_car` friction/restitution to
+    `0.3`/`0.1`); `solver.rs` (two exposed helpers, no behaviour change).
+    Tests: every grounded test in `drive.rs` (`68` references to the
+    grounded helpers across its `95` tests) and every `world.rs` test
+    that seeds a car at `CAR_HALF_EXTENTS.z` or asserts the `19.3` rest
+    height (a dozen) move to the wheel model's numbers — the largest test
+    churn of any entry, and unavoidable: their expectations encode the
+    stand-in. `rb_domain`, the ingest crates, `PhysicsFrame`, and the
+    ball's physics are untouched.
+  - **Sequencing.**
+    - **(a) Flat-ground wheels, old tire forces.** Descriptors, raycast
+      against `StaticPlane` only, suspension with the sticky force, the
+      chassis on `hitbox_center()` for static contact, `on_ground` from
+      the wheel count, the car-up jump — with throttle, steering, and
+      handbrake left on today's direct model but gated on the new
+      `on_ground`. Measurable alone: rest height `17.0` (the derivation
+      above becomes a test), the fixture's post-jump contact ticks, and
+      its landing (`vz` `-312 → 0` in `≈0.13` s, no bounce, no spurious
+      airborne read at `t = 5.758`, so the recorded ground jump fires
+      instead of the port's sideways dodge — the `≈800` uu/s spike).
+    - **(b) Tire friction.** Engine/brake/coast, the lateral bilateral
+      impulse, the friction curves and the non-sticky curve, the
+      steer-angle curves replacing `STEER_TORQUE`, the handbrake value and
+      factor curves replacing `HANDBRAKE_FRICTION_MULTIPLIER`. Measurable:
+      the four post-jump ticks' `+77` uu/s, the `172` uu arrival gap, and
+      the ball hit (finding 3 — `mean_ball_distance` moves off `729.95`
+      for the first time since `FR-079`).
+    - **(c) The rest of the arena.** `raycast_static` over the curves,
+      fillets, goal walls, and bounded walls; the wall jump's normal from
+      the wheels; auto-roll; `extraPushback`. Measurable on wall-driving
+      and curve-landing scenarios, not on this fixture.
+    Each step keeps the workspace green, re-measures the fixture, and
+    tightens the ratchet as the number drops.
+  - **Non-goals (this requirement).** Changes no code. The
+    implementation steps do not model three-wheel or non-Octane presets
+    (descriptors are Octane-only; other presets are a data change later),
+    do not raycast against other bodies (RocketSim allows a wheel to rest
+    on the ball or a car; this port's wheels see only the static scene),
+    do not track the chassis's own world-contact normal for auto-roll's
+    fallback, and do not calibrate any of the replaced constants — they
+    are deleted, not tuned. Does not touch
+    `RB-PHYSICS-001-FR-005`'s real-data calibration, no longer blocked on
+    `PHASE-0-EXIT` (now closed), but not itself started.
+  - **Acceptance criteria.** This entry records the complete real
+    mechanism with its symbols and constants, the rest-height and
+    post-jump-contact derivations and their match to the capture, the
+    proposed design, the blast radius, and the three-step sequencing;
+    `FR-081` finding 1's wording is corrected here; `PROJECT-STATUS.md`'s
+    Next item points at step (a).
+  - **Verification plan.** No new tests (documentation-only, matching
+    `FR-080`'s scoping precedent); the full workspace stays green (420
+    tests). For the steps: (a) a `standard_car` seeded at `z = 17.0`
+    stays within `0.1` uu of it, a car dropped from `z = 41` settles with
+    no upward `vz`, four wheels report contact for `≥ 4` ticks after a
+    ground jump; (b) `1600`/`3500` uu/s² throttle/brake totals from the
+    per-wheel model, a full-lock steady-state turn radius at `500` uu/s
+    from the curve, the handbrake's lateral/longitudinal ratio; (c) a car
+    driving up a wall holds it with the sticky force; plus the
+    re-measured `--self` / `--self-growth 0.05` numbers and the ratchet
+    at every step.
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -7766,6 +8087,23 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.97.0 (2026-09-05): `RB-PHYSICS-001-FR-082` added (documentation
+  only): the wheel/suspension/tire model scoped from RocketSim's
+  `btVehicleRL` and `Car::_UpdateWheels` — tick order, the four Octane
+  wheel mounts and radii, the `26.755`/`25.055` uu spring rests (the
+  declared rests minus the `12` uu travel; `FR-081` finding 1's
+  "compressed `≈13` uu" wording corrected), the `51.2` uu raycast,
+  the spring-damper with its front/back force scales, the tire
+  friction impulses with their lateral/longitudinal curves, the analog
+  handbrake, throttle/brake/coast logic, the steer-angle curves, the
+  sticky force, the car-up jump on a three-wheel ground test, and
+  auto-roll. The constants reproduce the recorded rest height (`17.03`
+  vs `17.0`, only with the half-g sticky force) and the four ticks of
+  post-jump contact. Proposed design (per-car wheel state, a static-
+  scene raycast, the chassis on `hitbox_center()` for static contact,
+  `STEER_TORQUE`/`HANDBRAKE_FRICTION_MULTIPLIER`/the central throttle
+  force retired), blast radius, and a three-step sequencing: (a)
+  flat-ground wheels, (b) tire friction, (c) the rest of the arena.
 - 0.96.0 (2026-09-05): `RB-PHYSICS-001-FR-081` finding 5 implemented for
   body-vs-body contact, its scoping corrected first: the real car rests on
   its wheels with the hitbox `18.4` uu clear of the ground, so the offset
