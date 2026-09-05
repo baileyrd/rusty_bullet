@@ -39,6 +39,44 @@ pub struct Contact {
 /// bodies don't jitter between "touching" and "not touching" every frame.
 const CONTACT_PROCESSING_THRESHOLD: f32 = 0.01;
 
+/// Where a ray hit a static surface (`btVehicleRaycaster::
+/// btVehicleRaycasterResult`): the point, the surface normal there, and
+/// the distance along the ray — `RB-PHYSICS-001-FR-082`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RayHit {
+    pub point: Vec3,
+    pub normal: Vec3,
+    pub distance: f32,
+}
+
+/// Casts a ray from `origin` along the unit `direction` for at most
+/// `max_distance` against `plane` — the wheel raycast of
+/// `RB-PHYSICS-001-FR-082`. Hits only the plane's front face from in
+/// front of it: an origin behind the plane, or a ray parallel to it or
+/// moving away from it, misses, as Bullet's own front-face ray test on a
+/// `btStaticPlaneShape` does.
+pub fn ray_vs_plane(
+    origin: Vec3,
+    direction: Vec3,
+    max_distance: f32,
+    plane: &StaticPlane,
+) -> Option<RayHit> {
+    let start = plane.signed_distance(&origin);
+    let rate = plane.normal.dot(&direction);
+    if start < 0.0 || rate >= 0.0 {
+        return None;
+    }
+    let distance = -start / rate;
+    if distance > max_distance {
+        return None;
+    }
+    Some(RayHit {
+        point: origin + direction * distance,
+        normal: plane.normal,
+        distance,
+    })
+}
+
 use crate::body::{
     StaticBoundedWall, StaticCornerFillet, StaticGoalWall, StaticPlane, StaticQuarterPipe,
 };

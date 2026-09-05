@@ -6,6 +6,49 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The car has wheels: real suspension, real tires, and the first ball hit
+**2026-09-05** · `RB-PHYSICS-001-FR-082` step (a)
+
+- Four raycast wheels at RocketSim's Octane mounts on the real
+  spring-damper suspension (`500`, `25`/`40`, front/back force
+  scales, never pulling down), the half-g sticky force, and the
+  `extraPushback` hard stop replace the box-on-floor stand-in. Tire
+  forces are per-wheel impulses at the contact: Bullet's bilateral
+  lateral grip and the engine/brake/coast rolling term, with the real
+  speed-to-steer-angle curve on the front wheels and the real
+  handbrake lateral factor. Three or more wheels touching is "on the
+  ground"; the jump fires along the car's own up; the chassis meets
+  the arena at its real mount now that the wheels hold it clear.
+  `STEER_TORQUE`, `HANDBRAKE_FRICTION_MULTIPLIER`, and
+  `THROTTLE_ACCELERATION` are retired, and `FR-065`/`FR-066` close.
+- **Three corrections to the plan, found by measuring.** The tire
+  mechanism could not wait for step (b): the wheels lift the box off
+  the friction it used to drive on. Neither could the steer curve:
+  with real tires and the old torque the fixture got *worse*
+  (`239.55 → 310.89` uu), because the recorded car yaws faster and
+  faster under full steer through the grounded ticks and unsteered
+  tires fight any torque that imitates that; with the curve those
+  ticks match to `0.00` rad. And `SUSPENSION_SUBTRACTION` is `0.05`
+  *Bullet* units — `2.5` uu — so the pushback is a hard stop `2.5` uu
+  past rest, not a term that would have put the resting car at
+  `18.2`; read that way it ports cleanly and the landing bottoms out
+  at `15.46` against the recording's `15.54`, rebounding `+17.5` uu/s
+  against the recording's `+14` (`FR-081`'s "no bounce" was an
+  overstatement).
+- **The fixture.** `239.55 uu / 0.68 rad / 302.85 uu/s → 160.19 uu /
+  0.44 rad / 264.09 uu/s`; the grounded ticks and the whole flight
+  match to `0.04` rad; the landing reads `0.01`–`0.02` rad with no
+  airborne read and no sideways dodge; and the port's car hits the
+  ball at `t = 5.758` for the first time — `mean_ball_distance`
+  `729.95 → 79.55` uu. What remains starts after the hit.
+- `THIRD_PARTY_NOTICES.md` gains a RocketSim (MIT) section: this is
+  the first port of RocketSim control flow, not just its constants.
+  `rb_physics_bullet` 359 → 382 tests, the workspace 420 → 443; the
+  ratchet tightens to `< 165` uu on the car and `< 100` uu on the
+  ball.
+
+---
+
 ## The wheel and suspension model is scoped: the plan before the code
 **2026-09-05** · `RB-PHYSICS-001-FR-082`
 

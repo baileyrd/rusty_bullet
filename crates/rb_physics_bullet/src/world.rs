@@ -10,6 +10,7 @@ use crate::body::{
 use crate::collision;
 use crate::net::NetMesh;
 use crate::solver::ContactCache;
+use crate::wheels;
 use crate::{drive, integrate, solver};
 use rb_domain::{BallState, CarState, ControllerInput, PhysicsFrame, Vec3};
 use std::collections::HashMap;
@@ -85,10 +86,10 @@ fn clamp_ball_velocity(ball: &mut RigidBody) {
 /// comment). Each car also has a
 /// current `ControllerInput` (`car_inputs`, set via `set_car_input`,
 /// `ControllerInput::default()` — neutral — until set), a boost resource
-/// (`car_boost`, set via `set_car_boost`, starting full), a remembered base
-/// friction (`car_base_friction`, snapshotted from the car's own
-/// `RigidBody.friction` when added) that `drive::apply_driven_forces` uses
-/// to restore grip after a handbrake-induced reduction, a remembered
+/// (`car_boost`, set via `set_car_boost`, starting full), four wheels
+/// (`car_wheels`, `RB-PHYSICS-001-FR-082`: each wheel's contact, spring
+/// length, and drive fields, rewritten every step and readable through
+/// `car_wheels`), a remembered
 /// jump-held state (`car_jump_held`, starting `false`) that
 /// `drive::apply_driven_forces` uses to fire jump only on a fresh press,
 /// a remembered double-jump-available flag (`car_double_jump_available`,
@@ -116,7 +117,7 @@ pub struct PhysicsWorld {
     pub cars: Vec<RigidBody>,
     car_inputs: Vec<ControllerInput>,
     car_boost: Vec<f32>,
-    car_base_friction: Vec<f32>,
+    car_wheels: Vec<[wheels::WheelState; 4]>,
     car_jump_held: Vec<bool>,
     car_double_jump_available: Vec<bool>,
     car_jump_hold_time_remaining: Vec<f32>,
@@ -206,7 +207,7 @@ impl PhysicsWorld {
             cars: Vec::new(),
             car_inputs: Vec::new(),
             car_boost: Vec::new(),
-            car_base_friction: Vec::new(),
+            car_wheels: Vec::new(),
             car_jump_held: Vec::new(),
             car_double_jump_available: Vec::new(),
             car_jump_hold_time_remaining: Vec::new(),
@@ -428,7 +429,7 @@ impl PhysicsWorld {
     /// two-car scene — since a car's `player_id` in `frame()` is just its
     /// index in `cars`, added cars are always appended, never inserted.
     pub fn with_car(mut self, car: RigidBody) -> PhysicsWorld {
-        self.car_base_friction.push(car.friction);
+        self.car_wheels.push(wheels::initial_wheels());
         self.cars.push(car);
         self.car_inputs.push(ControllerInput::default());
         self.car_boost.push(drive::MAX_BOOST);
@@ -455,6 +456,28 @@ impl PhysicsWorld {
         self.car_boost[index] = amount.clamp(0.0, drive::MAX_BOOST);
     }
 
+    /// Car `index`'s four wheels as the last `step` left them
+    /// (`RB-PHYSICS-001-FR-082`): contact, contact point and normal,
+    /// spring length, and the drive fields — the wheel state a car
+    /// carries between steps. A car that has never been stepped reports
+    /// every wheel airborne.
+    pub fn car_wheels(&self, index: usize) -> &[wheels::WheelState; 4] {
+        &self.car_wheels[index]
+    }
+
+    /// The body as the static-scene collision routines see it: its shape
+    /// centred on `hitbox_center()` — the real mount for a car
+    /// (`RB-PHYSICS-001-FR-082` step (a) finishes `FR-081` finding 5, now
+    /// that the wheels hold the chassis `18.4` uu clear of the floor), a
+    /// no-op for the ball. The contacts it produces are world-space
+    /// points; the solver's lever arms come from the real body's
+    /// `position`, the centre of mass.
+    fn static_probe(body: &RigidBody) -> RigidBody {
+        let mut probe = *body;
+        probe.position = body.hitbox_center();
+        probe
+    }
+
     /// Applies forces and integrates velocities for one body — the first
     /// phase of `btDiscreteDynamicsWorld::stepSimulation`
     /// (`predictUnconstrainedMotion`, run for every body before any
@@ -467,11 +490,13 @@ impl PhysicsWorld {
     }
 
     /// Like `apply_forces_and_integrate_velocities`, but for a car: also
-    /// applies `drive::apply_driven_forces` (throttle/steer/handbrake/jump
-    /// gated on `on_ground`, computed from the car's position at the start
-    /// of this step, before anything moves; boost not gated on it, but
-    /// draining `boost_amount`; handbrake temporarily lowering
-    /// `car.friction` below `base_friction`; jump firing an instantaneous
+    /// runs the wheels (`RB-PHYSICS-001-FR-082`: the tire friction
+    /// impulses from the start-of-step velocity, this step's engine/brake/
+    /// steer/friction fields and the sticky force, then the suspension and
+    /// friction impulses) and `drive::apply_driven_forces` (the ground
+    /// jump gated on `on_ground` — three or more wheels touching, from the
+    /// rays cast at the start of this step, before anything moves; boost
+    /// not gated on it, but draining `boost_amount`; jump firing an instantaneous
     /// upward velocity change on a fresh press, tracked via `jump_held`;
     /// double jump firing the same kind of impulse on a fresh airborne
     /// press, gated on and consuming `double_jump_available`, restored on
@@ -491,20 +516,37 @@ impl PhysicsWorld {
     #[allow(clippy::too_many_arguments)]
     fn drive_and_integrate_velocities(
         car: &mut RigidBody,
+        car_wheels: &mut [wheels::WheelState; 4],
         input: &ControllerInput,
-        on_ground: bool,
         wall_normal: Option<Vec3>,
         boost_amount: &mut f32,
         jump_held: &mut bool,
         double_jump_available: &mut bool,
         jump_hold_time_remaining: &mut f32,
         dodge_flip: &mut Option<drive::DodgeFlip>,
-        base_friction: f32,
         gravity: Vec3,
         dt: f32,
     ) {
         car.clear_forces();
         integrate::apply_gravity(car, gravity);
+        // RB-PHYSICS-001-FR-082, in RocketSim's `_PreTickUpdate` order:
+        // the wheels' friction impulses from the start-of-step velocity
+        // and last tick's drive fields; the grounded state from the wheel
+        // count; this tick's drive fields and the sticky force; the
+        // driven forces; then the suspension and friction impulses, as
+        // velocity changes ahead of the contact solve.
+        wheels::compute_friction_impulses(car, car_wheels, dt);
+        let on_ground = wheels::is_on_ground(car_wheels);
+        wheels::update_wheels(
+            car,
+            car_wheels,
+            input.throttle,
+            input.steer,
+            input.boost,
+            *boost_amount,
+            input.handbrake,
+            gravity.z,
+        );
         drive::apply_driven_forces(
             car,
             input,
@@ -515,9 +557,10 @@ impl PhysicsWorld {
             double_jump_available,
             jump_hold_time_remaining,
             dodge_flip,
-            base_friction,
             dt,
         );
+        wheels::apply_suspension_impulses(car, car_wheels, dt);
+        wheels::apply_friction_impulses(car, car_wheels, dt);
         integrate::apply_damping(car, dt);
         integrate::integrate_velocities(car, dt);
     }
@@ -561,6 +604,8 @@ impl PhysicsWorld {
         scene: &StaticScene,
     ) -> Vec<(f32, f32, Vec<collision::Contact>)> {
         let mut manifolds: Vec<(f32, f32, Vec<collision::Contact>)> = Vec::new();
+        let probe = Self::static_probe(body);
+        let body = &probe;
 
         let ground_contacts = collision::contacts_vs_plane(body, scene.ground);
         if !ground_contacts.is_empty() {
@@ -685,12 +730,22 @@ impl PhysicsWorld {
         // re-derives the same contacts for the actual solve; the small
         // duplicated `contacts_vs_plane` call is simpler than threading
         // the manifold through, and cheap (a handful of corner checks).
-        let car_on_ground: Vec<bool> = self
-            .cars
-            .iter()
-            .map(|car| !collision::contacts_vs_plane(car, &self.ground).is_empty())
-            .collect();
-        // Same idea as car_on_ground, but for walls: the outward push-off
+        // RB-PHYSICS-001-FR-082: each car's four wheel rays, from its
+        // start-of-step transform, against the scene's flat planes (the
+        // ground and the walls; the curved and bounded shapes are step
+        // (c)) — `btVehicleRL::updateVehicleFirst`'s raycast half. Three
+        // or more wheels touching is the grounded state
+        // `drive_and_integrate_velocities` derives below.
+        {
+            let planes: Vec<&StaticPlane> = std::iter::once(&self.ground)
+                .chain(self.walls.iter())
+                .collect();
+            for (car, car_wheels) in self.cars.iter().zip(self.car_wheels.iter_mut()) {
+                wheels::raycast_wheels(car, car_wheels, &planes, dt);
+            }
+        }
+        // The wall-jump push-off direction, from the chassis touching a wall
+        // (the wheels' contact normals take this over in step (c)): the outward push-off
         // direction for a wall jump. Since `RB-PHYSICS-001-FR-039`, a car
         // touching two walls at once (a corner — reachable at a diagonal
         // corner wall's own two seams, where it meets a side or back wall)
@@ -711,10 +766,11 @@ impl PhysicsWorld {
             .cars
             .iter()
             .map(|car| {
+                let probe = Self::static_probe(car);
                 let touched_normals: Vec<Vec3> = self
                     .walls
                     .iter()
-                    .filter(|wall| !collision::contacts_vs_plane(car, wall).is_empty())
+                    .filter(|wall| !collision::contacts_vs_plane(&probe, wall).is_empty())
                     .map(|wall| wall.normal)
                     .collect();
                 let mut summed_normal = Vec3::ZERO;
@@ -731,7 +787,7 @@ impl PhysicsWorld {
         for (
             (
                 (
-                    ((((((car, input), on_ground), wall_normal), boost), base_friction), jump_held),
+                    (((((car, car_wheels), input), wall_normal), boost), jump_held),
                     double_jump_available,
                 ),
                 jump_hold_time_remaining,
@@ -740,11 +796,10 @@ impl PhysicsWorld {
         ) in self
             .cars
             .iter_mut()
+            .zip(self.car_wheels.iter_mut())
             .zip(self.car_inputs.iter())
-            .zip(car_on_ground.iter())
             .zip(car_wall_normal.iter())
             .zip(self.car_boost.iter_mut())
-            .zip(self.car_base_friction.iter())
             .zip(self.car_jump_held.iter_mut())
             .zip(self.car_double_jump_available.iter_mut())
             .zip(self.car_jump_hold_time_remaining.iter_mut())
@@ -752,15 +807,14 @@ impl PhysicsWorld {
         {
             Self::drive_and_integrate_velocities(
                 car,
+                car_wheels,
                 input,
-                *on_ground,
                 *wall_normal,
                 boost,
                 jump_held,
                 double_jump_available,
                 jump_hold_time_remaining,
                 dodge_flip,
-                *base_friction,
                 self.gravity,
                 dt,
             );
@@ -1338,41 +1392,49 @@ mod tests {
             ..ControllerInput::default()
         };
 
+        // Three ticks: the throttle is recorded on the first frame only.
+        // RB-PHYSICS-001-FR-082's wheels carry RocketSim's one-tick lag
+        // (a tick's engine force is set after that tick's friction
+        // impulses are computed), so the recorded throttle shows up in the
+        // *second* step's velocity — driven by the first frame's input,
+        // not the second's neutral one.
+        let car_state = |input: ControllerInput| CarState {
+            player_id: 0,
+            position: Vec3::new(0.0, 0.0, 17.0),
+            rotation: Quat::IDENTITY,
+            velocity: Vec3::ZERO,
+            angular_velocity: Vec3::ZERO,
+            boost_amount: 0.0,
+            input: Some(input),
+        };
         let recorded = vec![
             PhysicsFrame {
                 timestamp_secs: 0.0,
                 ball: ball_state_at(Vec3::new(1000.0, 0.0, 1000.0)),
-                cars: vec![CarState {
-                    player_id: 0,
-                    position: Vec3::new(0.0, 0.0, 17.0),
-                    rotation: Quat::IDENTITY,
-                    velocity: Vec3::ZERO,
-                    angular_velocity: Vec3::ZERO,
-                    boost_amount: 0.0,
-                    input: Some(driving_input),
-                }],
+                cars: vec![car_state(driving_input)],
             },
             PhysicsFrame {
-                timestamp_secs: 1.0,
+                timestamp_secs: 1.0 / 120.0,
                 ball: ball_state_at(Vec3::new(1000.0, 0.0, 1000.0)),
-                cars: vec![CarState {
-                    player_id: 0,
-                    position: Vec3::new(0.0, 0.0, 17.0),
-                    rotation: Quat::IDENTITY,
-                    velocity: Vec3::ZERO,
-                    angular_velocity: Vec3::ZERO,
-                    boost_amount: 0.0,
-                    input: Some(ControllerInput::default()),
-                }],
+                cars: vec![car_state(ControllerInput::default())],
+            },
+            PhysicsFrame {
+                timestamp_secs: 2.0 / 120.0,
+                ball: ball_state_at(Vec3::new(1000.0, 0.0, 1000.0)),
+                cars: vec![car_state(ControllerInput::default())],
             },
         ];
         let world = PhysicsWorld::from_frame(&recorded[0]);
         let frames = simulate_recorded(world, &recorded);
-        assert_eq!(frames.len(), 2);
+        assert_eq!(frames.len(), 3);
+        assert_eq!(
+            frames[1].cars[0].velocity.x, 0.0,
+            "the first tick's engine force is not yet set when its impulses are computed"
+        );
         assert!(
-            frames[1].cars[0].velocity.x.abs() > 1.0,
+            frames[2].cars[0].velocity.x > 1.0,
             "expected recorded throttle input to actually drive the car, got velocity {:?}",
-            frames[1].cars[0].velocity
+            frames[2].cars[0].velocity
         );
     }
 
@@ -1838,25 +1900,171 @@ mod tests {
         assert_eq!(world.frame().cars[0].boost_amount, crate::drive::MAX_BOOST);
     }
 
+    /// A `standard_car` on flat ground with a far-away ball, the
+    /// RB-PHYSICS-001-FR-082 acceptance scene.
+    fn wheeled_car_world(car: RigidBody) -> PhysicsWorld {
+        let ball = RigidBody::sphere(1.0, 1.0, Vec3::new(5000.0, 0.0, 93.0));
+        PhysicsWorld::new(ball, flat_ground()).with_car(car)
+    }
+
     #[test]
-    fn handbrake_restores_a_cars_own_base_friction_not_a_hardcoded_default() {
-        // with_car snapshots whatever friction the car was constructed with
-        // as its base — releasing handbrake must restore that value, not
-        // some crate-wide default, even when it differs from one. Both
-        // restitutions are zeroed so the car stays in continuous ground
-        // contact frame-to-frame (a bouncy resting contact never fully
-        // settles under this port's solver — see `resting_ball_stays_at_rest`
-        // — which would otherwise flicker `on_ground` off for a step).
+    fn a_standard_car_seeded_at_the_recorded_rest_height_stays_there_on_its_wheels() {
+        // RB-PHYSICS-001-FR-082 step (a): the springs, their force scales,
+        // and the half-g sticky force balance the car's weight with the
+        // origin at `z ≈ 17.03` — RocketSim's `CAR_SPAWN_REST_Z = 17` and
+        // the fixture's recorded `17.0`. A seeded car must neither drop
+        // nor bounce before its first step (the failure mode `FR-081`
+        // finding 5's correction described for a wheel-less offset box).
+        let mut world = wheeled_car_world(RigidBody::standard_car(Vec3::new(0.0, 0.0, 17.0)));
+        let dt = 1.0 / 120.0;
+        let mut max_excursion: f32 = 0.0;
+        for _ in 0..240 {
+            world.step(dt);
+            max_excursion = max_excursion.max((world.cars[0].position.z - 17.0).abs());
+        }
+        let z = world.cars[0].position.z;
+        assert!((z - 17.0).abs() < 0.1, "rest height {z}");
+        assert!(
+            max_excursion < 0.5,
+            "never strayed far from rest: {max_excursion}"
+        );
+        assert_eq!(wheels::wheels_in_contact(world.car_wheels(0)), 4);
+        assert!(world.cars[0].linear_velocity.length() < 1.0);
+    }
+
+    #[test]
+    fn a_standard_car_on_its_wheels_never_touches_the_floor_with_its_chassis() {
+        // The chassis now meets the static arena at its real mount
+        // (`static_probe`), which the wheels hold `18.4` uu clear of the
+        // floor at rest — while the old unoffset box would have been
+        // pressed 2.3 uu into it.
+        let car = RigidBody::standard_car(Vec3::new(0.0, 0.0, 17.0));
+        let probe = PhysicsWorld::static_probe(&car);
+        assert!(collision::contacts_vs_plane(&probe, &flat_ground()).is_empty());
+        assert!(!collision::contacts_vs_plane(&car, &flat_ground()).is_empty());
+        assert_eq!(
+            PhysicsWorld::static_probe(&RigidBody::standard_ball(Vec3::new(0.0, 0.0, 93.0)))
+                .position,
+            Vec3::new(0.0, 0.0, 93.0)
+        );
+    }
+
+    #[test]
+    fn a_landing_car_is_caught_by_its_suspension_without_bouncing() {
+        // The fixture's landing: wheels touch with the car falling at
+        // `312` uu/s; the recording bottoms out at `z = 15.54`, rebounds to
+        // a peak of `+14` uu/s, and eases back toward `17` — the damping
+        // acts over the whole travel, the spring engages below rest, and
+        // the `extra_pushback` hard stop takes the last of the approach
+        // velocity. This level drop bottoms at `15.46` and rebounds to
+        // `+17.5`. The rigid box used to catch a corner, bounce to `+44`
+        // uu/s, and hover at `z ≈ 22` reading airborne.
+        let mut car = RigidBody::standard_car(Vec3::new(0.0, 0.0, 41.0));
+        car.linear_velocity = Vec3::new(0.0, 0.0, -312.0);
+        let mut world = wheeled_car_world(car);
+        let dt = 1.0 / 120.0;
+        let mut touched = false;
+        let mut max_upward: f32 = 0.0;
+        let mut lowest: f32 = f32::MAX;
+        let mut ticks_to_stop = None;
+        let mut read_airborne_after_touch = 0;
+        for tick in 0..120 {
+            world.step(dt);
+            if wheels::wheels_in_contact(world.car_wheels(0)) > 0 {
+                touched = true;
+            }
+            if touched {
+                max_upward = max_upward.max(world.cars[0].linear_velocity.z);
+                lowest = lowest.min(world.cars[0].position.z);
+                if ticks_to_stop.is_none() && world.cars[0].linear_velocity.z >= -1.0 {
+                    ticks_to_stop = Some(tick);
+                }
+                if !wheels::is_on_ground(world.car_wheels(0)) {
+                    read_airborne_after_touch += 1;
+                }
+            }
+        }
+        assert!(touched);
+        assert!(
+            max_upward < 25.0,
+            "a small rebound, as recorded (+14): peak upward vz {max_upward}"
+        );
+        assert!(
+            (lowest - 15.5).abs() < 1.0,
+            "bottoms out where the recording does (15.54): {lowest}"
+        );
+        let stopped_at = ticks_to_stop.expect("the springs stop the fall");
+        assert!(
+            stopped_at < 30,
+            "stopped within a quarter second: tick {stopped_at}"
+        );
+        assert_eq!(
+            read_airborne_after_touch, 0,
+            "never reads airborne once down"
+        );
+        let z = world.cars[0].position.z;
+        assert!((z - 17.0).abs() < 0.5, "settled at rest height: {z}");
+        assert!(wheels::is_on_ground(world.car_wheels(0)));
+    }
+
+    #[test]
+    fn the_wheels_keep_touching_for_several_ticks_after_a_ground_jump() {
+        // RB-PHYSICS-001-FR-081 finding 1: the real car's wheels stay in
+        // contact for the ticks it takes the body to rise past the rays'
+        // reach (13.4 uu for the front wheels), so the tires keep working
+        // after the jump impulse; the box used to cut every ground force
+        // the tick it lifted.
+        let mut world = wheeled_car_world(RigidBody::standard_car(Vec3::new(0.0, 0.0, 17.0)));
+        let dt = 1.0 / 120.0;
+        for _ in 0..120 {
+            world.step(dt);
+        }
+        world.set_car_input(
+            0,
+            rb_domain::ControllerInput {
+                jump: true,
+                ..Default::default()
+            },
+        );
+        world.step(dt);
+        assert!(
+            world.cars[0].linear_velocity.z > 0.9 * drive::JUMP_SPEED,
+            "the jump fired: {:?}",
+            world.cars[0].linear_velocity
+        );
+        let mut ticks_with_four = 0;
+        let mut ticks_grounded = 0;
+        for _ in 0..20 {
+            world.step(dt);
+            if wheels::wheels_in_contact(world.car_wheels(0)) == 4 {
+                ticks_with_four += 1;
+            }
+            if wheels::is_on_ground(world.car_wheels(0)) {
+                ticks_grounded += 1;
+            }
+        }
+        assert!(
+            ticks_with_four >= 4,
+            "four wheels touched for {ticks_with_four} ticks"
+        );
+        assert!(
+            ticks_grounded < 12,
+            "but the car does leave: grounded {ticks_grounded} of 20"
+        );
+        assert_eq!(wheels::wheels_in_contact(world.car_wheels(0)), 0);
+    }
+
+    #[test]
+    fn handbrake_scales_the_wheels_lateral_grip_and_never_touches_the_chassis_friction() {
+        // RB-PHYSICS-001-FR-082: the handbrake used to multiply the car's
+        // own `RigidBody.friction` and restore it on release; now it sets
+        // the wheels' lateral friction factor (the real `0.1`) and the
+        // chassis friction is never written at all.
         let ball = RigidBody::sphere(1.0, 1.0, Vec3::new(1000.0, 0.0, 93.0));
-        let mut car = some_car(Vec3::new(0.0, 0.0, CAR_HALF_EXTENTS.z));
+        let mut car = RigidBody::standard_car(Vec3::new(0.0, 0.0, 17.0));
         car.friction = 0.9;
-        car.restitution = 0.0;
-        let ground = StaticPlane {
-            restitution: 0.0,
-            ..flat_ground()
-        };
-        let mut world = PhysicsWorld::new(ball, ground).with_car(car);
-        let dt = 1.0 / 60.0;
+        let mut world = PhysicsWorld::new(ball, flat_ground()).with_car(car);
+        let dt = 1.0 / 120.0;
 
         world.set_car_input(
             0,
@@ -1866,19 +2074,17 @@ mod tests {
             },
         );
         world.step(dt);
-        assert!(
-            world.cars[0].friction < 0.9,
-            "expected handbrake to reduce friction below the car's own 0.9 base, got {}",
-            world.cars[0].friction
+        assert_eq!(
+            world.car_wheels(0)[0].lat_friction,
+            wheels::HANDBRAKE_LAT_FRICTION_FACTOR
         );
+        assert_eq!(world.car_wheels(0)[0].long_friction, 1.0);
+        assert!((world.cars[0].friction - 0.9).abs() < 1e-6);
 
         world.set_car_input(0, rb_domain::ControllerInput::default());
         world.step(dt);
-        assert!(
-            (world.cars[0].friction - 0.9).abs() < 1e-6,
-            "expected releasing handbrake to restore the car's own 0.9 base friction, got {}",
-            world.cars[0].friction
-        );
+        assert_eq!(world.car_wheels(0)[0].lat_friction, 1.0);
+        assert!((world.cars[0].friction - 0.9).abs() < 1e-6);
     }
 
     #[test]

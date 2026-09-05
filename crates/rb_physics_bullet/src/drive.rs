@@ -1,12 +1,14 @@
 //! Driven car input: couples `rb_domain::ControllerInput` into forces and
-//! torques on a car `RigidBody`. Ground-driving (throttle, steering),
-//! boost, handbrake/drift, a single ground jump, and air control in this
-//! increment. Throttle, steering, handbrake, and jump are gated on the car
-//! actually touching the ground (a free-floating box has no wheels to
-//! grip, lock, or push off of, so airborne input does nothing for any of
-//! them here); boost is not gated the same way — it's a rocket, not an
-//! engine, so it still fires with no ground contact at all, unlike every
-//! grounded-only input above. It isn't identical airborne, though: since
+//! torques on a car `RigidBody`. Boost, a single ground jump, the double
+//! jump, the wall jump, the dodge and its flip, and air control live here.
+//! Since `RB-PHYSICS-001-FR-082`, throttle, brake, coasting, steering, and
+//! the handbrake are *not* forces on the body at all: they are per-wheel
+//! engine/brake forces, steer angles, and friction factors that the
+//! `wheels` module turns into tire impulses at each wheel's contact — this
+//! module only gates the ground jump on the wheels' grounded state (three
+//! or more touching, `wheels::is_on_ground`). Boost is not gated on the
+//! ground at all — it's a rocket, not an engine, so it still fires with no
+//! wheel touching, unlike every grounded-only input above. It isn't identical airborne, though: since
 //! `RB-PHYSICS-001-FR-056`, its own acceleration magnitude is higher
 //! airborne than grounded (`BOOST_ACCELERATION_AIR` vs
 //! `BOOST_ACCELERATION_GROUND`), matching real Rocket League's own real
@@ -17,22 +19,15 @@
 //! wheels at all — it's pure torque, so it would be redundant with
 //! steering while grounded).
 //!
-//! Handbrake is modeled as a temporary ground-friction reduction rather
-//! than a separate lateral-slip system: this port has no per-wheel tire
-//! model (the car is one rigid box), so there's no distinct "rear grip"
-//! to lose the way a real car's handbrake works. Instead, while `handbrake`
-//! is held and the car is grounded, `RigidBody.friction` — the same
-//! material property the ground-contact solver already reads for Coulomb
-//! friction — is temporarily reduced, letting the box's existing momentum
-//! carry it into a slide instead of gripping the ground and turning
-//! cleanly. Releasing handbrake restores the car's original friction. This
-//! reuses machinery the solver already has rather than inventing a second
-//! grip model. Since `RB-PHYSICS-001-FR-066`, real Rocket League's own
-//! handbrake friction reduction is confirmed genuinely anisotropic (a
-//! separate, much milder reduction to forward/backward grip than to
-//! sideways grip) rather than the single uniform multiplier this port
-//! applies to both — see `HANDBRAKE_FRICTION_MULTIPLIER`'s own doc
-//! comment for the full finding and why it isn't adopted.
+//! Handbrake used to be a temporary reduction of the chassis's
+//! `RigidBody.friction`, one isotropic factor on a box with no wheels —
+//! `RB-PHYSICS-001-FR-066` found the real reduction is anisotropic
+//! (lateral `0.1`, longitudinal near `0.9`). Since `RB-PHYSICS-001-FR-082`
+//! the handbrake is the wheels': it scales each tire's lateral friction
+//! factor (`wheels::HANDBRAKE_LAT_FRICTION_FACTOR`) and swaps the steer
+//! angle to the powerslide curve, and the chassis friction is never
+//! touched. The analog ramp and the longitudinal factor curve are that
+//! entry's step (b).
 //!
 //! Jump is a single, fixed-height vertical impulse fired on the *rising
 //! edge* of `ControllerInput.jump` (a fresh press, not merely "held") while
@@ -301,13 +296,11 @@
 //! same body of public research `PhysicsWorld::new`'s gravity constant
 //! comes from);
 //! `BOOST_CONSUMPTION_RATE` is a simplified constant standing in for Rocket
-//! League's real boost-drain behavior; `THROTTLE_ACCELERATION`'s own peak
-//! magnitude is likewise a simplified, uncalibrated placeholder, but since
-//! `RB-PHYSICS-001-FR-058` it's no longer applied flat — `drive_speed_taper`
-//! scales it by RocketSim's own confirmed real curve shape as speed rises,
-//! tapering smoothly to zero at `UNBOOSTED_MAX_CAR_SPEED` instead of a hard
-//! cutoff (see that function's own doc comment for why the curve's shape,
-//! unlike its peak magnitude, transfers cleanly). `DODGE_SPEED` is real
+//! League's real boost-drain behavior; the throttle's magnitude is, since
+//! `RB-PHYSICS-001-FR-082`, RocketSim's own per-wheel
+//! `wheels::THROTTLE_TORQUE_AMOUNT` (the `1600` uu/s² this port always
+//! had, now as four wheel forces), still shaped by `drive_speed_taper`'s
+//! confirmed real curve (`RB-PHYSICS-001-FR-058`). `DODGE_SPEED` is real
 //! end to end: since `RB-PHYSICS-001-FR-059` its per-direction scaling (a
 //! backward dodge opposing current motion, or any side dodge, growing
 //! stronger as current speed rises) matches RocketSim's own confirmed real
@@ -316,18 +309,14 @@
 //! replacing a `1400` placeholder) with the backward dodge's real
 //! `16/15` forward-axis factor added — a mass-independent velocity change
 //! the "false precision" caveat never applied to, confirmed to `~1%` from
-//! a real capture's own dodge tick. `STEER_TORQUE` itself remains an
-//! uncalibrated placeholder, but since `RB-PHYSICS-001-FR-065` its own
-//! `speed_factor` scale-up is confirmed to have the wrong *shape*, not
-//! merely an uncalibrated magnitude — see that requirement's own entry and
-//! `STEER_TORQUE`'s own doc comment for the full finding.
-//! `HANDBRAKE_FRICTION_MULTIPLIER` itself likewise remains an uncalibrated
-//! placeholder, but since `RB-PHYSICS-001-FR-066` its own single uniform
-//! reduction is confirmed to have the wrong *shape* too — real Rocket
-//! League applies a genuinely anisotropic (direction-dependent) reduction,
-//! not this port's one isotropic factor — see that requirement's own
-//! entry and `HANDBRAKE_FRICTION_MULTIPLIER`'s own doc comment for the
-//! full finding. (The former `LANDING_AUTO_UPRIGHT_TORQUE` placeholder is
+//! a real capture's own dodge tick. The former `STEER_TORQUE` and
+//! `HANDBRAKE_FRICTION_MULTIPLIER` placeholders — whose wrong *shapes*
+//! `RB-PHYSICS-001-FR-065`/`FR-066` confirmed — are gone since
+//! `RB-PHYSICS-001-FR-082`: steering is the real speed-to-steer-angle
+//! curve on the front wheels (`wheels::STEER_ANGLE_FROM_SPEED_CURVE`) and
+//! the handbrake the real lateral friction factor
+//! (`wheels::HANDBRAKE_LAT_FRICTION_FACTOR`), both acting through the
+//! tires. (The former `LANDING_AUTO_UPRIGHT_TORQUE` placeholder is
 //! gone since `RB-PHYSICS-001-FR-071` — see the "No airborne
 //! self-righting" section above.) `WALL_JUMP_HORIZONTAL_SPEED` remains an uncalibrated
 //! placeholder too, but since `RB-PHYSICS-001-FR-067` real Rocket League is
@@ -337,7 +326,8 @@
 //! `AIR_CONTROL_PITCH_TORQUE`/`AIR_CONTROL_YAW_TORQUE`/`AIR_CONTROL_ROLL_TORQUE`
 //! are, since `RB-PHYSICS-001-FR-068`, RocketSim's own confirmed real
 //! absolute values directly, not placeholders — unlike
-//! `STEER_TORQUE`/`HANDBRAKE_FRICTION_MULTIPLIER`/`WALL_JUMP_HORIZONTAL_SPEED`'s
+//! `WALL_JUMP_HORIZONTAL_SPEED`'s (and, until `FR-082`, the former
+//! `STEER_TORQUE`/`HANDBRAKE_FRICTION_MULTIPLIER`'s)
 //! own confirmed-but-not-adopted findings — since real air control turned
 //! out to be the same *kind* of direct per-axis torque mechanism this port
 //! already models, unlike those other three findings' own architecture
@@ -392,12 +382,11 @@ use rb_domain::{ControllerInput, Vec3};
 /// during `RB-PHYSICS-001-FR-031`'s audit (`CAR_MAX_SPEED = 2300.f` in the
 /// RocketSim project's `RLConst.h`; matched independently by RLUtilities'
 /// `Car::v_max` and the RLBot community wiki's "Useful Game Values" page).
-/// Also used as the turning-torque scale-up reference in `speed_factor`
-/// below — an arbitrary normalization choice, not a claim that a car's
-/// actual turning grip caps out at boosted speed specifically.
-/// `RB-PHYSICS-001-FR-065` found `speed_factor`'s own scale-up *direction*
-/// against this reference doesn't match real Rocket League's own steering
-/// model at all — see `STEER_TORQUE`'s own doc comment for the finding.
+/// It used to double as the reference the former `STEER_TORQUE`'s
+/// `speed_factor` scaled up against — the scale-up `RB-PHYSICS-001-FR-065`
+/// found backwards, and `RB-PHYSICS-001-FR-082` replaced with the real
+/// speed-to-steer-angle curve on the wheels (`wheels::
+/// STEER_ANGLE_FROM_SPEED_CURVE`).
 pub const MAX_CAR_SPEED: f32 = 2300.0;
 
 /// Hard cap (rad/s) on a car's angular speed, enforced by
@@ -441,16 +430,6 @@ pub const MAX_CAR_ANGULAR_SPEED: f32 = 5.5;
 /// here instead.
 pub const UNBOOSTED_MAX_CAR_SPEED: f32 = 1410.0;
 
-/// Peak throttle acceleration (uu/s^2), at a standing start — still an
-/// uncalibrated placeholder pending calibration against recorded data
-/// (unlike the taper shape it's scaled by, see `drive_speed_taper` below,
-/// this magnitude itself has no confirmed real-world source). Since
-/// `RB-PHYSICS-001-FR-058`, this is no longer applied flat: it's scaled by
-/// `drive_speed_taper`'s own real curve as speed rises, tapering smoothly
-/// to zero at `UNBOOSTED_MAX_CAR_SPEED` instead of applying at full
-/// strength right up to a hard cutoff.
-const THROTTLE_ACCELERATION: f32 = 1600.0;
-
 /// Real Rocket League's own speed-dependent drive-force taper —
 /// RocketSim's `DRIVE_SPEED_TORQUE_FACTOR_CURVE`, a 3-point piecewise-
 /// linear curve confirmed exact against its own `RLConst.h` during
@@ -461,14 +440,12 @@ const THROTTLE_ACCELERATION: f32 = 1600.0;
 /// own `Car.cpp` confirmed this curve is looked up by the car's *signed*
 /// forward speed (`abs()`'d there, since real RocketSim's own throttle
 /// gate isn't direction-aware) and multiplied directly against the drive
-/// force applied to each wheel — a pure, unitless ratio, unlike
-/// `THROTTLE_TORQUE_AMOUNT` (RocketSim's own name for this project's
-/// `THROTTLE_ACCELERATION`), which is expressed in Bullet's own internal
-/// mass/distance units and doesn't transfer to this port's own
-/// differently-calibrated car body the same clean way — see
-/// `RB-PHYSICS-001-FR-031`'s and `FR-057`'s own "false precision" findings
-/// for absolute torque/force magnitudes. Only the curve's *shape* is
-/// adopted here, not a new peak magnitude.
+/// force applied to each wheel — a pure, unitless ratio. Since
+/// `RB-PHYSICS-001-FR-082` that is exactly how this port uses it too:
+/// `wheels::update_wheels` multiplies it into each wheel's engine force
+/// (`wheels::THROTTLE_TORQUE_AMOUNT`), looked up by the absolute forward
+/// speed as RocketSim does; the signed-input form below is kept for the
+/// curve's own tests.
 const DRIVE_SPEED_TAPER_BREAKPOINTS: [(f32, f32); 3] =
     [(0.0, 1.0), (1400.0, 0.1), (UNBOOSTED_MAX_CAR_SPEED, 0.0)];
 
@@ -485,7 +462,7 @@ const DRIVE_SPEED_TAPER_BREAKPOINTS: [(f32, f32); 3] =
 /// would be a second, independent behavioral change (whether accelerating
 /// against your own current motion tapers too) this requirement doesn't
 /// take on; see its own Non-goals.
-fn drive_speed_taper(signed_speed_in_throttle_direction: f32) -> f32 {
+pub(crate) fn drive_speed_taper(signed_speed_in_throttle_direction: f32) -> f32 {
     let speed = signed_speed_in_throttle_direction.max(0.0);
     let points = DRIVE_SPEED_TAPER_BREAKPOINTS;
     if speed <= points[0].0 {
@@ -500,55 +477,6 @@ fn drive_speed_taper(signed_speed_in_throttle_direction: f32) -> f32 {
     }
     points[points.len() - 1].1
 }
-
-/// Uncalibrated placeholder steering torque magnitude (about the car's
-/// local up axis, at full `steer` input and at/above `MAX_CAR_SPEED`) —
-/// chosen only so a full-lock turn is visibly responsive for this car's
-/// mass/inertia in tests, not derived from any measured or documented
-/// Rocket League value.
-///
-/// `RB-PHYSICS-001-FR-065` fetched RocketSim's real `Car.cpp` (`_UpdateWheels`,
-/// matching `RB-PHYSICS-001-FR-058`/`FR-059`/`FR-064`'s own
-/// real-implementation-file method) and found real Rocket League's
-/// steering isn't a direct yaw-torque model at all: a wheel's *steer
-/// angle* (not a torque) is set from a confirmed real
-/// `STEER_ANGLE_FROM_SPEED_CURVE` (`RLConst.h`, radians), and that angled
-/// wheel's lateral tire friction — computed per-wheel by `btVehicleRL`, a
-/// custom extension of Bullet's own raycast vehicle system
-/// (`btDefaultVehicleRaycaster`), through a further confirmed
-/// `LAT_FRICTION_CURVE` slip-friction curve — is what actually turns the
-/// car. This port has no wheels, raycasting, or tire-slip model at all
-/// (the car is one rigid box), so this real mechanism can't be ported
-/// without a substantially larger architecture change, the same category
-/// `RB-PHYSICS-001-FR-063` already established for per-contact-pair-type
-/// restitution/friction.
-///
-/// One finding is still directly actionable even without that larger
-/// change: the confirmed real curve's own *shape* is the opposite of this
-/// port's own `speed_factor` below. Real Rocket League's maximum steering
-/// angle is highest at a standstill (`0.53356` rad ≈ 30.6° at 0 uu/s) and
-/// decreases sharply as speed rises (down to `0.03454` rad ≈ 2° at 3000
-/// uu/s) — a car can turn tightest from a stop, only gently at speed. This
-/// port's own `speed_factor` does the opposite: zero torque at a
-/// standstill, scaling *up* to full `STEER_TORQUE` at `MAX_CAR_SPEED`.
-/// Not adopted as a fix: unlike `RB-PHYSICS-001-FR-058`'s throttle taper
-/// or `FR-059`'s dodge scale (direct multipliers on a force/impulse this
-/// port already applies the same way real Rocket League does), the real
-/// curve maps speed to a *wheel angle*, which real Rocket League then
-/// feeds through nonlinear tire-slip friction (dependent on wheelbase
-/// geometry and friction curves this port doesn't model at all) to
-/// produce the actual turning force — there's no principled way to carry
-/// even the curve's normalized shape onto this port's own direct-torque
-/// model. Reversing `speed_factor`'s direction without that transfer
-/// function would substitute one unconfirmed guess for another, not adopt
-/// a confirmed real value — the same reasoning that keeps `FR-059`'s
-/// `DODGE_SPEED` base magnitude a placeholder despite a real reference
-/// existing for it. Air control's own equivalent magnitude was in this same
-/// category until `RB-PHYSICS-001-FR-079`: once its application mechanism
-/// was also fixed (see `AIR_CONTROL_PITCH_TORQUE`'s own doc comment), the
-/// real reference transferred cleanly and is now adopted directly, unlike
-/// `DODGE_SPEED`'s own case here.
-const STEER_TORQUE: f32 = 1_500_000.0;
 
 /// Boost acceleration while grounded (uu/s^2) — unlike throttle, boost
 /// doesn't taper with speed in real Rocket League, so this (like
@@ -586,46 +514,6 @@ pub const MAX_BOOST: f32 = 100.0;
 /// this approximates; real Rocket League's actual drain behavior around
 /// zero-throttle/wavedash edge cases isn't modeled.
 const BOOST_CONSUMPTION_RATE: f32 = 33.3;
-
-/// Uncalibrated placeholder: while grounded and `handbrake` is held, the
-/// car's `RigidBody.friction` is multiplied by this factor before the
-/// ground-contact solver runs, sharply reducing grip so existing momentum
-/// carries the car into a slide instead of a clean turn. Chosen only to
-/// produce a visibly reduced (not zero) grip in tests, not derived from any
-/// measured or documented Rocket League value — this port has no per-wheel
-/// tire model to calibrate a real rear-grip-loss number against.
-///
-/// `RB-PHYSICS-001-FR-066` fetched RocketSim's real `Car.cpp`
-/// (`_UpdateWheels`, matching `RB-PHYSICS-001-FR-058`/`FR-059`/`FR-064`/
-/// `FR-065`'s own real-implementation-file method) and found real Rocket
-/// League's own handbrake friction reduction is genuinely anisotropic, not
-/// a single uniform multiplier: two separate confirmed real curves,
-/// `HANDBRAKE_LAT_FRICTION_FACTOR_CURVE` (`0.1` at every speed — this
-/// value's own coincidental exact match to this port's own `0.1` is
-/// striking but not a confirmation, see below) and
-/// `HANDBRAKE_LONG_FRICTION_FACTOR_CURVE` (`0.5` at a standstill, `0.9` at
-/// and above 1 uu/s — effectively a near-constant, barely-reduced `0.9`
-/// for any real driving speed), are applied to lateral and longitudinal
-/// tire friction independently. Real Rocket League's handbrake drift
-/// keeps a car's forward/backward grip almost intact (`x0.9`) while
-/// cutting sideways grip to a tenth (`x0.1`) — this port's own single
-/// isotropic `RigidBody.friction` scalar, read identically by both of
-/// `solver::friction_directions`' own two tangent rows, has no way to
-/// apply a different factor to each direction without threading a second,
-/// direction-specific friction coefficient through every one of
-/// `solver.rs`'s several row-limit-computation call sites
-/// (`resolve_contacts`, `resolve_contacts_between`,
-/// `resolve_static_manifolds`, `resolve_dynamic_manifolds`,
-/// `resolve_manifolds`) — a substantially larger architecture change than
-/// this finding alone justifies, the same category
-/// `RB-PHYSICS-001-FR-063`/`FR-065` already established. `0.1`'s own
-/// coincidental match to the real lateral-only factor is exactly that: a
-/// coincidence, since this port's uniform `0.1` also (wrongly) crushes
-/// longitudinal grip to a tenth, where real Rocket League keeps it near
-/// `0.9` — this port's own handbrake understates real forward-momentum
-/// retention during a drift. Not adopted as a fix; left for a future,
-/// dedicated requirement.
-const HANDBRAKE_FRICTION_MULTIPLIER: f32 = 0.1;
 
 /// Jump impulse speed (uu/s), applied as an instantaneous vertical
 /// velocity change (not a continuous force) on a fresh grounded jump
@@ -799,11 +687,13 @@ pub const CAR_TORQUE_SCALE: f32 = 2.0 * std::f32::consts::PI / 65536.0 * 1000.0;
 /// original audit only briefly noted as "a wall jump reusing the plain
 /// jump impulse rather than its own faster speed."
 ///
-/// Not adopted as a fix: this port's car has no wheels, raycasting, or
-/// surface-tracking orientation system at all (the same architecture gap
-/// `RB-PHYSICS-001-FR-065` found for steering) — its orientation doesn't
-/// automatically tip to match a touched wall, so its own up axis stays
-/// world-vertical throughout a wall touch. Applying only `JUMP_SPEED`
+/// Not adopted as a fix: this port's car has no surface-tracking
+/// orientation on a wall yet (its wheels, since `RB-PHYSICS-001-FR-082`,
+/// raycast the flat planes and press the car into them with the sticky
+/// force, but the auto-roll that tips a car onto a wall is that entry's
+/// step (c)) — its orientation doesn't automatically tip to match a
+/// touched wall, so its own up axis stays world-vertical throughout a
+/// wall touch. Applying only `JUMP_SPEED`
 /// straight up on a wall touch, as the confirmed real mechanism would
 /// suggest, would produce no push-off from the wall at all in this port,
 /// defeating the entire point of a wall jump. This port's own two-component
@@ -1206,11 +1096,11 @@ const JUMP_MIN_TIME: f32 = 0.025;
 /// to `1.0` as `JUMP_MIN_TIME` approaches.
 const JUMP_PRE_MIN_ACCEL_SCALE: f32 = 0.62;
 
-fn forward_axis(car: &RigidBody) -> Vec3 {
+pub(crate) fn forward_axis(car: &RigidBody) -> Vec3 {
     car.orientation.rotate(&Vec3::new(1.0, 0.0, 0.0))
 }
 
-fn up_axis(car: &RigidBody) -> Vec3 {
+pub(crate) fn up_axis(car: &RigidBody) -> Vec3 {
     car.orientation.rotate(&Vec3::new(0.0, 0.0, 1.0))
 }
 
@@ -1218,7 +1108,7 @@ fn up_axis(car: &RigidBody) -> Vec3 {
 /// (forward, right, up) basis `up_axis × forward_axis` gives. Used only for
 /// pitch torque (nose up/down about this axis); throttle/steer/boost/
 /// handbrake/jump never need it.
-fn right_axis(car: &RigidBody) -> Vec3 {
+pub(crate) fn right_axis(car: &RigidBody) -> Vec3 {
     car.orientation.rotate(&Vec3::new(0.0, 1.0, 0.0))
 }
 
@@ -1261,16 +1151,14 @@ fn input_is_active(input: &ControllerInput) -> bool {
         || input.handbrake
 }
 
-/// Applies throttle, steering, boost, handbrake, jump, double jump, wall
-/// jump, and air control as forces/torques/impulses (or, for handbrake, a
-/// temporary friction adjustment) on `car`. Throttle, steering, handbrake,
-/// and the ground jump are a no-op unless `on_ground`; air control, double
-/// jump, and wall jump are the reverse — a no-op unless *not* `on_ground`;
+/// Applies boost, jump, double jump, wall jump, and air control as
+/// forces/torques/impulses on `car`. Throttle, steering, and the handbrake
+/// are the wheels' (`wheels::update_wheels`, `RB-PHYSICS-001-FR-082`) and
+/// are not applied here at all. The ground jump is a no-op unless
+/// `on_ground` (three or more wheels touching); air control, double jump,
+/// and wall jump are the reverse — a no-op unless *not* `on_ground`;
 /// boost isn't gated on ground contact at all, but is a no-op once
-/// `*boost_amount` reaches zero. `base_friction` is the car's own nominal
-/// (non-handbraking) friction — handbrake temporarily reduces
-/// `car.friction` below it while held and grounded, and restores it
-/// otherwise, so callers don't need a separate restore step. `jump_held` is
+/// `*boost_amount` reaches zero. `jump_held` is
 /// the car's `input.jump` value as of the *previous* call — every jump
 /// variant fires only on a rising edge (`input.jump && !*jump_held`), so a
 /// continued press doesn't re-fire every step; it's updated to `input.jump`
@@ -1338,7 +1226,6 @@ pub fn apply_driven_forces(
     double_jump_available: &mut bool,
     jump_hold_time_remaining: &mut f32,
     dodge_flip: &mut Option<DodgeFlip>,
-    base_friction: f32,
     dt: f32,
 ) {
     // RB-PHYSICS-001-FR-037: any genuinely active input wakes the car
@@ -1382,13 +1269,20 @@ pub fn apply_driven_forces(
         if in_mandatory_pre_min_window {
             hold_acceleration *= JUMP_PRE_MIN_ACCEL_SCALE;
         }
-        car.apply_central_force(Vec3::new(0.0, 0.0, hold_acceleration * car.mass()));
+        // Along the car's own up, as RocketSim's `_UpdateJump` applies
+        // `jumpAccel` (`GetUpDir()`), not world z — identical on flat
+        // ground, different on a wall or a curve (RB-PHYSICS-001-FR-082).
+        car.apply_central_force(up_axis(car) * (hold_acceleration * car.mass()));
         *jump_hold_time_remaining = (*jump_hold_time_remaining - dt).max(0.0);
     } else {
         *jump_hold_time_remaining = 0.0;
     }
 
     if on_ground {
+        // RB-PHYSICS-001-FR-082: throttle, brake, coasting, steering, and
+        // the handbrake all drive the wheels now (`wheels::update_wheels`
+        // and the tire friction impulses); nothing grounded is applied
+        // here but the jump.
         // Landing (or simply resting) always restores the double jump,
         // regardless of this step's input — and ends any dodge flip in
         // progress, pitch lock included (RocketSim: three or more wheels
@@ -1397,44 +1291,15 @@ pub fn apply_driven_forces(
         *double_jump_available = true;
         *dodge_flip = None;
 
-        let forward_speed = car.linear_velocity.dot(&forward);
-        let throttle = input.throttle.clamp(-1.0, 1.0);
-        if throttle != 0.0 {
-            let taper = drive_speed_taper(throttle.signum() * forward_speed);
-            if taper > 0.0 {
-                car.apply_central_force(
-                    forward * (throttle * THROTTLE_ACCELERATION * taper * car.mass()),
-                );
-            }
-        }
-
-        let steer = input.steer.clamp(-1.0, 1.0);
-        if steer != 0.0 {
-            // A stationary car can't carve a turn — scale the available
-            // torque by how fast it's already going, up to MAX_CAR_SPEED.
-            // RB-PHYSICS-001-FR-065: real Rocket League's own confirmed
-            // steering curve has this backwards — maximum turning ability
-            // is highest at a standstill and decreases with speed — but
-            // that curve doesn't transfer onto this port's own
-            // direct-torque model; see STEER_TORQUE's own doc comment.
-            let speed_factor = (car.linear_velocity.length() / MAX_CAR_SPEED).min(1.0);
-            if speed_factor > 0.0 {
-                car.apply_torque(up_axis(car) * (steer * STEER_TORQUE * speed_factor));
-            }
-        }
-
-        car.friction = if input.handbrake {
-            base_friction * HANDBRAKE_FRICTION_MULTIPLIER
-        } else {
-            base_friction
-        };
-
         if jump_pressed {
             // An instantaneous velocity change, not a continuous force —
             // apply_impulse divides by mass internally, so scaling by
             // car.mass() here cancels that out and yields a flat
             // JUMP_SPEED velocity change regardless of the car's mass.
-            car.apply_impulse(Vec3::new(0.0, 0.0, JUMP_SPEED * car.mass()), Vec3::ZERO);
+            // Along the car's own up, as RocketSim's `_UpdateJump` fires
+            // `jumpImmediateForce` along `GetUpDir()` (RB-PHYSICS-001-
+            // FR-082) — identical on flat ground.
+            car.apply_impulse(up_axis(car) * (JUMP_SPEED * car.mass()), Vec3::ZERO);
             // Arms the hold window for continued holding on subsequent
             // calls — this call's own jump_hold_time_remaining check above
             // already ran against the *previous* value (0, since no ground
@@ -1925,9 +1790,76 @@ mod tests {
             double_jump_available,
             jump_hold_time_remaining,
             dodge_flip,
-            DEFAULT_TEST_FRICTION,
             dt,
         );
+        integrate::integrate_velocities(car, dt);
+        clamp_angular_speed(car);
+    }
+
+    /// Four wheels resting on a flat floor under `car`, each spring at
+    /// exactly its rest length with no relative velocity — so
+    /// `wheels::apply_suspension_impulses` is silent — for tests that
+    /// isolate the tire forces (RB-PHYSICS-001-FR-082).
+    fn resting_wheels(car: &RigidBody) -> [crate::wheels::WheelState; 4] {
+        let up = up_axis(car);
+        let mut wheels = crate::wheels::initial_wheels();
+        for (mount, wheel) in crate::wheels::WHEELS.iter().zip(wheels.iter_mut()) {
+            let origin = car.position + car.orientation.rotate(&mount.mount);
+            wheel.in_contact = true;
+            wheel.contact_point = origin - up * (mount.rest_length + mount.radius);
+            wheel.contact_normal = up;
+            wheel.suspension_length = mount.rest_length;
+            wheel.relative_velocity = 0.0;
+            wheel.inv_normal_dot_up = 1.0;
+        }
+        wheels
+    }
+
+    /// One step through the wheel pipeline (RB-PHYSICS-001-FR-082) with
+    /// the given wheels: this step's drive fields are set from `input`
+    /// *before* the friction impulses are computed (the world carries a
+    /// one-tick lag; these tests want the input's own effect), the sticky
+    /// force is discarded (there is no gravity or spring here to balance
+    /// it), and the driven forces run gated on the wheel count, the way
+    /// `step_with_input` runs them alone.
+    fn step_on_wheels(
+        car: &mut RigidBody,
+        input: &ControllerInput,
+        wheels: &mut [crate::wheels::WheelState; 4],
+        boost_amount: &mut f32,
+        dt: f32,
+    ) {
+        let mut jump_held = false;
+        let mut double_jump_available = true;
+        let mut jump_hold_time_remaining = 0.0;
+        let mut dodge_flip = None;
+        car.clear_forces();
+        crate::wheels::update_wheels(
+            car,
+            wheels,
+            input.throttle,
+            input.steer,
+            input.boost,
+            *boost_amount,
+            input.handbrake,
+            -650.0,
+        );
+        car.clear_forces();
+        crate::wheels::compute_friction_impulses(car, wheels, dt);
+        apply_driven_forces(
+            car,
+            input,
+            crate::wheels::is_on_ground(wheels),
+            None,
+            boost_amount,
+            &mut jump_held,
+            &mut double_jump_available,
+            &mut jump_hold_time_remaining,
+            &mut dodge_flip,
+            dt,
+        );
+        crate::wheels::apply_suspension_impulses(car, wheels, dt);
+        crate::wheels::apply_friction_impulses(car, wheels, dt);
         integrate::integrate_velocities(car, dt);
         clamp_angular_speed(car);
     }
@@ -2092,8 +2024,15 @@ mod tests {
     fn throttle_accelerates_a_grounded_car_forward() {
         let mut c = car();
         let mut boost = MAX_BOOST;
+        let mut wheels = resting_wheels(&c);
         for _ in 0..60 {
-            step_with_input(&mut c, &full_throttle(), true, &mut boost, 1.0 / 60.0);
+            step_on_wheels(
+                &mut c,
+                &full_throttle(),
+                &mut wheels,
+                &mut boost,
+                1.0 / 60.0,
+            );
         }
         assert!(
             c.linear_velocity.x > 0.0,
@@ -2108,8 +2047,15 @@ mod tests {
     fn throttle_has_no_effect_while_airborne() {
         let mut c = car();
         let mut boost = MAX_BOOST;
+        let mut wheels = crate::wheels::initial_wheels();
         for _ in 0..60 {
-            step_with_input(&mut c, &full_throttle(), false, &mut boost, 1.0 / 60.0);
+            step_on_wheels(
+                &mut c,
+                &full_throttle(),
+                &mut wheels,
+                &mut boost,
+                1.0 / 60.0,
+            );
         }
         assert_eq!(
             c.linear_velocity.x, 0.0,
@@ -2126,7 +2072,14 @@ mod tests {
         let mut c = car();
         let mut boost = MAX_BOOST;
         c.linear_velocity = Vec3::new(UNBOOSTED_MAX_CAR_SPEED, 0.0, 0.0);
-        step_with_input(&mut c, &full_throttle(), true, &mut boost, 1.0 / 60.0);
+        let mut wheels = resting_wheels(&c);
+        step_on_wheels(
+            &mut c,
+            &full_throttle(),
+            &mut wheels,
+            &mut boost,
+            1.0 / 60.0,
+        );
         assert!(
             (c.linear_velocity.x - UNBOOSTED_MAX_CAR_SPEED).abs() < 1e-4,
             "expected throttle to stop pushing past UNBOOSTED_MAX_CAR_SPEED, got {}",
@@ -2145,8 +2098,9 @@ mod tests {
         let mut c = car();
         let mut boost = MAX_BOOST;
         let dt = 1.0 / 60.0;
+        let mut wheels = resting_wheels(&c);
         for _ in 0..(20.0 / dt) as u32 {
-            step_with_input(&mut c, &full_throttle(), true, &mut boost, dt);
+            step_on_wheels(&mut c, &full_throttle(), &mut wheels, &mut boost, dt);
         }
         assert!(
             // Since RB-PHYSICS-001-FR-058, this is a genuine taper rather
@@ -2216,9 +2170,12 @@ mod tests {
         let mut boost = MAX_BOOST;
         let dt = 1.0 / 60.0;
         c.linear_velocity = Vec3::new(1400.0, 0.0, 0.0);
-        step_with_input(&mut c, &full_throttle(), true, &mut boost, dt);
+        let mut wheels = resting_wheels(&c);
+        step_on_wheels(&mut c, &full_throttle(), &mut wheels, &mut boost, dt);
         let delta = c.linear_velocity.x - 1400.0;
-        let expected_full_strength_delta = THROTTLE_ACCELERATION * dt;
+        // Four wheels at THROTTLE_TORQUE_AMOUNT each over the car's mass.
+        let expected_full_strength_delta =
+            4.0 * crate::wheels::THROTTLE_TORQUE_AMOUNT / c.mass() * dt;
         assert!(
             (delta - 0.1 * expected_full_strength_delta).abs() < 1e-3,
             "expected the delta at 1400 uu/s to be ~10% of a full-strength step \
@@ -2236,8 +2193,9 @@ mod tests {
             throttle: -1.0,
             ..Default::default()
         };
+        let mut wheels = resting_wheels(&c);
         for _ in 0..60 {
-            step_with_input(&mut c, &input, true, &mut boost, 1.0 / 60.0);
+            step_on_wheels(&mut c, &input, &mut wheels, &mut boost, 1.0 / 60.0);
         }
         assert!(
             c.linear_velocity.x < 0.0,
@@ -2248,9 +2206,19 @@ mod tests {
 
     #[test]
     fn steer_has_no_effect_on_a_stationary_car() {
+        // RB-PHYSICS-001-FR-082: the steer angle is largest at a standstill,
+        // but a steered wheel only turns the car through its lateral grip,
+        // and a parked car's contacts have no velocity to grip against.
         let mut c = car();
         let mut boost = MAX_BOOST;
-        step_with_input(&mut c, &full_steer(), true, &mut boost, 1.0 / 60.0);
+        let mut wheels = resting_wheels(&c);
+        step_on_wheels(&mut c, &full_steer(), &mut wheels, &mut boost, 1.0 / 60.0);
+        assert!(
+            wheels[0].steer_angle > 0.5,
+            "full lock at rest: {}",
+            wheels[0].steer_angle
+        );
+        assert_eq!(wheels[2].steer_angle, 0.0, "back wheels never steer");
         assert_eq!(
             c.angular_velocity,
             Vec3::ZERO,
@@ -2263,10 +2231,11 @@ mod tests {
         let mut c = car();
         let mut boost = MAX_BOOST;
         c.linear_velocity = Vec3::new(1000.0, 0.0, 0.0);
-        step_with_input(&mut c, &full_steer(), true, &mut boost, 1.0 / 60.0);
+        let mut wheels = resting_wheels(&c);
+        step_on_wheels(&mut c, &full_steer(), &mut wheels, &mut boost, 1.0 / 60.0);
         assert!(
-            c.angular_velocity.z.abs() > 0.0,
-            "expected a moving car to yaw under full steer, got {:?}",
+            c.angular_velocity.z > 0.0,
+            "expected a moving car to yaw right (+z) under full right steer, got {:?}",
             c.angular_velocity
         );
     }
@@ -2276,7 +2245,14 @@ mod tests {
         let mut left = car();
         let mut left_boost = MAX_BOOST;
         left.linear_velocity = Vec3::new(1000.0, 0.0, 0.0);
-        step_with_input(&mut left, &full_steer(), true, &mut left_boost, 1.0 / 60.0);
+        let mut left_wheels = resting_wheels(&left);
+        step_on_wheels(
+            &mut left,
+            &full_steer(),
+            &mut left_wheels,
+            &mut left_boost,
+            1.0 / 60.0,
+        );
 
         let mut right = car();
         let mut right_boost = MAX_BOOST;
@@ -2285,7 +2261,14 @@ mod tests {
             steer: -1.0,
             ..Default::default()
         };
-        step_with_input(&mut right, &opposite, true, &mut right_boost, 1.0 / 60.0);
+        let mut right_wheels = resting_wheels(&right);
+        step_on_wheels(
+            &mut right,
+            &opposite,
+            &mut right_wheels,
+            &mut right_boost,
+            1.0 / 60.0,
+        );
 
         assert!(left.angular_velocity.z * right.angular_velocity.z < 0.0);
     }
@@ -2388,48 +2371,100 @@ mod tests {
     }
 
     #[test]
-    fn handbrake_reduces_friction_while_grounded() {
-        let mut c = car();
+    fn handbrake_cuts_the_wheels_lateral_grip_to_a_tenth_while_grounded() {
+        // RB-PHYSICS-001-FR-082: the handbrake no longer touches the
+        // chassis's `RigidBody.friction` at all; it scales the wheels'
+        // lateral friction factor by the real `0.1`
+        // (`RB-PHYSICS-001-FR-066`'s lateral curve), leaving longitudinal
+        // grip alone.
+        let mut gripping = car();
+        gripping.linear_velocity = Vec3::new(500.0, 200.0, 0.0);
+        let mut sliding = gripping;
+        let base_friction = gripping.friction;
         let mut boost = MAX_BOOST;
-        step_with_input(&mut c, &full_handbrake(), true, &mut boost, 1.0 / 60.0);
-        assert_eq!(
-            c.friction,
-            DEFAULT_TEST_FRICTION * HANDBRAKE_FRICTION_MULTIPLIER,
-            "expected handbrake to reduce friction below its base value"
+        let mut grip_wheels = resting_wheels(&gripping);
+        step_on_wheels(
+            &mut gripping,
+            &full_throttle(),
+            &mut grip_wheels,
+            &mut boost,
+            1.0 / 60.0,
         );
-    }
-
-    #[test]
-    fn handbrake_has_no_effect_on_friction_while_airborne() {
-        let mut c = car();
-        let mut boost = MAX_BOOST;
-        step_with_input(&mut c, &full_handbrake(), false, &mut boost, 1.0 / 60.0);
-        assert_eq!(
-            c.friction, DEFAULT_TEST_FRICTION,
-            "airborne handbrake shouldn't touch friction — no wheels to lock"
+        let mut slide_wheels = resting_wheels(&sliding);
+        let handbrake_throttle = ControllerInput {
+            throttle: 1.0,
+            handbrake: true,
+            ..Default::default()
+        };
+        step_on_wheels(
+            &mut sliding,
+            &handbrake_throttle,
+            &mut slide_wheels,
+            &mut boost,
+            1.0 / 60.0,
         );
-    }
-
-    #[test]
-    fn releasing_handbrake_restores_friction() {
-        let mut c = car();
-        let mut boost = MAX_BOOST;
-        step_with_input(&mut c, &full_handbrake(), true, &mut boost, 1.0 / 60.0);
+        let grip = 200.0 - gripping.linear_velocity.y;
+        let handbrake_grip = 200.0 - sliding.linear_velocity.y;
+        assert!(grip > 0.0, "the tires should pull the slide in: {grip}");
         assert!(
-            c.friction < DEFAULT_TEST_FRICTION,
-            "handbrake should have engaged"
+            (handbrake_grip - grip * crate::wheels::HANDBRAKE_LAT_FRICTION_FACTOR).abs() < 1e-3,
+            "handbrake grip {handbrake_grip} vs a tenth of {grip}"
         );
-        step_with_input(
+        assert_eq!(
+            slide_wheels[0].lat_friction,
+            crate::wheels::HANDBRAKE_LAT_FRICTION_FACTOR
+        );
+        assert_eq!(slide_wheels[0].long_friction, 1.0);
+        assert_eq!(
+            sliding.friction, base_friction,
+            "the chassis friction is untouched"
+        );
+    }
+
+    #[test]
+    fn handbrake_has_no_effect_while_airborne() {
+        let mut c = car();
+        c.linear_velocity = Vec3::new(500.0, 200.0, 0.0);
+        let mut boost = MAX_BOOST;
+        let mut wheels = crate::wheels::initial_wheels();
+        step_on_wheels(
             &mut c,
-            &ControllerInput::default(),
-            true,
+            &full_handbrake(),
+            &mut wheels,
             &mut boost,
             1.0 / 60.0,
         );
         assert_eq!(
-            c.friction, DEFAULT_TEST_FRICTION,
-            "releasing handbrake should restore the car's base friction"
+            c.linear_velocity,
+            Vec3::new(500.0, 200.0, 0.0),
+            "airborne handbrake changes nothing — no wheel touches"
         );
+    }
+
+    #[test]
+    fn releasing_handbrake_restores_the_wheels_lateral_grip() {
+        let mut c = car();
+        let mut boost = MAX_BOOST;
+        let mut wheels = resting_wheels(&c);
+        step_on_wheels(
+            &mut c,
+            &full_handbrake(),
+            &mut wheels,
+            &mut boost,
+            1.0 / 60.0,
+        );
+        assert_eq!(
+            wheels[0].lat_friction,
+            crate::wheels::HANDBRAKE_LAT_FRICTION_FACTOR
+        );
+        step_on_wheels(
+            &mut c,
+            &ControllerInput::default(),
+            &mut wheels,
+            &mut boost,
+            1.0 / 60.0,
+        );
+        assert_eq!(wheels[0].lat_friction, 1.0);
     }
 
     #[test]
@@ -3205,7 +3240,6 @@ mod tests {
         let dt = 1.0 / 120.0;
         let mut c = car();
         let mut boost = MAX_BOOST;
-        let mut jump_held = true;
         let mut double_jump_available = false;
         let mut hold_remaining = 0.0;
         let mut flip = airborne_dodge(
@@ -3222,8 +3256,8 @@ mod tests {
         }
         assert!(flip.is_some_and(|f| f.elapsed > 10.0 * dt));
 
-        // Release, then a left wall-jump dodge (`yaw = -1`) off a +x wall.
-        jump_held = false;
+        // Released, then a left wall-jump dodge (`yaw = -1`) off a +x wall.
+        let mut jump_held = false;
         step_with_input_and_dodge_flip(
             &mut c,
             &ControllerInput {

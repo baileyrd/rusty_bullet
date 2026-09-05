@@ -100,7 +100,7 @@ impl Shape {
 /// -650 uu/s² accumulates roughly 10.8 uu/s over one 1/60s frame, and a
 /// restitution-driven bounce off that is the same order of magnitude) and
 /// clearly below any deliberate motion this crate models (`drive::MAX_CAR_SPEED`
-/// 2300, `drive::JUMP_SPEED` ~292, `drive::THROTTLE_ACCELERATION` 1600
+/// 2300, `drive::JUMP_SPEED` ~292, the four wheels' full throttle 1600
 /// uu/s² alone adding ~27 uu/s in a single 1/60s frame).
 pub const LINEAR_SLEEP_VELOCITY_THRESHOLD: f32 = 20.0;
 /// See `LINEAR_SLEEP_VELOCITY_THRESHOLD`'s own doc comment.
@@ -182,15 +182,17 @@ pub struct RigidBody {
     /// the body's own local frame, for **body-vs-body** contact
     /// (`collision::contacts_between`: ball, cars, net points) — `Vec3::ZERO`
     /// for everything but a car, which `standard_car` mounts at
-    /// `CAR_HITBOX_OFFSET` (`RB-PHYSICS-001-FR-081` finding 5). Contact with
-    /// the static arena (`contacts_vs_plane` and the rest) deliberately
-    /// keeps `shape` centred on `position`: real Rocket League's car rests
-    /// on its *wheels*, with the hitbox floating `18.4` uu clear of the
-    /// ground, and this crate has no wheels yet — a box centred on the
-    /// offset would rest with the car's origin `1.4` uu *below* the ground
-    /// instead of the real `17.0` above it, dropping a seeded car `18` uu
-    /// before its first step. So the unoffset box stands in for the wheel
-    /// support (its underside `19.3` uu below the origin, against the
+    /// `CAR_HITBOX_OFFSET` (`RB-PHYSICS-001-FR-081` finding 5). The static
+    /// collision routines (`contacts_vs_plane` and the rest) read the
+    /// shape at `position` as given; since `RB-PHYSICS-001-FR-082` the
+    /// world hands them a probe body moved to `hitbox_center()` too, now
+    /// that the wheels hold the chassis `18.4` uu clear of the floor. Until
+    /// then the unoffset box had to stand in for the wheel support: real
+    /// Rocket League's car rests on its *wheels*, and a wheel-less box
+    /// centred on the offset would have rested with the car's origin `1.4`
+    /// uu *below* the ground instead of the real `17.0` above it, dropping
+    /// a seeded car `18` uu before its first step. (The stand-in's
+    /// underside was `19.3` uu below the origin, against the
     /// wheels' `17.0` at rest) until a wheel/suspension model replaces it,
     /// while the ball and other cars meet the hitbox where the real one is.
     /// The solver's lever arms are always taken from `position`, the

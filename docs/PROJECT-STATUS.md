@@ -2280,6 +2280,32 @@
   test churn of any entry: every grounded test encodes the box
   stand-in), and a three-step sequencing are in the entry. No code
   changed; 420 tests unchanged.
+- `RB-PHYSICS-001-FR-082` step (a) implemented: the `wheels` module —
+  four raycast wheels on the real spring-damper suspension with the
+  sticky force and the `extraPushback` hard stop, the tire friction
+  impulses (Bullet's bilateral lateral grip, the engine/brake/coast
+  rolling term) with RocketSim's one-tick lag, the real steer-angle
+  curve on the front wheels, the real handbrake lateral factor,
+  `on_ground` from the wheel count, the jump along the car's up, and
+  the chassis meeting the arena at its real mount. `STEER_TORQUE`,
+  `HANDBRAKE_FRICTION_MULTIPLIER`, and `THROTTLE_ACCELERATION` retired;
+  `FR-065`/`FR-066` superseded. Three scoping corrections recorded in
+  the entry: the tire mechanism and the steer curve had to come into
+  step (a) (the wheels lift the box off its friction; unsteered tires
+  fought the old torque, `239.55 → 310.89` uu before the curve), and
+  `SUSPENSION_SUBTRACTION` is `2.5` uu (`0.05` Bullet units), which
+  makes the pushback a landing hard stop `2.5` uu past rest instead of
+  a rest-height term. Measured: rest height `17.0` within `0.03`, the
+  landing bottoms at `15.46` vs the recorded `15.54` with a `+17.5`
+  uu/s rebound vs the recorded `+14`, four wheels touch `≥ 4` ticks
+  after a jump; the isolated fixture `239.55 → 160.19` uu (rotation
+  `0.68 → 0.44` rad, velocity `302.85 → 264.09` uu/s) and the port's
+  car hits the ball for the first time (`mean_ball_distance` `729.95
+  → 79.55` uu). `19` new `wheels.rs` tests, 4 new `world.rs` acceptance
+  tests, 12 `drive.rs` tests moved onto the wheel pipeline;
+  `rb_physics_bullet` 359 → 382, workspace 420 → 443; ratchet `< 165`
+  uu (car) and `< 100` uu (ball). Full workspace `fmt`/`clippy`/`test`
+  green.
 
 ## In progress
 
@@ -2343,25 +2369,35 @@
    mechanism from `btVehicleRL`/`_UpdateWheels`, the derivations that
    land its constants on the recorded rest height and post-jump
    contact, a settled design, the blast radius, and a three-step
-   sequencing. Next step: `FR-082` step (a) — flat-ground wheels with
-   the old tire forces: the wheel descriptors, a raycast against the
-   ground plane, the spring-damper suspension with the sticky force,
-   the chassis on `hitbox_center()` for static contact, `on_ground`
-   from the wheel count, and the jump along the car's up — measurable
-   on the rest height (`17.0`), the fixture's post-jump contact ticks,
-   and its no-bounce landing, which also stops the port's spurious
-   airborne read at `t = 5.758` and the `≈800` uu/s sideways dodge.
-   Then (b) tire friction (closing `FR-065`/`FR-066` and the ball
-   hit), then (c) the rest of the arena. See `FR-082`'s own spec
-   entry.
+   sequencing. Step (a) is done: the wheels, the suspension, the tire
+   impulses with the real steer-angle curve, the sticky force, the
+   pushback hard stop, the car-up jump, and the chassis at its real
+   mount — the fixture's grounded ticks and whole flight now match to
+   `0.04` rad, the landing bottoms out where the recording does, and
+   the port's car hits the ball at `t = 5.758` for the first time
+   (`239.55 → 160.19` uu mean position; `mean_ball_distance` `729.95 →
+   79.55` uu). What remains starts *after* the hit: the car's velocity
+   error steps to `220` uu/s at the hit and to `660` uu/s at `t ≈ 6.05`
+   with the rotation climbing to `0.9` rad. Next step: diagnose that
+   post-hit segment tick by tick (the recorded ground jump coinciding
+   with the hit, the hit's own impulse under the default car-ball
+   restitution/friction rather than `FR-063`'s per-pair values, and
+   whatever the recording does at `6.0` s), then `FR-082` step (b) —
+   the analog handbrake with its two factor curves, the slip-driven
+   lateral friction curve, and the non-sticky curve — and step (c),
+   the rest of the arena. See `FR-082`'s own spec entry.
 
 ## Validation
 
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
-- `cargo test --workspace`: pass (420 tests: 27 in `rb_domain` (incl. 4
-  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 359 in
-  `rb_physics_bullet` (incl. 2 new `integrate.rs` tests confirming
+- `cargo test --workspace`: pass (443 tests: 27 in `rb_domain` (incl. 4
+  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 382 in
+  `rb_physics_bullet` (incl. `19` new `wheels.rs` tests and 4 new `world.rs`
+  acceptance tests for `RB-PHYSICS-001-FR-082` step (a), with 12
+  `drive.rs` throttle/steer/handbrake tests moved onto the wheel
+  pipeline and the handbrake and recorded-input `world.rs` tests
+  rewritten; 2 `integrate.rs` tests confirming
   `apply_angular_acceleration` bypasses `inv_inertia_world`, 1 combined
   `drive.rs` air-control test replacing 3 old ones,
   `RB-PHYSICS-001-FR-079`'s inertia-cancellation fix, 1 new
@@ -2381,7 +2417,8 @@
   (incl. `score_capture_against_candidate`'s and `score_capture_growth`'s
   happy-path runs against the synthetic capture fixture, and
   `RB-PHYSICS-001-FR-079`'s isolated-dodge-replay ratchet against the real
-  fixture, `cars.mean_position_distance < 250` uu), plus doc-tests)
+  fixture, `cars.mean_position_distance < 165` uu and
+  `mean_ball_distance < 100` uu), plus doc-tests)
 - `cargo run -p rb_replay_ingest --bin corpus_check` (local only, not CI):
   40/40 real owner replays parsed cleanly, 2026-08-28
 - `cargo run -p rb_verify_cli --bin rb-verify -- <replay> <capture>`
@@ -2548,6 +2585,24 @@
   uu/s`, max `776.31 uu / 3.11 rad / 961.41 uu/s`, ball `729.95 uu`) — the
   fixture's simulated car never reaches the ball and no static contact
   changed, so no number could move.
+- `RB-PHYSICS-001-FR-082` step (a) (the wheels) re-run against the same
+  fixture (2026-09-05, this sandbox): `frames compared: 347, mean ball
+  distance: 79.55 uu, max ball distance: 320.66 uu, car pairs compared:
+  347, mean car position/rotation/velocity distance: 160.19 uu / 0.44
+  rad / 264.09 uu/s, max car position/rotation/velocity distance: 741.26
+  uu / 1.78 rad / 690.57 uu/s` (from `239.55 / 0.68 / 302.85`, max
+  `776.31 / 3.11 / 961.41`, ball `729.95` / `3311.68`). `--self-growth
+  ... 0.05`: the grounded ticks around the jump `0.18`–`6` uu / `0.00`–
+  `0.04` rad (from `0.6`–`24` uu / `0.01`–`0.27` rad with the old
+  steering torque against the new tires, and `0.05`–`0.10` rad through
+  the flight before the wheels); the landing `53 uu / 0.01 rad / 27
+  uu/s` at `t=5.67s` and `0.02` rad at `t=5.72s` (no airborne read, no
+  sideways dodge); the ball leaves within `60` uu of the recording at
+  `t=5.77s` and drifts to `320` uu by `t=6.97s`; the car's velocity
+  error `27 → 220` uu/s at the hit and `194 → 660` uu/s at `t=6.02`–
+  `6.07s`, rotation to `0.9` rad — the post-hit segment is what remains.
+  Without the pushback hard stop the car figure was `156.62 uu / 0.46
+  rad / 266.67 uu/s`.
 
 ## Risks and decisions needed
 

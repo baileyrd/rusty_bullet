@@ -111,6 +111,7 @@ pub mod integrate;
 pub mod mat3;
 pub mod net;
 pub mod solver;
+pub mod wheels;
 pub mod world;
 
 pub use body::{

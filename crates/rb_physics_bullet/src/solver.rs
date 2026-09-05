@@ -342,7 +342,11 @@ struct ConstraintRow {
     applied_push_impulse: f32,
 }
 
-fn effective_mass_denom(body: &RigidBody, rel_pos: &Vec3, direction: &Vec3) -> (Vec3, Vec3, f32) {
+pub(crate) fn effective_mass_denom(
+    body: &RigidBody,
+    rel_pos: &Vec3,
+    direction: &Vec3,
+) -> (Vec3, Vec3, f32) {
     let torque_axis = rel_pos.cross(direction);
     let angular_component = body.inv_inertia_world().mul_vec3(&torque_axis);
     let denom = body.inv_mass() + direction.dot(&angular_component.cross(rel_pos));

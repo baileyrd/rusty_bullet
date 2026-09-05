@@ -60,6 +60,8 @@ algorithms are derived from:
 | `collision::box_vs_box` (SAT axis test) | `src/BulletCollision/CollisionDispatch/btBoxBoxDetector.cpp` | `btBoxBoxDetector::dBoxBox`'s separating-axis loop (15 candidate axes: 3+3 face normals, 9 edge-pair cross products) — itself derived from ODE's `dBoxBox`, credited in Bullet3's own source comments |
 | `collision::face_contact` | `src/BulletCollision/CollisionDispatch/btBoxBoxDetector.cpp` | a box-specific closed form of `dBoxBox`'s incident-face-vs-reference-face polygon clipping, direct rather than a line-for-line port of its (ODE-derived) general clipping code — see the function's own doc comment |
 | `collision::edge_contact`'s closest-point step | *(not from Bullet3)* | standard closest-point-between-two-segments construction (e.g. Ericson, *Real-Time Collision Detection*, §5.1.9), used for `dBoxBox`'s edge-edge contact case |
+| `wheels::compute_friction_impulses`'s side impulse | `src/BulletDynamics/ConstraintSolver/btContactConstraint.cpp`, `btJacobianEntry.h` | `resolveSingleBilateral` (its `contactDamping = 0.2` velocity impulse through the contact Jacobian's diagonal) |
+| `wheels` (raycast-vehicle structure: wheel mounts, the per-wheel ray, `suspensionLength`, `clippedInvContactDotSuspension`, `suspensionRelativeVelocity`, the spring-damper `updateSuspension`, the friction-impulse split into a side impulse and a rolling term) | `src/BulletDynamics/Vehicle/btRaycastVehicle.cpp` | `btRaycastVehicle::rayCast`, `updateSuspension`, `updateFriction`, `updateWheelTransform` — as modified by RocketSim's `btVehicleRL` (next section), which is the form actually ported |
 
 Deliberate, documented deviations from the original algorithms (no split
 impulse, no SIMD, no warm-starting/sleeping, `box_vs_box`'s clipping and
@@ -75,5 +77,69 @@ math is derived from it.
 Rocket League's own modified/forked Bullet integration is **not** available
 publicly and is not used, referenced, or reverse-engineered by this port —
 see `docs/architecture/SYSTEM-ARCHITECTURE.md`'s "Legal and IP boundary".
-Everything in this file concerns the public, zlib-licensed upstream Bullet3
-project only.
+The Bullet material in this file concerns the public, zlib-licensed
+upstream Bullet3 project only; the wheel model below is ported from
+RocketSim, a public, MIT-licensed reimplementation.
+
+## RocketSim — algorithm port
+
+`crates/rb_physics_bullet/src/wheels.rs` (`RB-PHYSICS-001-FR-082`) is a
+from-scratch Rust translation of the wheel, suspension, and tire-friction
+algorithms of [RocketSim](https://github.com/ZealanL/RocketSim) — its
+`btVehicleRL` (a modified copy of Bullet3's `btRaycastVehicle`, shipped
+inside RocketSim under RocketSim's license) and the wheel half of
+`Car::_UpdateWheels` — together with the constants those algorithms take
+from RocketSim's `RLConst.h` and `CarConfig.cpp`. Earlier requirements
+(`RB-PHYSICS-001-FR-056` onward) adopted individual constants and curve
+shapes from the same files; this is the first port of RocketSim *control
+flow*. No RocketSim source file is copied, compiled, or linked into this
+repository — the Rust code was written independently, informed by reading
+the referenced functions to reproduce their math and control flow
+faithfully.
+
+### RocketSim's license
+
+```
+MIT License
+
+Copyright (c) 2022 ZealanL
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+Full text: <https://github.com/ZealanL/RocketSim/blob/main/LICENSE>.
+
+### What was ported, from where
+
+| `rb_physics_bullet` module | RocketSim source | Function(s) / data ported |
+|---|---|---|
+| `wheels::WHEELS` and the `SUSPENSION_*`, `WHEELS_DAMPING_*`, `MAX_SUSPENSION_TRAVEL`, `SUSPENSION_SUBTRACTION`, `THROTTLE_TORQUE_AMOUNT`, `BRAKE_TORQUE_AMOUNT`, `STOPPING_FORWARD_VEL`, `COASTING_BRAKE_FACTOR`, `BRAKING_NO_THROTTLE_SPEED_THRESH`, `THROTTLE_DEADZONE`, `STEER_ANGLE_FROM_SPEED_CURVE`, `POWERSLIDE_STEER_ANGLE_FROM_SPEED_CURVE` constants | `src/RLConst.h`, `src/CarConfig.cpp`, `src/Sim/Car/Car.cpp` (`_BulletSetup`) | the Octane wheel mounts, radii, and suspension rests; the `BTVehicle` namespace; the drive/brake/steer constants and curves |
+| `wheels::raycast_wheels` | `src/Sim/btVehicleRL/btVehicleRL.cpp` | `btVehicleRL::rayCast`, `updateWheelTransformsWS` |
+| `wheels::apply_suspension_impulses` | `src/Sim/btVehicleRL/btVehicleRL.cpp` | `btVehicleRL::updateSuspension` and its impulse loop |
+| `wheels::compute_friction_impulses`, `apply_friction_impulses` | `src/Sim/btVehicleRL/btVehicleRL.cpp` | `btVehicleRL::calcFrictionImpulses` (`ROLLING_FRICTION_SCALE_MAGIC` included), `applyFrictionImpulses` |
+| `wheels::upwards_dir_from_contacts` | `src/Sim/btVehicleRL/btVehicleRL.cpp` | `btVehicleRL::getUpwardsDirFromWheelContacts` |
+| `wheels::update_wheels` | `src/Sim/Car/Car.cpp` | `Car::_UpdateWheels` (throttle/brake/coast logic, steer angle, friction factors, sticky force) and `_PreTickUpdate`'s `isOnGround` rule |
+| `wheels::piecewise_linear` | `src/Sim/MutatorConfig` / `src/Math/LinearPieceCurve.cpp` | `LinearPieceCurve::GetOutput` |
+| `PhysicsWorld::step`'s wheel ordering | `src/Sim/Car/Car.cpp` | `Car::_PreTickUpdate`'s `updateVehicleFirst` → `_UpdateWheels` → jump/air → `updateVehicleSecond` order |
+
+Deliberate, documented deviations (rays against the scene's flat planes
+only, `extraPushback` and the auto-roll not yet ported, the analog
+`handbrakeVal` and the slip-driven friction curves not yet ported) are
+noted in `wheels.rs`'s module doc comment and in `RB-PHYSICS-001-FR-082`'s
+own step sequencing.

@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.97.0
+- Version: 0.98.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -628,7 +628,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   under a unit test, as it did before multi-car `PhysicsWorld` support
   landed.
 - `RB-PHYSICS-001-FR-007` (driven car input, ground throttle and steering,
-  implemented): `drive::apply_driven_forces` couples
+  implemented; since `FR-082` step (a) both act through the wheels — per-
+  wheel engine force and steer angle, see that entry): `drive::apply_driven_forces` couples
   `rb_domain::ControllerInput` into forces/torques on a car: throttle
   (accelerate/reverse along the car's local forward axis, capped at
   `MAX_CAR_SPEED`) and steering (yaw torque about the car's local up axis,
@@ -659,7 +660,9 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   whether it's still accelerating you"), and the tank clamps at zero
   (no effect once empty). `frame()` now reports each car's actual
   `boost_amount` instead of a hardcoded `0.0`.
-- `RB-PHYSICS-001-FR-009` (handbrake, implemented): `drive::apply_driven_forces`
+- `RB-PHYSICS-001-FR-009` (handbrake, implemented; since `FR-082` step
+  (a) the handbrake is the wheels' lateral friction factor, not a chassis
+  friction swap — see that entry): `drive::apply_driven_forces`
   temporarily multiplies the car's `RigidBody.friction` by
   `HANDBRAKE_FRICTION_MULTIPLIER` (an uncalibrated placeholder) whenever
   `ControllerInput.handbrake` is held and the car is grounded, restoring it
@@ -674,7 +677,9 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   machinery rather than a separate lateral-slip system (this port has no
   per-wheel tire model to build a real rear-grip-loss mechanic on top of;
   see Non-goals).
-- `RB-PHYSICS-001-FR-010` (single ground jump, implemented):
+- `RB-PHYSICS-001-FR-010` (single ground jump, implemented; since
+  `FR-082` step (a) fired along the car's own up on a three-wheel ground
+  test — see that entry):
   `drive::apply_driven_forces` applies a fixed `JUMP_SPEED` instantaneous
   upward velocity change (via `RigidBody::apply_impulse`, not a continuous
   force) on the *rising edge* of `ControllerInput.jump` while the car is
@@ -4244,7 +4249,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     to 312.
 - `RB-PHYSICS-001-FR-065` (real steering is a wheeled-vehicle raycast
   model, not a torque, with an inverted speed-vs-turning-ability curve —
-  audit finding, documentation only): `drive::STEER_TORQUE`'s own doc
+  audit finding, documentation only; **superseded by `FR-082` step (a)**,
+  which adopted the curve on the front wheels and removed `STEER_TORQUE`): `drive::STEER_TORQUE`'s own doc
   comment had no public reference at all; this requirement fetched
   RocketSim's real `Car.cpp` directly to check.
   1. **Fetched RocketSim's own `Car.cpp`** (`_UpdateWheels`, matching
@@ -4307,7 +4313,10 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     unchanged, confirming zero behavioral change.
 - `RB-PHYSICS-001-FR-066` (real handbrake friction reduction is
   anisotropic, not a single uniform multiplier — audit finding,
-  documentation only): `drive::HANDBRAKE_FRICTION_MULTIPLIER` had no
+  documentation only; **superseded by `FR-082` step (a)**, which made the
+  handbrake the wheels' lateral factor and removed
+  `HANDBRAKE_FRICTION_MULTIPLIER`; the longitudinal curve and the analog
+  ramp are step (b)): `drive::HANDBRAKE_FRICTION_MULTIPLIER` had no
   public reference at all; this requirement fetched RocketSim's real
   `Car.cpp` directly to check, continuing the same `_UpdateWheels`
   investigation `RB-PHYSICS-001-FR-065` started.
@@ -6280,8 +6289,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     the re-measured `--self` / `--self-growth 0.05` numbers in
     `PROJECT-STATUS.md`, and the ratchet; the full workspace stays green
     (420 tests).
-- `RB-PHYSICS-001-FR-082` (wheel/suspension/tire model — scoped,
-  documentation only): `FR-065`/`FR-066` established that real steering
+- `RB-PHYSICS-001-FR-082` (wheel/suspension/tire model — scoped; step
+  (a) implemented, steps (b) and (c) open): `FR-065`/`FR-066` established that real steering
   and real handbrake friction live in a wheeled-vehicle model this port's
   single rigid box cannot express, and `FR-081` traced everything left in
   the isolated `dodge-derailment` fixture after the airborne phase
@@ -6574,7 +6583,142 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
       and curve-landing scenarios, not on this fixture.
     Each step keeps the workspace green, re-measures the fixture, and
     tightens the ratchet as the number drops.
-  - **Non-goals (this requirement).** Changes no code. The
+  - **Step (a), implemented — with three corrections to the scoping
+    above, recorded here.** New `wheels` module (`rb_physics_bullet::
+    wheels`): `WheelMount`/`WHEELS` (the four Octane mounts, radii, rest
+    lengths minus travel, force scales), the `BTVehicle` and drive
+    constants as declared, `WheelState` (contact, contact point and
+    normal, spring length, suspension relative velocity, the pushback,
+    and the drive fields — engine force, brake force, steer angle,
+    lateral/longitudinal friction factors — plus the stored friction
+    impulse), `raycast_wheels` (`btVehicleRL::rayCast` against the
+    scene's flat planes, the ground and the walls),
+    `compute_friction_impulses`/`apply_friction_impulses`
+    (`calcFrictionImpulses`/`applyFrictionImpulses`: Bullet's
+    `resolveSingleBilateral` side impulse through
+    `solver::effective_mass_denom`, now `pub(crate)`, and the
+    engine/brake rolling term with `ROLLING_FRICTION_SCALE_MAGIC`),
+    `update_wheels` (`_UpdateWheels`: throttle/brake/coast logic, boost
+    forcing full throttle, the steer angle, the friction factors, the
+    sticky force), `apply_suspension_impulses` (`updateSuspension` and
+    its impulse loop), `upwards_dir_from_contacts`, and
+    `piecewise_linear` (`LinearPieceCurve::GetOutput`). New
+    `collision::ray_vs_plane`/`RayHit`. `PhysicsWorld` carries
+    `car_wheels: Vec<[WheelState; 4]>` (readable through `car_wheels`),
+    casts the rays at the start of `step` from the start-of-step
+    transform in place of the old box-on-plane `car_on_ground` test,
+    derives `on_ground` from the wheel count, runs
+    `drive_and_integrate_velocities` in RocketSim's `_PreTickUpdate`
+    order (friction impulses from the start-of-step velocity and the
+    *previous* tick's drive fields — the one-tick lag is RocketSim's,
+    since `updateVehicleFirst` precedes `_UpdateWheels` — then this
+    tick's drive fields and the sticky force, the driven forces, then the
+    suspension and friction impulses as velocity changes ahead of the
+    contact solve), and meets the static arena with the chassis at
+    `hitbox_center()` through a `static_probe` (finishing `FR-081`
+    finding 5, now that the wheels hold the chassis `18.4` uu clear of
+    the floor; a no-op for the ball). `drive::apply_driven_forces` lost
+    its throttle force, its `STEER_TORQUE` block, and its `car.friction`
+    swap — the grounded branch is the jump alone, now along the car's own
+    up as `_UpdateJump` fires it — and `THROTTLE_ACCELERATION`,
+    `STEER_TORQUE`, `HANDBRAKE_FRICTION_MULTIPLIER`, and
+    `PhysicsWorld::car_base_friction` are gone. `THIRD_PARTY_NOTICES.md`
+    gains a RocketSim (MIT) section for the first port of RocketSim
+    control flow, and a Bullet row for `resolveSingleBilateral` and
+    `btRaycastVehicle`.
+    1. **The tire mechanism came into step (a).** The plan left throttle,
+       steering, and the handbrake "on today's direct model" for step
+       (a). That model was the box's Coulomb contact with the floor — and
+       the wheels lift the box off the floor, so without tire forces the
+       car would have had no grip at all. The per-wheel mechanism
+       (bilateral lateral impulse, engine/brake/coast rolling term,
+       `frictionScale = mass / 3`, the flattened contact offset) is
+       therefore step (a)'s; what step (b) still owns is the *curves*:
+       the analog `handbrakeVal` and its lateral/longitudinal factor
+       curves (step (a) applies the real lateral `0.1`,
+       `HANDBRAKE_LAT_FRICTION_FACTOR`, as a switch), the slip-driven
+       `LAT_FRICTION_CURVE`, and the non-sticky curve.
+    2. **The steer-angle curve came in too.** Measured with the real
+       tires and the old `STEER_TORQUE`, the fixture got *worse*
+       (`239.55 → 310.89` uu mean position, a `0.28` rad rotation error
+       born in the ticks around the jump): the recorded car yaws faster
+       and faster under full steer through those grounded ticks (`ω_z`
+       `-1.35 → -1.49 → -1.61` before the jump and `→ -2.02` through the
+       four contact ticks after it), and unsteered tires fight any torque
+       that imitates that. With `STEER_ANGLE_FROM_SPEED_CURVE` (blended to
+       `POWERSLIDE_STEER_ANGLE_FROM_SPEED_CURVE` while the handbrake is
+       held) on the front wheels and `STEER_TORQUE` removed, the same
+       ticks match to `0.00` rad. `FR-065` and `FR-066` close here.
+    3. **`SUSPENSION_SUBTRACTION` is `0.05` *Bullet* units — `2.5` uu.**
+       RocketSim subtracts it from lengths already converted to Bullet
+       units. The scoping's `51.2` uu ray is really `48.755` (front) /
+       `49.555` (back), contact after a jump ends `11.0` uu above rest
+       (origin `z ≈ 28.0` / `28.8`), and — the part that matters — the
+       `extraPushback` threshold (`rest + radius - 2.5`) sits `2.5` uu
+       *past* rest, so the pushback is a hard stop that never acts at
+       rest (the springs sit `≈1.5`–`2.3` uu compressed) and the
+       rest-height derivation above stands. Read with `0.05` uu the
+       pushback would have engaged at rest and put the car at `z ≈ 18.2`.
+       So the pushback is ported in step (a) after all (`PUSHBACK_ERP =
+       0.2`, `positional error + approach velocity` through the
+       contact's effective mass, floored at zero, shared over the four
+       wheels, riding on the suspension impulse only when the spring
+       force is nonzero, exactly RocketSim's variant of
+       `resolveSingleCollision` that returns without applying): the
+       landing test below bottoms out `15.46` with it against the
+       recording's `15.54`, and rebounds `+17.5` uu/s against the
+       recording's `+14`. `FR-081` finding 4's "no bounce" was an
+       overstatement — the recording rebounds from `z = 15.54` to `+14`
+       uu/s over five ticks before its jump — and finding 1's "`≈13` uu
+       compressed" is corrected under this entry's mechanism, item 2.
+    - **Measured.** A `standard_car` seeded at `z = 17.0` on flat ground
+      stays within `0.03` uu of it for `2` s on four touching wheels
+      (the derivation: `17.03`); a level car dropped through the
+      fixture's landing (`-312` uu/s) bottoms at `15.46`, rebounds to
+      `+17.5` uu/s, never reads airborne once down, and settles at
+      `17.0`; after a ground jump from rest all four wheels keep
+      touching for `≥ 4` ticks and the car is airborne within `20`; the
+      chassis of a car at rest makes no static contact. On the isolated
+      fixture: `239.55 uu / 0.68 rad / 302.85 uu/s → 160.19 uu / 0.44
+      rad / 264.09 uu/s` (max `776.31 / 3.11 / 961.41 → 741.26 / 1.78 /
+      690.57`), and `mean_ball_distance` `729.95 → 79.55` uu (max
+      `3311.68 → 320.66`): **the port's car hits the ball at `t = 5.758`
+      for the first time** (`FR-081` finding 3). `--self-growth 0.05`:
+      the grounded ticks and the whole flight now match to `0.00`–`0.04`
+      rad (from `0.05`–`0.10`) and `1`–`45` uu; the landing reads `53
+      uu / 0.01 rad / 27 uu/s` at `t = 5.67` s and `0.02` rad at `5.72`
+      — no spurious airborne read, no sideways dodge; the ball leaves
+      within `60` uu of the recording and drifts to `320` uu by the end.
+      What remains starts *after* the hit: the car's velocity error
+      steps `27 → 220` uu/s at the hit itself (`t = 5.77`) and `194 →
+      660` uu/s at `t ≈ 6.02`–`6.07` with the rotation climbing to
+      `0.9` rad — the recorded ground jump that coincides with the hit,
+      the hit's own impulse (`FR-063`'s per-pair car-ball restitution and
+      friction are still the defaults), and whatever the recording does
+      at `6.0` s are the next diagnosis, ahead of step (b). Without the
+      pushback the position figure was `156.62` uu (`0.46` rad, `266.67`
+      uu/s); with it `160.19` — the hard stop costs `3.6` uu of mean
+      position on this fixture and buys the recorded landing depth.
+    - **Tests.** `19` in `wheels.rs` (the rests and ray lengths, the
+      mounts, the rest-height contact geometry, contact loss with height,
+      the pushback margin, the travel clamp, the relative velocity, the
+      suspension impulse arithmetic, extended springs never pulling
+      down, `1600` and `3500` uu/s² over four wheels, coasting and the
+      brake's proportional band, boost and handbrake on the engine, the
+      lateral impulse and the handbrake's tenth, the sticky force on the
+      floor and on a wall, the quartered engine under three wheels, the
+      steer curve on the front wheels only, a steered car yawing through
+      its front wheels, a wall plane seen by a car on it); `4` new
+      `world.rs` acceptance tests (rest height, no chassis contact, the
+      landing, the post-jump contact ticks), the handbrake world test
+      rewritten onto the wheels' lateral factor, and the
+      `simulate_recorded` input test rewritten for the one-tick lag;
+      `12` `drive.rs` throttle/steer/handbrake tests moved onto a
+      resting-wheels helper (`step_on_wheels`). `rb_physics_bullet` `359
+      → 382`, the workspace `420 → 443`. The ratchet tightens `< 250 →
+      < 165` uu on the car and `< 1000 → < 100` uu on the ball. Full
+      workspace `fmt`/`clippy`/`test` green.
+  - **Non-goals (this requirement).** The
     implementation steps do not model three-wheel or non-Octane presets
     (descriptors are Octane-only; other presets are a data change later),
     do not raycast against other bodies (RocketSim allows a wheel to rest
@@ -8087,6 +8231,21 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.98.0 (2026-09-05): `RB-PHYSICS-001-FR-082` step (a) implemented: the
+  `wheels` module — four raycast wheels on the real spring-damper
+  suspension with the sticky force and the `extraPushback` hard stop,
+  the tire friction impulses (bilateral lateral grip, engine/brake/
+  coast rolling term) with the real steer-angle curve on the front
+  wheels and the real handbrake lateral factor, `on_ground` from the
+  wheel count, the jump along the car's up, and the chassis meeting
+  the arena at its real mount. `THROTTLE_ACCELERATION`, `STEER_TORQUE`,
+  and `HANDBRAKE_FRICTION_MULTIPLIER` retired; `FR-065`/`FR-066`
+  superseded. Three scoping corrections: the tire mechanism and the
+  steer curve belong to step (a), and `SUSPENSION_SUBTRACTION` is `2.5`
+  uu (`0.05` Bullet units), which makes the pushback a hard stop rather
+  than a rest-height term. Fixture `239.55 → 160.19` uu; the port's car
+  hits the ball for the first time (`mean_ball_distance` `729.95 →
+  79.55` uu).
 - 0.97.0 (2026-09-05): `RB-PHYSICS-001-FR-082` added (documentation
   only): the wheel/suspension/tire model scoped from RocketSim's
   `btVehicleRL` and `Car::_UpdateWheels` — tick order, the four Octane

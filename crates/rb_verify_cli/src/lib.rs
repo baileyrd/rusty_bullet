@@ -346,10 +346,16 @@ mod tests {
     /// after the dodge impulse's axes were flattened to the horizontal
     /// (`FR-081` finding 2 — the dodge-tick velocity window fell `121 →
     /// 88` uu/s, but the position figure is owned by finding 1's
-    /// post-jump contact gap). Mean ball distance
-    /// has stayed `~730` uu throughout — the ball is only touched late in
-    /// the fixture, so its divergence follows the car's own path, now
-    /// dominated by the grounded phase after the landing.
+    /// post-jump contact gap), `~160` uu after the wheels arrived
+    /// (`RB-PHYSICS-001-FR-082` step (a): four raycast wheels on the real
+    /// suspension, the tire impulses with the real steer-angle curve, the
+    /// sticky force, the car-up jump — the flight now matches to `0.04`
+    /// rad, the landing to `45` uu, and the port's car hits the ball at
+    /// `t = 5.758` for the first time; what remains starts after that
+    /// hit). Mean ball distance had stayed `~730` uu through every
+    /// earlier fix — the ball was never touched, so `1.24` s of a
+    /// stationary ball was scored against one flying at `2700` uu/s; with
+    /// the hit it dropped to `~80` uu.
     #[test]
     fn isolated_replay_of_the_real_dodge_stays_under_its_last_recorded_divergence() {
         let score = score_capture_against_candidate(
@@ -360,11 +366,11 @@ mod tests {
 
         assert_eq!(score.frames_compared, 347);
         assert_eq!(score.cars.pairs_compared, 347);
-        // Ratchet (2026-09-05): mean car position distance ~240 uu, mean
-        // ball distance ~730 uu after the real air-control damping landed
-        // (`FR-071`; `~237` after `FR-080` step (c)). Bounded loosely
-        // above to catch a regression, not to pin the exact figure.
-        assert!(score.cars.mean_position_distance < 250.0);
-        assert!(score.mean_ball_distance < 1000.0);
+        // Ratchet (2026-09-05): mean car position distance ~160 uu and
+        // mean ball distance ~80 uu after the wheels landed (`FR-082` step
+        // (a); `~240` / `~730` before it). Bounded loosely above to catch a
+        // regression, not to pin the exact figure.
+        assert!(score.cars.mean_position_distance < 165.0);
+        assert!(score.mean_ball_distance < 100.0);
     }
 }

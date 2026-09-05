@@ -233,7 +233,20 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   friction curves, analog handbrake, throttle/brake/coast, steer-angle
   curves, sticky force, car-up jump, auto-roll), shows its constants
   reproduce the recorded rest height and post-jump contact, and fixes
-  the design and a three-step sequencing before any code.
+  the design and a three-step sequencing before any code. Step (a) is
+  implemented: the `wheels` module (four raycast wheels at the Octane
+  mounts on the real spring-damper suspension with the sticky force
+  and the `extraPushback` hard stop; tire friction impulses — Bullet's
+  bilateral lateral grip and the engine/brake/coast rolling term — with
+  RocketSim's one-tick lag; the real steer-angle curve on the front
+  wheels; the real handbrake lateral factor; `on_ground` from the
+  wheel count; the jump along the car's up), `collision::ray_vs_plane`,
+  `PhysicsWorld::car_wheels`, and the chassis meeting the arena at its
+  real mount. `STEER_TORQUE`, `HANDBRAKE_FRICTION_MULTIPLIER`, and
+  `THROTTLE_ACCELERATION` are gone. The isolated fixture went `239.55 →
+  160.19` uu and the port's car hits the ball for the first time
+  (`mean_ball_distance` `729.95 → 79.55` uu). `THIRD_PARTY_NOTICES.md`
+  gains a RocketSim (MIT) section.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation
