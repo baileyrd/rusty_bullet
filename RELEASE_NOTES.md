@@ -6,6 +6,49 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Real air-control damping replaces the invented landing assist, and the fixture's whole airborne phase now matches
+**2026-09-05** · `RB-PHYSICS-001-FR-071`
+
+- Implemented the mechanism `FR-071` had documented and `FR-080` step (c)
+  had pinned to real data: every airborne step, each body-axis component
+  of the car's spin bleeds at RocketSim's `CAR_AIR_CONTROL_DAMPING` — `30`
+  about the right axis (pitch rate), `20` about up (yaw), `50` about
+  forward (roll) — through the same `CAR_TORQUE_SCALE` the stick torque
+  uses, the pitch and yaw terms scaled by `1 - |stick|` so a held stick
+  meets no resistance (roll's isn't scaled, so full roll fights its own
+  damping). It runs during a flip and under the post-flip pitch lock, at
+  full pitch strength there, as the 77-tick fit required. New
+  `drive::AIR_CONTROL_PITCH_DAMPING`/`AIR_CONTROL_YAW_DAMPING`/
+  `AIR_CONTROL_ROLL_DAMPING` and `drive::air_control_damping`.
+- The placeholder landing auto-orientation assist (`FR-018`'s
+  `LANDING_AUTO_UPRIGHT_TORQUE`, an airborne, input-free nudge toward
+  level) is removed. `FR-060` had found real Rocket League has no such
+  mechanic — its auto-flip and auto-roll are grounded and input-gated —
+  and what makes a tumbling car settle there is this damping. Measured
+  both ways on the fixture with the real damping in: nudge kept `≈243`
+  uu / `0.83` rad, removed `≈240` uu / `0.77` rad; a wash in the airborne
+  phase, marginally better overall.
+- **Measured against the isolated fixture:** the rotation gap now stays
+  within `0.03`–`0.10` rad from the dodge through the flip window *and*
+  the whole post-window decay to `t ≈ 5.52` s, with the velocity gap flat
+  around `100` uu/s — the entire airborne phase matches the recording.
+  Whole-run mean rotation `1.51` → `0.77` rad. Mean position (`≈237` →
+  `≈240` uu) and velocity (`≈254` → `≈337` uu/s) went slightly up, and
+  honestly so: the divergence now starts at the landing (`t ≈ 5.57` s),
+  and a correctly-oriented car's grounded phase — landing contact,
+  `FR-065`'s placeholder steering, the wall interactions after — diverges
+  differently from step (c)'s wrongly-oriented one, which had happened
+  to bounce closer for the last second. Nothing airborne is left in this
+  fixture; the grounded phase is the next domain.
+- 4 assist tests removed, 4 damping tests added (exact per-axis decay
+  rates; held-stick exemption except roll; body axes not world axes; none
+  while grounded), 1 `world.rs` test replaced (a tumbling car settles
+  within 2 s), 19 flip/cancel tests re-pinned with the pre-step damping
+  folded in — `rb_physics_bullet` stays at 350. Full workspace green (411
+  tests); `rb_verify_cli`'s ratchet holds at `< 250` uu.
+
+---
+
 ## The real flip cancel landed, and the flip window itself now matches the recording to a tenth of a radian
 **2026-09-05** · `RB-PHYSICS-001-FR-080` step (c)
 

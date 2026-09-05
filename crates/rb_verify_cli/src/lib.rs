@@ -339,11 +339,13 @@ mod tests {
     /// `~237` uu (after the real pitch-hold flip cancel, yaw/roll air
     /// control kept live mid-flip, and the angular-speed clamp moved after
     /// the transform integration, `FR-080` step (c) — the flip window
-    /// itself now matches to within `0.1` rad). Mean ball distance has
-    /// stayed `~730` uu throughout — the ball is only touched late in the
-    /// fixture, so its divergence follows the car's own post-dodge path,
-    /// which `FR-071`'s still-unimplemented air-control damping now
-    /// dominates.
+    /// itself now matches to within `0.1` rad), `~240` uu (after the real
+    /// air-control damping replaced the placeholder landing assist,
+    /// `FR-071` — the whole airborne phase now matches to within `0.1`
+    /// rad, and what remains starts at the landing). Mean ball distance
+    /// has stayed `~730` uu throughout — the ball is only touched late in
+    /// the fixture, so its divergence follows the car's own path, now
+    /// dominated by the grounded phase after the landing.
     #[test]
     fn isolated_replay_of_the_real_dodge_stays_under_its_last_recorded_divergence() {
         let score = score_capture_against_candidate(
@@ -354,10 +356,10 @@ mod tests {
 
         assert_eq!(score.frames_compared, 347);
         assert_eq!(score.cars.pairs_compared, 347);
-        // Ratchet (2026-09-05): mean car position distance ~237 uu, mean
-        // ball distance ~730 uu after the real flip cancel and the clamp
-        // placement fix landed (`FR-080` step (c)). Bounded loosely above
-        // to catch a regression, not to pin the exact figure.
+        // Ratchet (2026-09-05): mean car position distance ~240 uu, mean
+        // ball distance ~730 uu after the real air-control damping landed
+        // (`FR-071`; `~237` after `FR-080` step (c)). Bounded loosely
+        // above to catch a regression, not to pin the exact figure.
         assert!(score.cars.mean_position_distance < 250.0);
         assert!(score.mean_ball_distance < 1000.0);
     }

@@ -62,14 +62,18 @@
 //! of inertia the way `apply_torque` would — see `AIR_CONTROL_PITCH_TORQUE`'s
 //! own doc comment for why real Rocket League's own source deliberately
 //! cancels that division for this specific mechanism, and this port's
-//! earlier model didn't. Real air control also applies a per-axis
-//! angular-velocity damping torque this port has no equivalent for at all —
-//! see `AIR_CONTROL_ROLL_TORQUE`'s own doc comment for
-//! `RB-PHYSICS-001-FR-071`'s full finding (also inertia-cancelled in real
-//! Rocket League's own source, per `FR-079`, so its earlier "false
-//! precision" non-adoption reasoning needs revisiting — not done here).
-//! Since `RB-PHYSICS-001-FR-057`, sustained air control (or a dodge's own kick,
-//! or the landing-orientation assist) can no longer spin a car arbitrarily
+//! earlier model didn't. Since `RB-PHYSICS-001-FR-071`, real air control's
+//! own per-axis angular-velocity **damping** applies every airborne step
+//! too: each body-axis component of the spin bleeds at
+//! `AIR_CONTROL_PITCH_DAMPING`/`AIR_CONTROL_YAW_DAMPING`/
+//! `AIR_CONTROL_ROLL_DAMPING` (`30`/`20`/`50`, RocketSim's own
+//! `CAR_AIR_CONTROL_DAMPING`) through the same `CAR_TORQUE_SCALE`, the
+//! pitch and yaw terms scaled by `1 - |stick|` (so a held stick meets no
+//! resistance; roll's isn't) — the mechanism that makes an unsteered
+//! airborne car stop tumbling, and the one real capture's post-flip spin
+//! decay to the recording's own rounding (see `AIR_CONTROL_PITCH_DAMPING`).
+//! Since `RB-PHYSICS-001-FR-057`, sustained air control (or a dodge's own
+//! flip torque) can no longer spin a car arbitrarily
 //! fast, though: `clamp_angular_speed` caps the result at
 //! `MAX_CAR_ANGULAR_SPEED`, a real confirmed Rocket League limit, once per
 //! step, the same way `MAX_CAR_SPEED` already bounds linear speed.
@@ -143,7 +147,7 @@
 //! out of stick air control while the torque applies and for
 //! `FLIP_PITCHLOCK_EXTRA_TIME` more (yaw and roll stay live — the real
 //! capture's own in-window ticks demand it, against both RocketSim and
-//! RLUtilities), the landing assist is off meanwhile, and vertical
+//! RLUtilities), and vertical
 //! speed bleeds per `FLIP_Z_DAMP_120` between `FLIP_Z_DAMP_START` and the
 //! window's end. Below `DODGE_DEADZONE` on both axes,
 //! the plain vertical double jump fires exactly as before dodge existed.
@@ -234,11 +238,10 @@
 //! a full cancel keeps rolling on its forward-axis component. Pitch stays
 //! locked out of stick air control through the flip and its
 //! `FLIP_PITCHLOCK_EXTRA_TIME` (yaw and roll are live throughout, cancel
-//! or not), and the spin already built up is left to
-//! whatever acts on it afterward — real Rocket League's air-control
-//! damping (`RB-PHYSICS-001-FR-071`, not yet adopted) is what bleeds it
-//! there; this port has no angular damping on the car, so a fully
-//! cancelled forward flip simply stops gaining pitch rate. Sign
+//! or not), and the spin already built up is left to the real
+//! air-control damping (`RB-PHYSICS-001-FR-071`) to bleed off, as in real
+//! Rocket League — a fully cancelled forward flip stops gaining pitch rate
+//! and then decays at `AIR_CONTROL_PITCH_DAMPING`'s own rate. Sign
 //! convention: a forward flip (`pitch = -1` at the dodge) has
 //! `rel_torque.1 = +1`, so pulling *back* (`pitch = +1`) cancels it, and
 //! vice versa — the same input real players use. A second jump press
@@ -253,36 +256,24 @@
 //! the double jump without ending the flip) can't keep applying torque
 //! under a *later*, unrelated plain double jump.
 //!
-//! **Landing auto-orientation assistance**: while airborne, with no active
-//! `pitch`/`roll` air control input this step and no fresh jump press this
-//! step (so the assist never fights the player's own stick input, and
-//! never interacts within one `apply_driven_forces` call with a
-//! dodge/wall-jump-dodge/double-jump/flip-cancel's own direct velocity or
-//! angular-velocity change), a gentle restoring torque nudges the car's
-//! local up axis toward world up: `up_axis(car).cross(&world_up)` gives
-//! both the correction axis and, since both are unit vectors, a magnitude
-//! already proportional to the sine of the tilt angle — a level car earns
-//! no correction, a heavily tilted one earns a stronger nudge. This isn't a
-//! simplification of one specific real system: `RB-PHYSICS-001-FR-060`
-//! fetched RocketSim's real `Car.cpp` and found real Rocket League has no
-//! single mechanic matching "continuously nudge an airborne car upright
-//! with no player input." It instead has two distinct, real, *grounded*,
-//! input-gated systems — **auto-flip** (a turtle-recovery flip, firing only
-//! on an actual jump press while touching a mostly-upright surface
-//! (`CAR_AUTOFLIP_NORMZ_THRESH`) with roll already past a threshold
-//! (`CAR_AUTOFLIP_ROLL_THRESH`), timed over `CAR_AUTOFLIP_TIME`) and
-//! **auto-roll** (a continuous torque aligning the car to the ground's
-//! surface normal, but only while throttle is held and at least one wheel
-//! has contact) — neither of which is this port's own airborne, input-free
-//! nudge. This port's `LANDING_AUTO_UPRIGHT_TORQUE` remains its own
-//! invented placeholder for "eventually right yourself before landing," not
-//! a documented simplification of either real system; implementing either
-//! for real would mean adding new grounded, input-gated state machinery
-//! this port doesn't have, out of scope here — see `RB-PHYSICS-001-FR-060`'s
-//! own Non-goals. A car resting *exactly* upside-down (`up` antiparallel to
-//! world up) is a singularity this simple scheme doesn't resolve (the cross
-//! product is exactly zero, any perpendicular axis would do, but none is
-//! chosen) — an unlikely exact case, not addressed here.
+//! **No airborne self-righting.** This module used to apply a gentle
+//! restoring torque nudging an unsteered airborne car's up axis toward
+//! world up (`RB-PHYSICS-001-FR-018`'s landing auto-orientation assist,
+//! an invented placeholder for "eventually right yourself before
+//! landing"). `RB-PHYSICS-001-FR-060` then fetched RocketSim's real
+//! `Car.cpp` and found real Rocket League has no single mechanic matching
+//! it — its two closest systems, **auto-flip** (a turtle-recovery flip,
+//! firing only on an actual jump press while touching a mostly-upright
+//! surface with roll already past a threshold) and **auto-roll** (a torque
+//! aligning the car to the ground's surface normal, only while throttle is
+//! held with wheel contact), are both *grounded* and input-gated — and
+//! `RB-PHYSICS-001-FR-071` retired the placeholder once the real
+//! air-control damping was in place: what makes a tumbling airborne car
+//! settle in real Rocket League is that its spin bleeds off, not that it
+//! is steered upright, and the isolated real capture measured the same
+//! with and without the nudge. Implementing auto-flip/auto-roll for real
+//! would mean new grounded, input-gated state machinery this port doesn't
+//! have — see `RB-PHYSICS-001-FR-060`'s own Non-goals.
 //!
 //! A car with no input set (or all-neutral `ControllerInput::default()`)
 //! behaves exactly as a free rigid box always has — this module only ever
@@ -333,15 +324,9 @@
 //! League applies a genuinely anisotropic (direction-dependent) reduction,
 //! not this port's one isotropic factor — see that requirement's own
 //! entry and `HANDBRAKE_FRICTION_MULTIPLIER`'s own doc comment for the
-//! full finding. `LANDING_AUTO_UPRIGHT_TORQUE`
-//! remains an uncalibrated placeholder chosen
-//! only to produce a visibly responsive flip for
-//! this car's mass/inertia in tests — in
-//! particular it isn't a simplification of one real system at all, since
-//! `RB-PHYSICS-001-FR-060` found real Rocket League's two closest systems
-//! (auto-flip, auto-roll) are both grounded and input-gated, unlike this
-//! port's own airborne, input-free nudge — see that module doc section's
-//! own detail. `WALL_JUMP_HORIZONTAL_SPEED` remains an uncalibrated
+//! full finding. (The former `LANDING_AUTO_UPRIGHT_TORQUE` placeholder is
+//! gone since `RB-PHYSICS-001-FR-071` — see the "No airborne
+//! self-righting" section above.) `WALL_JUMP_HORIZONTAL_SPEED` remains an uncalibrated
 //! placeholder too, but since `RB-PHYSICS-001-FR-067` real Rocket League is
 //! confirmed to have no distinct wall-jump mechanic or constant to
 //! calibrate against at all — see that requirement's own entry and
@@ -373,8 +358,9 @@
 //! `DODGE_SPEED` once its mass-independence was recognized; a wall jump
 //! reusing the plain jump impulse rather
 //! than its own faster speed, confirmed exact by `RB-PHYSICS-001-FR-067`;
-//! real air-control torque/damping coefficients, whose per-axis ratio
-//! `RB-PHYSICS-001-FR-068` later confirmed and adopted; a dodge's real
+//! real air-control torque/damping coefficients, whose per-axis torque
+//! ratio `RB-PHYSICS-001-FR-068` later confirmed and adopted and whose
+//! damping `RB-PHYSICS-001-FR-071` adopted in full; a dodge's real
 //! spin torque and duration, whose exact mechanism `RB-PHYSICS-001-FR-069`
 //! later confirmed), but none of the
 //! remaining raw absolute values port directly: they're expressed as
@@ -722,21 +708,48 @@ const AIR_CONTROL_YAW_TORQUE: f32 = 95.0;
 /// `pitchTorqueScale` (`RB-PHYSICS-001-FR-070`). Releasing the stick on an
 /// axis (input `0`) gives full damping strength on that axis, continuously
 /// bleeding off any existing spin; holding it fully (input `±1`) zeroes the
-/// damping, granting full torque authority with no resistance. Still not
-/// adopted here — this port has no existing damping quantity to extend,
-/// unlike the torque constants above, which were direct multipliers this
-/// port already applied the same way — but `RB-PHYSICS-001-FR-079` found
-/// that `CAR_AIR_CONTROL_DAMPING`'s own "false precision" non-adoption
-/// reasoning (real absolute coefficients calibrated against real Rocket
-/// League's own inertia tensor) rests on the same false premise
-/// `AIR_CONTROL_PITCH_TORQUE`'s own finding corrected: `damping` sits
-/// inside the same `torque - damping` expression the inertia
-/// pre-multiply/cancel applies to, so it's inertia-independent too.
-/// Introducing this mechanism for real remains a candidate for a future,
-/// dedicated requirement, exactly as `FR-068`'s own Non-goals already
-/// flagged — this entry only corrects why it wasn't adopted, not whether it
-/// should be.
+/// damping, granting full torque authority with no resistance. Since
+/// `RB-PHYSICS-001-FR-071`'s implementation that mechanism is adopted in
+/// full — see `AIR_CONTROL_PITCH_DAMPING` and `air_control_damping`.
+/// (`RB-PHYSICS-001-FR-079` had already found the original "false
+/// precision" non-adoption reasoning rested on a false premise: `damping`
+/// sits inside the same `torque - damping` expression the inertia
+/// pre-multiply/cancel applies to, so it's inertia-independent too.)
 const AIR_CONTROL_ROLL_TORQUE: f32 = 400.0;
+
+/// Real Rocket League's own air-control damping coefficient about the car's
+/// local *right* axis (pitch rate), RocketSim's `CAR_AIR_CONTROL_DAMPING.x
+/// = 30` (`RB-PHYSICS-001-FR-071`). Every airborne step, `air_control_damping`
+/// subtracts `(angular velocity along the axis) * coefficient * (1 - |stick
+/// input on the axis|)` for each axis — as an inertia-independent angular
+/// acceleration through `CAR_TORQUE_SCALE`, the same `torque - damping`
+/// expression `AIR_CONTROL_PITCH_TORQUE` lives in — so a released stick
+/// bleeds existing spin off continuously (pitch at `e^{-30 · 0.0959 · t}`,
+/// a `0.35` s time constant) while a fully held one meets no resistance.
+/// The pitch input in that factor is the *effective* pitch — zero while
+/// `RB-PHYSICS-001-FR-080`'s pitch lock holds, so a post-flip pitch stick
+/// doesn't suppress the pitch damping. Active during the flip too:
+/// `FR-080` step (c) reproduced the isolated dodge-derailment fixture's
+/// 77 in-window ticks to `0.0025` rad/s rms only with this damping (and
+/// yaw/roll stick torque) live mid-flip, and its post-window spin decay
+/// (`≈3.9` rad/s per second at `|ω| = 5.5`, pitch locked, stick neutral on
+/// yaw) is exactly this coefficient's own rate.
+pub const AIR_CONTROL_PITCH_DAMPING: f32 = 30.0;
+
+/// Real air-control damping about the car's local *up* axis (yaw rate),
+/// RocketSim's `CAR_AIR_CONTROL_DAMPING.y = 20`, scaled by `1 - |yaw|` —
+/// see `AIR_CONTROL_PITCH_DAMPING` (`RB-PHYSICS-001-FR-071`).
+pub const AIR_CONTROL_YAW_DAMPING: f32 = 20.0;
+
+/// Real air-control damping about the car's local *forward* axis (roll
+/// rate), RocketSim's `CAR_AIR_CONTROL_DAMPING.z = 50` — the one axis whose
+/// damping is *not* reduced by its own stick input (`dampRoll` has no `(1 -
+/// |roll|)` factor in `_UpdateAirTorque`), so full roll input fights its own
+/// damping and settles at `AIR_CONTROL_ROLL_TORQUE / AIR_CONTROL_ROLL_DAMPING
+/// = 8` rad/s, above `MAX_CAR_ANGULAR_SPEED`, which therefore still caps a
+/// sustained roll — see `AIR_CONTROL_PITCH_DAMPING`
+/// (`RB-PHYSICS-001-FR-071`).
+pub const AIR_CONTROL_ROLL_DAMPING: f32 = 50.0;
 
 /// RocketSim's own `RLConst.h`: `CAR_TORQUE_SCALE = 2 * M_PI / (1 << 16) *
 /// 1000` — converts a raw `CAR_AIR_CONTROL_TORQUE`-style "torque" value
@@ -746,7 +759,7 @@ const AIR_CONTROL_ROLL_TORQUE: f32 = 400.0;
 /// `apply_torque` — see `AIR_CONTROL_PITCH_TORQUE`'s own doc comment for
 /// why that distinction is exactly the fix this constant's real usage
 /// requires.
-const CAR_TORQUE_SCALE: f32 = 2.0 * std::f32::consts::PI / 65536.0 * 1000.0;
+pub const CAR_TORQUE_SCALE: f32 = 2.0 * std::f32::consts::PI / 65536.0 * 1000.0;
 
 /// Uncalibrated placeholder wall-jump horizontal push-off speed (uu/s),
 /// applied outward along the wall's normal as an instantaneous velocity
@@ -1085,9 +1098,10 @@ pub const FLIP_TORQUE_Y: f32 = 224.0;
 /// How long (seconds) a dodge's flip torque keeps applying after the dodge,
 /// RocketSim's own `FLIP_TORQUE_TIME = 0.65f`: `isFlipping = hasFlipped &&
 /// flipTime < FLIP_TORQUE_TIME` — a hard cutoff, with no ramp or decay
-/// beforehand. While flipping, pitch is locked out of stick air control
-/// and this port's own landing-orientation assist is off; yaw and roll air
-/// control stay live — RocketSim and RLUtilities both lock all three out,
+/// beforehand. While flipping, pitch is locked out of stick air control;
+/// yaw and roll air control (and the real damping,
+/// `AIR_CONTROL_PITCH_DAMPING`) stay live — RocketSim and RLUtilities both
+/// lock all three out,
 /// but the real capture shows otherwise, see `apply_driven_forces`
 /// (`RB-PHYSICS-001-FR-080`). RocketSim also declares
 /// `FLIP_TORQUE_MIN_TIME = 0.41f` and `FLIP_PITCHLOCK_TIME = 1.f` in
@@ -1189,32 +1203,6 @@ const JUMP_MIN_TIME: f32 = 0.025;
 /// to `1.0` as `JUMP_MIN_TIME` approaches.
 const JUMP_PRE_MIN_ACCEL_SCALE: f32 = 0.62;
 
-/// Uncalibrated placeholder landing-auto-orientation restoring-torque
-/// magnitude — applied while airborne with no active `pitch`/`roll` air
-/// control input, scaled by `up_axis(car).cross(&world_up)` (already
-/// proportional to the sine of the car's tilt off level, since both
-/// vectors are unit length, so a bigger tilt earns a stronger nudge and an
-/// already-level car earns none). Still applied via `apply_torque` (a
-/// genuine torque, divided by this car's own moment of inertia during
-/// integration) — chosen only to be visibly gentle for this car's
-/// mass/inertia in tests, not derived from any measured or documented
-/// Rocket League value; this port has no public reference for the real
-/// assist's actual strength or trigger condition either (see the module
-/// doc comment). Its original "an order of magnitude smaller than full air
-/// control" framing no longer holds a meaningful comparison since
-/// `RB-PHYSICS-001-FR-079`: air control's own constants switched mechanism
-/// (a direct angular-acceleration rate via `apply_angular_acceleration`,
-/// not a torque divided by inertia), so the two are no longer expressed in
-/// comparable units at all. Whether this constant is itself a further,
-/// unconfirmed instance of the same inertia-cancellation mismatch is not
-/// established either way — `RB-PHYSICS-001-FR-060` already flagged this
-/// mechanic as a deliberately different simplification (airborne,
-/// input-free) from real Rocket League's own closest systems (auto-flip,
-/// auto-roll — both grounded and input-gated), so it isn't a confirmed
-/// direct port of a real constant the way `AIR_CONTROL_PITCH_TORQUE` turned
-/// out to be.
-const LANDING_AUTO_UPRIGHT_TORQUE: f32 = 100_000.0;
-
 fn forward_axis(car: &RigidBody) -> Vec3 {
     car.orientation.rotate(&Vec3::new(1.0, 0.0, 0.0))
 }
@@ -1296,8 +1284,8 @@ fn input_is_active(input: &ControllerInput) -> bool {
 /// (`DodgeFlip`, `RB-PHYSICS-001-FR-080`): the dodge branches (ground and
 /// wall-jump) set it to a fresh `Some` with `elapsed = 0.0`, every later
 /// airborne call applies the real flip torque while `elapsed <
-/// FLIP_TORQUE_TIME` (with pitch locked out of stick air control and the
-/// landing-orientation assist off meanwhile; yaw/roll air control stays
+/// FLIP_TORQUE_TIME` (with pitch locked out of stick air control
+/// meanwhile; yaw/roll air control and the real damping stay
 /// live, and `input.pitch` held in the flip's own pitch sign is the real
 /// **flip cancel**, scaling the torque's pitch component by `1 - |pitch|`,
 /// see the module doc comment), keeps pitch locked out of air
@@ -1524,35 +1512,21 @@ pub fn apply_driven_forces(
                 );
             }
 
-            // Landing auto-orientation assistance: with no active pitch/roll
-            // air control this step (so the assist never fights the player's
-            // own input — gated on the raw stick, so a pitch held through
-            // the post-flip pitch lock still counts as active input) and no
-            // fresh jump press this step (so it never interacts, within the
-            // same integrate_velocities call, with a
-            // dodge/wall-jump-dodge/double-jump/flip-cancel's own direct
-            // velocity or angular-velocity change — those already dominate
-            // the car's rotation for that instant anyway), gently nudge the
-            // car's local up axis toward world up. `up.cross(&world_up)`
-            // gives both the correction axis and, since both are unit
-            // vectors, a magnitude already proportional to the sine of the
-            // tilt angle — a level car (or one resting exactly upside-down,
-            // an unlikely singularity this simple scheme doesn't resolve)
-            // gets no correction, a heavily tilted one gets a stronger
-            // nudge. See the module doc comment for why this applies
-            // continuously whenever airborne rather than only near the
-            // ground — and never while the flip torque is applying
-            // (RB-PHYSICS-001-FR-080): real Rocket League has no such
-            // assist, and the real capture's in-window ticks are fully
-            // accounted for by the flip torque, stick air control, and
-            // damping alone.
-            if pitch == 0.0 && roll == 0.0 && !jump_pressed && !is_flipping {
-                let world_up = Vec3::new(0.0, 0.0, 1.0);
-                let correction_axis = up_axis(car).cross(&world_up);
-                if correction_axis.length() > 0.0 {
-                    car.apply_torque(correction_axis * LANDING_AUTO_UPRIGHT_TORQUE);
-                }
-            }
+            // RB-PHYSICS-001-FR-071: real air control's own per-axis
+            // angular-velocity damping, every airborne step — the
+            // `- damping` half of RocketSim's `applyTorque(invInertia
+            // .inverse() * (torque - damping) * CAR_TORQUE_SCALE)`. The
+            // pitch factor reads the *effective* (lock-scaled) pitch, as
+            // `controls.pitch * pitchTorqueScale` does there.
+            car.apply_angular_acceleration(air_control_damping(car, effective_pitch, yaw));
+
+            // No airborne self-righting beyond the damping above:
+            // RB-PHYSICS-001-FR-060 found real Rocket League has no such
+            // mechanic (its auto-flip and auto-roll are grounded and
+            // input-gated), and RB-PHYSICS-001-FR-071 retired this port's
+            // former placeholder `LANDING_AUTO_UPRIGHT_TORQUE` nudge once
+            // the real damping — the mechanism that actually makes an
+            // unsteered airborne car stop tumbling — was in place.
         }
 
         if jump_pressed {
@@ -1737,6 +1711,28 @@ pub fn apply_driven_forces(
         // regardless of whether it's doing anything.
         *boost_amount = (*boost_amount - BOOST_CONSUMPTION_RATE * dt).max(0.0);
     }
+}
+
+/// The real air-control damping angular acceleration for `car`'s current
+/// spin (`RB-PHYSICS-001-FR-071`): each body-axis component of
+/// `angular_velocity`, times that axis' `AIR_CONTROL_*_DAMPING`, times `1 -
+/// |stick input|` for pitch (`effective_pitch`, already zeroed under the
+/// post-flip pitch lock) and yaw (roll has no such factor), summed, negated,
+/// and scaled by `CAR_TORQUE_SCALE` — RocketSim's `_UpdateAirTorque`
+/// `damping` vector (`dirPitch_right * dampPitch + dirYaw_up * dampYaw +
+/// dirRoll_forward * dampRoll`; the negated pitch/roll axis directions
+/// cancel out, since each is used both to project and to reconstruct),
+/// applied through the same inertia-cancelled path as the stick torque.
+/// Apply once per airborne step via `apply_angular_acceleration`.
+fn air_control_damping(car: &RigidBody, effective_pitch: f32, yaw: f32) -> Vec3 {
+    let forward = forward_axis(car);
+    let right = right_axis(car);
+    let up = up_axis(car);
+    let spin = car.angular_velocity;
+    -(right * (spin.dot(&right) * AIR_CONTROL_PITCH_DAMPING * (1.0 - effective_pitch.abs()))
+        + up * (spin.dot(&up) * AIR_CONTROL_YAW_DAMPING * (1.0 - yaw.abs()))
+        + forward * (spin.dot(&forward) * AIR_CONTROL_ROLL_DAMPING))
+        * CAR_TORQUE_SCALE
 }
 
 /// Scales `car.angular_velocity` back down to `MAX_CAR_ANGULAR_SPEED` if
@@ -1967,6 +1963,14 @@ mod tests {
     const FLIP_PITCH_STEP_PER_TICK: f32 = FLIP_TORQUE_Y / FLIP_REFERENCE_TICK_RATE;
     /// Likewise for the roll axis: `FLIP_TORQUE_X / 120`.
     const FLIP_ROLL_STEP_PER_TICK: f32 = FLIP_TORQUE_X / FLIP_REFERENCE_TICK_RATE;
+
+    /// One step's real air-control damping Δω on `car`'s *current* spin
+    /// with the stick neutral on every axis (RB-PHYSICS-001-FR-071) —
+    /// compute it *before* the step, then fold it into an exact per-tick
+    /// expectation alongside whatever torque the step applies.
+    fn neutral_damping_step(car: &RigidBody, dt: f32) -> Vec3 {
+        air_control_damping(car, 0.0, 0.0) * dt
+    }
 
     fn full_throttle() -> ControllerInput {
         ControllerInput {
@@ -2734,9 +2738,11 @@ mod tests {
             air_control_only
         );
 
+        let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(&mut c, &ControllerInput::default(), &mut flip, dt);
         assert!(
-            (c.angular_velocity.y - air_control_only.y - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
+            (c.angular_velocity.y - air_control_only.y - damp.y - FLIP_PITCH_STEP_PER_TICK).abs()
+                < 1e-3,
             "expected FLIP_TORQUE_Y / 120 rad/s about +right after one tick of flip torque, got {}",
             c.angular_velocity.y
         );
@@ -2777,9 +2783,11 @@ mod tests {
             air_control_only
         );
 
+        let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(&mut c, &ControllerInput::default(), &mut flip, dt);
         assert!(
-            (c.angular_velocity.x - air_control_only.x + FLIP_ROLL_STEP_PER_TICK).abs() < 1e-3,
+            (c.angular_velocity.x - air_control_only.x - damp.x + FLIP_ROLL_STEP_PER_TICK).abs()
+                < 1e-3,
             "expected -FLIP_TORQUE_X / 120 rad/s about the forward axis after one tick, got {}",
             c.angular_velocity.x
         );
@@ -2809,10 +2817,13 @@ mod tests {
         // The dodge step's own air-control pitch (≈0.1 rad/s).
         let head_start = c.angular_velocity.y;
 
+        let damp = neutral_damping_step(&c, dt).y;
         airborne_flip_step(&mut c, &neutral, &mut flip, dt);
-        assert!((c.angular_velocity.y - head_start - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3);
+        assert!((c.angular_velocity.y - head_start - damp - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3);
+        let after_one = c.angular_velocity.y;
+        let damp = neutral_damping_step(&c, dt).y;
         airborne_flip_step(&mut c, &neutral, &mut flip, dt);
-        assert!((c.angular_velocity.y - head_start - 2.0 * FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3);
+        assert!((c.angular_velocity.y - after_one - damp - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3);
         airborne_flip_step(&mut c, &neutral, &mut flip, dt);
         assert!(
             (c.angular_velocity.y - MAX_CAR_ANGULAR_SPEED).abs() < 1e-3,
@@ -2838,18 +2849,24 @@ mod tests {
         }
 
         // Well past the window (elapsed ≥ 80/120 ≈ 0.667): no more flip
-        // torque, and with nothing else acting the spin simply persists.
+        // torque — only the real air-control damping (RB-PHYSICS-001-FR-071)
+        // acts on the spin now.
         for _ in 77..80 {
             airborne_flip_step(&mut c, &neutral, &mut flip, dt);
         }
         let held = c.angular_velocity;
+        let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(&mut c, &neutral, &mut flip, dt);
-        assert_eq!(
-            c.total_angular_acceleration(),
-            Vec3::ZERO,
-            "expected no flip torque after FLIP_TORQUE_TIME"
+        assert!(
+            (c.total_angular_acceleration() * dt - damp).length() < 1e-5,
+            "expected only damping after FLIP_TORQUE_TIME, got {:?}",
+            c.total_angular_acceleration()
         );
-        assert_eq!(c.angular_velocity, held);
+        assert!((c.angular_velocity - held - damp).length() < 1e-5);
+        assert!(
+            damp.y < 0.0,
+            "expected the damping to bleed the flip's spin"
+        );
         assert!(
             flip.is_some_and(|f| f.elapsed > FLIP_TORQUE_TIME),
             "expected the flip state to persist past the window (for the pitch lock), got {:?}",
@@ -2871,23 +2888,22 @@ mod tests {
             let mut c = car();
             let mut flip = airborne_dodge(&mut c, &input, dt);
             let head_start = c.angular_velocity.y;
+            let damp = neutral_damping_step(&c, dt).y;
             airborne_flip_step(&mut c, &ControllerInput::default(), &mut flip, dt);
             assert!(
-                (c.angular_velocity.y - head_start - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
+                (c.angular_velocity.y - head_start - damp - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
                 "expected FLIP_TORQUE_Y / 120 per tick at dt={dt}, got {}",
-                c.angular_velocity.y - head_start
+                c.angular_velocity.y - head_start - damp
             );
         }
     }
 
     #[test]
-    fn yaw_and_roll_air_control_stay_live_mid_flip_while_the_landing_assist_is_off() {
+    fn yaw_and_roll_air_control_stay_live_mid_flip() {
         // RB-PHYSICS-001-FR-080: the real capture keeps stick yaw/roll
         // active during the flip (against RocketSim's `doAirControl =
         // false`), so full roll input adds its ordinary air-control roll on
-        // top of the flip's own torque — while this port's own
-        // landing-orientation assist (a plain `apply_torque`) never fires
-        // on a tilted car mid-flip.
+        // top of the flip's own torque.
         let dt = 1.0 / 120.0;
         let forward_dodge = ControllerInput {
             jump: true,
@@ -2898,6 +2914,7 @@ mod tests {
         let mut c = car();
         let mut flip = airborne_dodge(&mut c, &forward_dodge, dt);
         let head_start = c.angular_velocity.y;
+        let damp = neutral_damping_step(&c, dt).y;
         airborne_flip_step(&mut c, &full_roll(), &mut flip, dt);
         let expected_roll = -AIR_CONTROL_ROLL_TORQUE * CAR_TORQUE_SCALE * dt;
         assert!(
@@ -2905,16 +2922,80 @@ mod tests {
             "expected one tick of roll air control mid-flip, got {:?}",
             c.angular_velocity
         );
-        assert!((c.angular_velocity.y - head_start - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3);
+        assert!((c.angular_velocity.y - head_start - damp - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3);
+    }
 
-        let mut tilted = tilted_car();
-        let mut flip = airborne_dodge(&mut tilted, &forward_dodge, dt);
-        airborne_flip_step(&mut tilted, &ControllerInput::default(), &mut flip, dt);
-        assert_eq!(
-            tilted.total_torque(),
-            Vec3::ZERO,
-            "expected the landing assist to stay off while flipping"
+    #[test]
+    fn a_spinning_car_with_a_neutral_stick_bleeds_spin_at_the_real_per_axis_rates() {
+        // RB-PHYSICS-001-FR-071: each body-axis component decays by its own
+        // CAR_AIR_CONTROL_DAMPING coefficient through CAR_TORQUE_SCALE —
+        // roll (forward, 50) fastest, then pitch (right, 30), then yaw
+        // (up, 20). A level car's body axes are the world axes.
+        let dt = 1.0 / 120.0;
+        let mut c = car();
+        c.angular_velocity = Vec3::new(1.0, 1.0, 1.0);
+        let mut boost = MAX_BOOST;
+        step_with_input(&mut c, &ControllerInput::default(), false, &mut boost, dt);
+        let k = CAR_TORQUE_SCALE * dt;
+        assert!((c.angular_velocity.x - (1.0 - AIR_CONTROL_ROLL_DAMPING * k)).abs() < 1e-6);
+        assert!((c.angular_velocity.y - (1.0 - AIR_CONTROL_PITCH_DAMPING * k)).abs() < 1e-6);
+        assert!((c.angular_velocity.z - (1.0 - AIR_CONTROL_YAW_DAMPING * k)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_fully_held_stick_removes_its_own_axis_damping_except_for_roll() {
+        // RocketSim's `dampPitch`/`dampYaw` carry a `(1 - |input|)` factor;
+        // `dampRoll` doesn't — so full roll input fights its own damping.
+        let dt = 1.0 / 120.0;
+        let mut c = car();
+        c.angular_velocity = Vec3::new(1.0, 1.0, 1.0);
+        let mut boost = MAX_BOOST;
+        let input = ControllerInput {
+            pitch: Some(1.0),
+            yaw: Some(1.0),
+            roll: Some(1.0),
+            ..Default::default()
+        };
+        step_with_input(&mut c, &input, false, &mut boost, dt);
+        let k = CAR_TORQUE_SCALE * dt;
+        // pitch = +1 acts about -right: torque only, no damping.
+        assert!((c.angular_velocity.y - (1.0 - AIR_CONTROL_PITCH_TORQUE * k)).abs() < 1e-6);
+        // yaw = +1 acts about +up: torque only, no damping.
+        assert!((c.angular_velocity.z - (1.0 + AIR_CONTROL_YAW_TORQUE * k)).abs() < 1e-6);
+        // roll = +1 acts about -forward, *and* the roll damping still bleeds.
+        assert!(
+            (c.angular_velocity.x
+                - (1.0 - AIR_CONTROL_ROLL_DAMPING * k - AIR_CONTROL_ROLL_TORQUE * k))
+                .abs()
+                < 1e-6
         );
+    }
+
+    #[test]
+    fn damping_acts_along_the_cars_own_axes_not_the_worlds() {
+        // A car rolled 90° has its right axis along world +z, so a world-z
+        // spin is a *pitch* rate for it and decays at 30, not yaw's 20.
+        let dt = 1.0 / 120.0;
+        let mut c = tilted_car();
+        c.angular_velocity = Vec3::new(0.0, 0.0, 1.0);
+        let mut boost = MAX_BOOST;
+        step_with_input(&mut c, &ControllerInput::default(), false, &mut boost, dt);
+        let k = CAR_TORQUE_SCALE * dt;
+        assert!(
+            (c.angular_velocity.z - (1.0 - AIR_CONTROL_PITCH_DAMPING * k)).abs() < 1e-5,
+            "expected the pitch coefficient on a body-right spin, got {:?}",
+            c.angular_velocity
+        );
+    }
+
+    #[test]
+    fn air_control_damping_does_not_apply_while_grounded() {
+        let dt = 1.0 / 120.0;
+        let mut c = car();
+        c.angular_velocity = Vec3::new(1.0, 1.0, 1.0);
+        let mut boost = MAX_BOOST;
+        step_with_input(&mut c, &ControllerInput::default(), true, &mut boost, dt);
+        assert_eq!(c.angular_velocity, Vec3::new(1.0, 1.0, 1.0));
     }
 
     #[test]
@@ -2939,15 +3020,20 @@ mod tests {
         }
         assert!(flip.is_some_and(|f| f.elapsed > FLIP_TORQUE_TIME));
 
+        // With pitch locked, a held pitch stick changes nothing: the only
+        // acceleration is the real damping (RB-PHYSICS-001-FR-071) — at
+        // full strength, since the *effective* pitch is zero.
+        let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(&mut c, &full_pitch(), &mut flip, dt);
-        assert_eq!(
-            c.total_angular_acceleration(),
-            Vec3::ZERO,
-            "expected pitch input to still be locked out after the flip torque stopped"
+        assert!(
+            (c.total_angular_acceleration() * dt - damp).length() < 1e-5,
+            "expected pitch input to still be locked out after the flip torque stopped, got {:?}",
+            c.total_angular_acceleration()
         );
+        let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(&mut c, &full_yaw(), &mut flip, dt);
         assert!(
-            c.total_angular_acceleration().length() > 0.0,
+            (c.total_angular_acceleration() * dt - damp).length() > 1e-3,
             "expected yaw input to work again as soon as the flip torque stopped"
         );
 
@@ -2956,9 +3042,10 @@ mod tests {
             airborne_flip_step(&mut c, &ControllerInput::default(), &mut flip, dt);
         }
         assert!(flip.is_some_and(|f| f.elapsed > FLIP_TORQUE_TIME + FLIP_PITCHLOCK_EXTRA_TIME));
+        let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(&mut c, &full_pitch(), &mut flip, dt);
         assert!(
-            c.total_angular_acceleration().length() > 0.0,
+            (c.total_angular_acceleration() * dt - damp).length() > 1e-3,
             "expected pitch input to work again after FLIP_PITCHLOCK_EXTRA_TIME"
         );
     }
@@ -3077,9 +3164,10 @@ mod tests {
         assert_eq!(flip, None, "expected landing to clear the flip state");
 
         let spin_before = c.angular_velocity;
+        let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(&mut c, &ControllerInput::default(), &mut flip, dt);
-        assert_eq!(c.total_angular_acceleration(), Vec3::ZERO);
-        assert_eq!(c.angular_velocity, spin_before);
+        assert!((c.total_angular_acceleration() * dt - damp).length() < 1e-5);
+        assert!((c.angular_velocity - spin_before - damp).length() < 1e-5);
     }
 
     #[test]
@@ -3768,13 +3856,14 @@ mod tests {
         // the flip's pitch torque is scaled to zero, so nothing changes the
         // spin this step.
         let spin_before = c.angular_velocity;
+        let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(&mut c, &full_pitch(), &mut dodge_flip, dt);
-        assert_eq!(
-            c.total_angular_acceleration(),
-            Vec3::ZERO,
-            "expected a full pitch hold against the flip to zero its torque"
+        assert!(
+            (c.total_angular_acceleration() * dt - damp).length() < 1e-5,
+            "expected a full pitch hold against the flip to zero its torque (damping only), got {:?}",
+            c.total_angular_acceleration()
         );
-        assert_eq!(c.angular_velocity, spin_before);
+        assert!((c.angular_velocity - spin_before - damp).length() < 1e-5);
         assert!(
             dodge_flip.is_some(),
             "expected the flip state to persist through a cancel"
@@ -4554,6 +4643,7 @@ mod tests {
         );
         let spin_before_press = c.angular_velocity;
         let velocity_before_press = c.linear_velocity;
+        let damp = neutral_damping_step(&c, dt).y;
         step_with_input_and_dodge_flip(
             &mut c,
             &full_jump(),
@@ -4568,7 +4658,8 @@ mod tests {
         );
 
         assert!(
-            (c.angular_velocity.y - spin_before_press.y - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
+            (c.angular_velocity.y - spin_before_press.y - damp - FLIP_PITCH_STEP_PER_TICK).abs()
+                < 1e-3,
             "expected the flip torque to carry on through the press, got {:?} from {:?}",
             c.angular_velocity,
             spin_before_press
@@ -4721,6 +4812,7 @@ mod tests {
 
         // And with it gone, no flip torque runs under the double jump.
         let spin_after_plain_double_jump = c.angular_velocity;
+        let damp = neutral_damping_step(&c, dt);
         step_with_input_and_dodge_flip(
             &mut c,
             &full_jump(),
@@ -4733,8 +4825,8 @@ mod tests {
             &mut dodge_flip,
             dt,
         );
-        assert_eq!(c.total_angular_acceleration(), Vec3::ZERO);
-        assert_eq!(c.angular_velocity, spin_after_plain_double_jump);
+        assert!((c.total_angular_acceleration() * dt - damp).length() < 1e-5);
+        assert!((c.angular_velocity - spin_after_plain_double_jump - damp).length() < 1e-5);
     }
 
     #[test]
@@ -4785,6 +4877,7 @@ mod tests {
             dt,
         );
         let spin_before_press = c.angular_velocity;
+        let damp = neutral_damping_step(&c, dt).y;
         step_with_input_and_dodge_flip(
             &mut c,
             &full_jump(),
@@ -4804,7 +4897,8 @@ mod tests {
             c.linear_velocity
         );
         assert!(
-            (c.angular_velocity.y - spin_before_press.y - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
+            (c.angular_velocity.y - spin_before_press.y - damp - FLIP_PITCH_STEP_PER_TICK).abs()
+                < 1e-3,
             "expected the wall jump to leave the flip's torque running, got {:?} from {:?}",
             c.angular_velocity,
             spin_before_press
@@ -4835,15 +4929,18 @@ mod tests {
         assert_eq!(flip.map(|f| f.rel_torque), Some((0.0, 1.0)));
 
         let before = c.angular_velocity.y;
+        let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(&mut c, &full_pitch(), &mut flip, dt);
-        assert_eq!(
-            c.total_angular_acceleration(),
-            Vec3::ZERO,
-            "expected a full pull-back to zero the pitch torque (and pitch air control stays locked)"
+        assert!(
+            (c.total_angular_acceleration() * dt - damp).length() < 1e-5,
+            "expected a full pull-back to zero the pitch torque (and pitch air control stays \
+             locked), leaving only damping, got {:?}",
+            c.total_angular_acceleration()
         );
-        assert_eq!(c.angular_velocity.y, before);
+        assert!((c.angular_velocity.y - before - damp.y).abs() < 1e-5);
 
         let before = c.angular_velocity.y;
+        let damp = neutral_damping_step(&c, dt).y;
         airborne_flip_step(
             &mut c,
             &ControllerInput {
@@ -4854,17 +4951,18 @@ mod tests {
             dt,
         );
         assert!(
-            (c.angular_velocity.y - before - 0.5 * FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
+            (c.angular_velocity.y - before - damp - 0.5 * FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
             "expected a half pull-back to halve the pitch torque, got Δ{}",
-            c.angular_velocity.y - before
+            c.angular_velocity.y - before - damp
         );
 
         let before = c.angular_velocity.y;
+        let damp = neutral_damping_step(&c, dt).y;
         airborne_flip_step(&mut c, &ControllerInput::default(), &mut flip, dt);
         assert!(
-            (c.angular_velocity.y - before - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
+            (c.angular_velocity.y - before - damp - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
             "expected releasing the stick to restore the full torque, got Δ{}",
-            c.angular_velocity.y - before
+            c.angular_velocity.y - before - damp
         );
         assert!(flip.is_some());
     }
@@ -4887,11 +4985,12 @@ mod tests {
             dt,
         );
         let before = c.angular_velocity.y;
+        let damp = neutral_damping_step(&c, dt).y;
         airborne_flip_step(&mut c, &full_pitch_forward(), &mut flip, dt);
         assert!(
-            (c.angular_velocity.y - before - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
+            (c.angular_velocity.y - before - damp - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
             "expected pitch held *with* a forward flip to leave its torque whole, got Δ{}",
-            c.angular_velocity.y - before
+            c.angular_velocity.y - before - damp
         );
 
         // Backward flip (`rel_torque.1 = -1`): pushing forward cancels it.
@@ -4907,9 +5006,10 @@ mod tests {
         );
         assert_eq!(flip.map(|f| f.rel_torque), Some((0.0, -1.0)));
         let before = c.angular_velocity.y;
+        let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(&mut c, &full_pitch_forward(), &mut flip, dt);
-        assert_eq!(c.total_angular_acceleration(), Vec3::ZERO);
-        assert_eq!(c.angular_velocity.y, before);
+        assert!((c.total_angular_acceleration() * dt - damp).length() < 1e-5);
+        assert!((c.angular_velocity.y - before - damp.y).abs() < 1e-5);
     }
 
     #[test]
@@ -4932,11 +5032,12 @@ mod tests {
 
         for input in [full_pitch_forward(), full_pitch()] {
             let before = c.angular_velocity.x;
+            let damp = neutral_damping_step(&c, dt).x;
             airborne_flip_step(&mut c, &input, &mut flip, dt);
             assert!(
-                (c.angular_velocity.x - before + FLIP_ROLL_STEP_PER_TICK).abs() < 1e-3,
+                (c.angular_velocity.x - before - damp + FLIP_ROLL_STEP_PER_TICK).abs() < 1e-3,
                 "expected the full roll torque regardless of pitch, got Δ{}",
-                c.angular_velocity.x - before
+                c.angular_velocity.x - before - damp
             );
             assert_eq!(c.angular_velocity.y, 0.0, "expected pitch to be locked out");
         }
@@ -4967,6 +5068,7 @@ mod tests {
         let mut c = car();
         let mut flip = airborne_dodge(&mut c, &forward_dodge, dt);
         let before = c.angular_velocity;
+        let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(
             &mut c,
             &ControllerInput {
@@ -4977,7 +5079,7 @@ mod tests {
             dt,
         );
         assert!((c.angular_velocity.z - expected_yaw).abs() < 1e-4);
-        assert_eq!(c.angular_velocity.y, before.y);
+        assert!((c.angular_velocity.y - before.y - damp.y).abs() < 1e-5);
     }
 
     #[test]
@@ -5002,25 +5104,28 @@ mod tests {
         assert!((rel_right - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-4);
 
         let before = c.angular_velocity;
+        let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(&mut c, &full_pitch(), &mut flip, dt);
         assert!(
-            (c.angular_velocity.x - before.x - rel_forward * FLIP_ROLL_STEP_PER_TICK).abs() < 1e-3,
+            (c.angular_velocity.x - before.x - damp.x - rel_forward * FLIP_ROLL_STEP_PER_TICK)
+                .abs()
+                < 1e-3,
             "expected the roll component untouched, got Δ{}",
-            c.angular_velocity.x - before.x
+            c.angular_velocity.x - before.x - damp.x
         );
-        assert_eq!(
-            c.angular_velocity.y, before.y,
-            "expected the pitch component zeroed"
+        assert!(
+            (c.angular_velocity.y - before.y - damp.y).abs() < 1e-5,
+            "expected the pitch component zeroed (damping only)"
         );
     }
 
-    /// A car tilted 90 degrees about its local forward axis — up_axis
-    /// becomes (0, -1, 0) instead of world up (0, 0, 1). Drive.rs's test
+    /// A car rolled 90 degrees about its local forward axis — its right
+    /// axis becomes world +z and its up axis world -y. Drive.rs's test
     /// helpers only call `integrate::integrate_velocities`, never
     /// `integrate::integrate_transform`, so a car's `orientation` never
-    /// actually changes step to step here — the only way to exercise the
-    /// landing-assistance torque's dependence on orientation in isolation
-    /// is to set it directly like this.
+    /// actually changes step to step here — the only way to exercise
+    /// orientation-dependent behaviour (the body-axis damping) in
+    /// isolation is to set it directly like this.
     fn tilted_car() -> RigidBody {
         let mut c = car();
         c.orientation = rb_domain::Quat::new(
@@ -5031,99 +5136,6 @@ mod tests {
         );
         c.update_inertia_tensor();
         c
-    }
-
-    #[test]
-    fn a_tilted_airborne_car_gets_a_corrective_torque_from_landing_assistance() {
-        let mut c = tilted_car();
-        let mut boost = MAX_BOOST;
-        step_with_input(
-            &mut c,
-            &ControllerInput::default(),
-            false,
-            &mut boost,
-            1.0 / 60.0,
-        );
-        assert!(
-            c.angular_velocity.length() > 0.0,
-            "expected a tilted airborne car with neutral input to gain a corrective angular \
-             velocity from landing-orientation assistance, got {:?}",
-            c.angular_velocity
-        );
-    }
-
-    #[test]
-    fn an_already_upright_airborne_car_gets_no_corrective_torque() {
-        let mut c = car();
-        let mut boost = MAX_BOOST;
-        step_with_input(
-            &mut c,
-            &ControllerInput::default(),
-            false,
-            &mut boost,
-            1.0 / 60.0,
-        );
-        assert_eq!(
-            c.angular_velocity,
-            Vec3::ZERO,
-            "expected an already-level car to get no correction, got {:?}",
-            c.angular_velocity
-        );
-    }
-
-    #[test]
-    fn landing_assistance_does_not_apply_while_grounded() {
-        let mut c = tilted_car();
-        let mut boost = MAX_BOOST;
-        step_with_input(
-            &mut c,
-            &ControllerInput::default(),
-            true,
-            &mut boost,
-            1.0 / 60.0,
-        );
-        assert_eq!(
-            c.angular_velocity,
-            Vec3::ZERO,
-            "expected no landing-orientation assistance while grounded, got {:?}",
-            c.angular_velocity
-        );
-    }
-
-    #[test]
-    fn landing_assistance_does_not_apply_while_actively_air_controlling() {
-        let mut without_input = tilted_car();
-        let mut without_input_boost = MAX_BOOST;
-        step_with_input(
-            &mut without_input,
-            &ControllerInput::default(),
-            false,
-            &mut without_input_boost,
-            1.0 / 60.0,
-        );
-        let assisted_angular_velocity = without_input.angular_velocity;
-        assert!(assisted_angular_velocity.length() > 0.0);
-
-        let mut with_pitch = tilted_car();
-        let mut with_pitch_boost = MAX_BOOST;
-        step_with_input(
-            &mut with_pitch,
-            &full_pitch(),
-            false,
-            &mut with_pitch_boost,
-            1.0 / 60.0,
-        );
-        // Full pitch input drives its own AIR_CONTROL_PITCH_TORQUE-scale
-        // rotation about the right axis (y); the landing assist's own
-        // much smaller contribution must not additionally appear (it
-        // would only ever add to x/z here, since the assist's correction
-        // axis for this tilt is purely along x — see tilted_car).
-        assert_eq!(
-            with_pitch.angular_velocity.x, 0.0,
-            "expected active pitch input to suppress landing-orientation assistance entirely, \
-             got {:?}",
-            with_pitch.angular_velocity
-        );
     }
 
     #[test]

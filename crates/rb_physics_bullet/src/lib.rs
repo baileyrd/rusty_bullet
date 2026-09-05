@@ -19,9 +19,9 @@
 //! (throttle, steering), boost, handbrake, a variable-height ground jump, a
 //! double jump (plain or a directional, flip-cancelable dodge, depending on
 //! stick input), a wall jump (itself dodgeable and flip-cancelable the
-//! same way), airborne pitch/yaw/roll (air control), and a gentle landing
-//! auto-orientation assist nudging an airborne car back toward level when
-//! it isn't otherwise being steered — see `RB-PHYSICS-001` for what's
+//! same way), and airborne pitch/yaw/roll (air control, with real Rocket
+//! League's own per-axis damping bleeding an unsteered car's spin off
+//! since `RB-PHYSICS-001-FR-071`) — see `RB-PHYSICS-001` for what's
 //! deliberately still out of scope beyond `drive` itself (split impulse,
 //! warm-starting, a combined multi-body solve, and constant calibration).
 //! `PhysicsWorld` gains arena walls (`with_wall`) as generic flat

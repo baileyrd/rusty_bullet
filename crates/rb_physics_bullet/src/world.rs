@@ -2500,9 +2500,18 @@ mod tests {
         // (RB-PHYSICS-001-FR-080), at FLIP_TORQUE_Y / 120 rad/s per tick —
         // on top of the dodge step's own ordinary air-control pitch.
         let head_start = world.cars[0].angular_velocity.y;
+        // ... minus one tick of the real pitch damping on that head start
+        // (RB-PHYSICS-001-FR-071).
+        let damp = -head_start
+            * crate::drive::AIR_CONTROL_PITCH_DAMPING
+            * crate::drive::CAR_TORQUE_SCALE
+            * dt;
         world.step(dt);
         assert!(
-            (world.cars[0].angular_velocity.y - head_start - crate::drive::FLIP_TORQUE_Y / 120.0)
+            (world.cars[0].angular_velocity.y
+                - head_start
+                - damp
+                - crate::drive::FLIP_TORQUE_Y / 120.0)
                 .abs()
                 < 1e-3,
             "expected one tick of the real flip torque about +right, got {:?} from {head_start}",
@@ -2701,7 +2710,7 @@ mod tests {
         // Pull back for the next ten steps: the real flip cancel
         // (RB-PHYSICS-001-FR-080 step (c)) zeroes the flip's pitch torque,
         // and nothing else touches the spin (no air-control pitch, no
-        // landing assist under active stick input, no angular damping).
+        // self-righting, and the real damping is accounted for below).
         world.set_car_input(
             0,
             rb_domain::ControllerInput {
@@ -2712,19 +2721,29 @@ mod tests {
         for _ in 0..10 {
             world.step(dt);
         }
+        // Only the real pitch damping (RB-PHYSICS-001-FR-071) acts on the
+        // spin meanwhile: a factor of (1 - 30 * CAR_TORQUE_SCALE * dt) per
+        // tick — the pitch stick is locked, so its own hold doesn't reduce
+        // the damping.
+        let pitch_decay_per_tick =
+            1.0 - crate::drive::AIR_CONTROL_PITCH_DAMPING * crate::drive::CAR_TORQUE_SCALE * dt;
+        let expected_y = spin_after_one_tick.y * pitch_decay_per_tick.powi(10);
         assert!(
-            (world.cars[0].angular_velocity - spin_after_one_tick).length() < 1e-4,
-            "expected a held pull-back to stop the flip gaining any pitch rate, got {:?} from {:?}",
-            world.cars[0].angular_velocity,
-            spin_after_one_tick
+            (world.cars[0].angular_velocity.y - expected_y).abs() < 1e-3
+                && world.cars[0].angular_velocity.x.abs() < 1e-4
+                && world.cars[0].angular_velocity.z.abs() < 1e-4,
+            "expected a held pull-back to stop the flip gaining any pitch rate (damping only), \
+             got {:?}, expected y={expected_y}",
+            world.cars[0].angular_velocity
         );
 
         // Let go: the torque resumes.
+        let before_release = world.cars[0].angular_velocity.y;
         world.set_car_input(0, rb_domain::ControllerInput::default());
         world.step(dt);
         assert!(
             (world.cars[0].angular_velocity.y
-                - spin_after_one_tick.y
+                - before_release * pitch_decay_per_tick
                 - crate::drive::FLIP_TORQUE_Y / 120.0)
                 .abs()
                 < 1e-3,
@@ -2828,10 +2847,10 @@ mod tests {
         );
         world.step(dt);
 
-        // A tolerance rather than exact equality: the landing
-        // auto-orientation assist (RB-PHYSICS-001-FR-018) applies a tiny
-        // continuous corrective torque on the neutral steps in between,
-        // which one tick of leftover flip torque (≈1.87 rad/s) would dwarf.
+        // A tolerance rather than exact equality: the real air-control
+        // damping (RB-PHYSICS-001-FR-071) bleeds a little of whatever spin
+        // is left on the neutral steps in between, which one tick of
+        // leftover flip torque (≈1.87 rad/s) would dwarf.
         assert!(
             (world.cars[0].angular_velocity - angular_velocity_after_plain_double_jump).length()
                 < 0.01,
@@ -2883,11 +2902,14 @@ mod tests {
         for _ in 0..10 {
             world.step(dt);
         }
+        let pitch_decay_per_tick =
+            1.0 - crate::drive::AIR_CONTROL_PITCH_DAMPING * crate::drive::CAR_TORQUE_SCALE * dt;
+        let expected_y = spin_after_one_tick.y * pitch_decay_per_tick.powi(10);
         assert!(
-            (world.cars[0].angular_velocity - spin_after_one_tick).length() < 1e-4,
-            "expected a held push-forward to cancel the wall-jump dodge's flip, got {:?} from {:?}",
-            world.cars[0].angular_velocity,
-            spin_after_one_tick
+            (world.cars[0].angular_velocity.y - expected_y).abs() < 1e-3,
+            "expected a held push-forward to cancel the wall-jump dodge's flip (damping only), \
+             got {:?}, expected y={expected_y}",
+            world.cars[0].angular_velocity
         );
     }
 
@@ -2950,34 +2972,24 @@ mod tests {
     }
 
     #[test]
-    fn an_airborne_car_gradually_rights_itself_with_no_input_in_a_live_world() {
+    fn a_tumbling_airborne_car_stops_tumbling_on_its_own_in_a_live_world() {
+        // RB-PHYSICS-001-FR-071: with no stick input, the real air-control
+        // damping bleeds an airborne car's spin off — it settles, though it
+        // does not right itself (this port's former landing assist is gone).
         let ball = RigidBody::sphere(1.0, 1.0, Vec3::new(1000.0, 0.0, 1000.0));
         let mut car = some_car(Vec3::new(0.0, 0.0, 1000.0));
-        // Tilted 90 degrees about its local forward axis, as if fresh out
-        // of an uncanceled dodge, with no stick input to right itself.
-        car.orientation = rb_domain::Quat::new(
-            std::f32::consts::FRAC_1_SQRT_2,
-            0.0,
-            0.0,
-            std::f32::consts::FRAC_1_SQRT_2,
-        );
-        car.update_inertia_tensor();
+        car.angular_velocity = Vec3::new(2.0, 4.0, 1.0);
         let mut world = PhysicsWorld::new(ball, flat_ground()).with_car(car);
-        world.gravity = Vec3::ZERO; // isolate the assist from falling
+        world.gravity = Vec3::ZERO; // stay airborne
 
-        let world_up = Vec3::new(0.0, 0.0, 1.0);
-        let alignment_before = world.cars[0].orientation.rotate(&world_up).dot(&world_up);
-
-        let dt = 1.0 / 60.0;
-        for _ in 0..120 {
+        let dt = 1.0 / 120.0;
+        for _ in 0..240 {
             world.step(dt);
         }
-
-        let alignment_after = world.cars[0].orientation.rotate(&world_up).dot(&world_up);
         assert!(
-            alignment_after > alignment_before,
-            "expected the landing-orientation assist to trend the car back toward level over \
-             time, alignment before={alignment_before}, after={alignment_after}"
+            world.cars[0].angular_velocity.length() < 0.05,
+            "expected the spin to have bled off after 2 s, got {:?}",
+            world.cars[0].angular_velocity
         );
     }
 

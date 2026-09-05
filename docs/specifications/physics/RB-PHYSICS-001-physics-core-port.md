@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.92.0
+- Version: 0.93.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -860,7 +860,9 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   repurposed (not silently deleted) to assert the new wall-jump-dodge
   behavior instead, keeping their scenario (touching a wall with
   directional stick input) but updating the expected outcome.
-- `RB-PHYSICS-001-FR-018` (landing auto-orientation assist, implemented):
+- `RB-PHYSICS-001-FR-018` (landing auto-orientation assist, implemented;
+  superseded and removed by `RB-PHYSICS-001-FR-071`, which replaced this
+  invented nudge with real Rocket League's own air-control damping):
   `drive::apply_driven_forces` gains a gentle continuous restoring torque,
   applied while airborne, that nudges the car's local up axis back toward
   world up — real Rocket League auto-corrects a car's orientation somewhat
@@ -3881,7 +3883,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     unchanged (net +5 tests over `FR-058`'s 297, bringing the crate to
     302).
 - `RB-PHYSICS-001-FR-060` (landing auto-orientation vs. real auto-flip/
-  auto-roll — audit finding, documentation only): `RB-PHYSICS-001-FR-057`'s
+  auto-roll — audit finding, documentation only; the assist it examined
+  was later retired by `RB-PHYSICS-001-FR-071`): `RB-PHYSICS-001-FR-057`'s
   own Non-goals had flagged RocketSim's auto-flip constants
   (`CAR_AUTOFLIP_IMPULSE/TORQUE/TIME/NORMZ_THRESH/ROLL_THRESH`) as a
   possible reference for `drive::LANDING_AUTO_UPRIGHT_TORQUE`, but noted
@@ -4467,7 +4470,7 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `CAR_AIR_CONTROL_DAMPING` (`Vec(30, 20, 50)`) — this port has no
     per-axis air-control damping term at all, a separate, independent
     addition left for a future requirement (`RB-PHYSICS-001-FR-071` later
-    characterized the full mechanism and confirmed it stays unadopted).
+    characterized the full mechanism, and then adopted it).
     Does not adopt RocketSim's own
     `pitchTorqueScale` factor applied only to the pitch component in
     `_UpdateAirTorque` (an additional speed- or state-dependent scale this
@@ -4616,52 +4619,110 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `FR-069`'s own precedent); all 314 of `rb_physics_bullet`'s pre-existing
     tests (as of `FR-069`) pass unchanged, confirming zero behavioral
     change.
-- `RB-PHYSICS-001-FR-071` (real air-control damping mechanism, documentation
-  only; `RB-PHYSICS-001-FR-080` step (c) has since pinned it to the real
-  capture, active mid-flip too, and made it the next gap in line): `RB-PHYSICS-001-FR-068`'s own Non-goals had already found
-  RocketSim's `CAR_AIR_CONTROL_DAMPING = Vec(30, 20, 50)` exists but left it
-  as "a separate, independent addition left for a future requirement"
-  without examining the mechanism behind it. This requirement closes that
-  thread by reading the rest of `_UpdateAirTorque` (the same fetch
-  `RB-PHYSICS-001-FR-070` used to characterize `pitchTorqueScale`).
-  1. **Found the full mechanism**: for each axis, real air control computes
-     a damping term `(angular velocity along that axis) *
+- `RB-PHYSICS-001-FR-071` (real air-control damping — audit finding, now
+  implemented, replacing the placeholder landing auto-orientation assist):
+  `RB-PHYSICS-001-FR-068`'s own Non-goals had already found RocketSim's
+  `CAR_AIR_CONTROL_DAMPING = Vec(30, 20, 50)` exists but left it as "a
+  separate, independent addition left for a future requirement" without
+  examining the mechanism behind it. The original pass closed that thread
+  as documentation; `RB-PHYSICS-001-FR-080` step (c) then pinned the
+  mechanism to real data and made it the next gap, and this pass adopts
+  it.
+  1. **The mechanism** (read from `_UpdateAirTorque`, the same fetch
+     `RB-PHYSICS-001-FR-070` used): for each axis, real air control
+     computes `(angular velocity along that axis) *
      CAR_AIR_CONTROL_DAMPING[axis] * (1 - abs(analog input on that axis))`
-     — pitch's own input term additionally multiplies by `pitchTorqueScale`
-     (`RB-PHYSICS-001-FR-070`) — and subtracts the combined damping vector
-     from the applied torque before scaling by inverse inertia. Releasing
-     the stick on an axis gives full damping strength there, continuously
-     bleeding off any existing spin; holding it fully zeroes the damping,
-     granting full torque authority with no resistance.
-  2. **Confirmed this is a genuinely new mechanism, not a ratio on an
-     existing quantity**: unlike `AIR_CONTROL_TORQUE`'s own pitch/yaw/roll
-     ratio (`FR-068`), which scaled a torque this port already applies the
-     same way, this port has no existing damping term at all to apply a
-     ratio to — introducing one is an independent feature addition, not a
-     multiplier transfer.
-  3. **Corrected the `drive` module's air-control doc comment and
-     `AIR_CONTROL_ROLL_SCALE`'s own doc comment** with the confirmed
-     mechanism and why it isn't adopted, and added a forward citation from
-     `RB-PHYSICS-001-FR-068`'s own Non-goals.
-  - **Non-goals (this requirement).** Does not implement the real damping
-    mechanism: its absolute coefficients are calibrated against real Rocket
-    League's own specific inertia tensor, the same "false precision"
-    reasoning that already keeps `AIR_CONTROL_TORQUE` itself a placeholder,
-    and — unlike a ratio transfer — there is no existing quantity in this
-    port's own model to scale, making this a wholly new mechanism rather
-    than a documentation-scoped tweak. Remains a candidate for a future,
-    dedicated requirement, exactly as `RB-PHYSICS-001-FR-068`'s own
-    Non-goals already flagged. Does not touch `RB-PHYSICS-001-FR-005`'s
-    real-data calibration, no longer blocked on `PHASE-0-EXIT` (now closed), but not itself started.
-  - **Acceptance criteria.** The `drive` module's air-control doc comment and
-    `AIR_CONTROL_ROLL_SCALE`'s own doc comment state the confirmed real
-    damping mechanism and why it isn't adopted; `RB-PHYSICS-001-FR-068`'s
-    own Non-goals carries a forward citation to this requirement.
-  - **Verification plan.** No new tests (documentation-only, matching
-    `RB-PHYSICS-001-FR-044`/`FR-060`/`FR-063`/`FR-065`/`FR-066`/`FR-067`/
-    `FR-069`/`FR-070`'s own precedent); all 314 of `rb_physics_bullet`'s
-    pre-existing tests (as of `FR-070`) pass unchanged, confirming zero
-    behavioral change.
+     — pitch's own input term additionally multiplied by
+     `pitchTorqueScale` (`FR-070`/`FR-080`'s pitch lock), roll's carrying
+     no input factor at all — and subtracts the combined damping vector
+     from the stick torque inside the same `invInertia.inverse() * (torque
+     - damping) * CAR_TORQUE_SCALE` expression. Releasing the stick on an
+     axis gives full damping strength there, continuously bleeding off any
+     existing spin; holding it fully zeroes the damping, granting full
+     torque authority with no resistance. It is inertia-independent for the
+     same reason the torque is (`FR-079`), so the original "false
+     precision" objection never applied.
+  2. **What the real capture says.** `FR-080` step (c)'s tick-by-tick fit
+     of the isolated `dodge-derailment` fixture's 77 in-flip ticks — run
+     forward from each recorded orientation, spin, and input — reproduces
+     the next tick's `ω` to `0.0025` rad/s rms (the recording's rounding
+     floor) only with this damping active, mid-flip included; without it,
+     `0.082`. After the window the recording's spin decays at `≈3.9` rad/s
+     per second from `|ω| = 5.5` with pitch locked and the stick neutral
+     on yaw: exactly `5.5 · 30 · CAR_TORQUE_SCALE = 15.8` rad/s² per unit
+     of spin, i.e. this coefficient's own rate.
+  3. **Implemented.** New `drive::AIR_CONTROL_PITCH_DAMPING = 30.0`,
+     `AIR_CONTROL_YAW_DAMPING = 20.0`, `AIR_CONTROL_ROLL_DAMPING = 50.0`
+     (public, named for the axis they damp, citing
+     `CAR_AIR_CONTROL_DAMPING`) and `drive::air_control_damping(car,
+     effective_pitch, yaw) -> Vec3`, the damping angular acceleration:
+     each body-axis component of `angular_velocity`, times its
+     coefficient, times `1 - |effective_pitch|` (right axis) or `1 - |yaw|`
+     (up axis), summed, negated, and scaled by `CAR_TORQUE_SCALE`.
+     `apply_driven_forces` applies it via `apply_angular_acceleration`
+     every airborne step, right after the three stick torques and inside
+     the same block, so it runs during a flip too. `CAR_TORQUE_SCALE` is
+     now public for tests.
+  4. **The placeholder landing assist is retired.** `FR-018`'s
+     `LANDING_AUTO_UPRIGHT_TORQUE` nudge (an airborne, input-free restoring
+     torque toward world up) was an invented stand-in for "eventually
+     right yourself before landing"; `FR-060` had established real Rocket
+     League has no such mechanic (its auto-flip and auto-roll are grounded
+     and input-gated), and what actually makes a tumbling airborne car
+     settle there is this damping. With the real mechanism in, the
+     fixture was measured both ways: with the nudge kept,
+     `cars.mean_position_distance` `≈243` uu / mean rotation `0.83` rad;
+     without it `≈240` uu / `0.77` rad — a wash inside the airborne phase
+     (the nudge never fires under active stick input) and marginally
+     better overall. The constant, its block, and its four `drive.rs`
+     tests and one `world.rs` test are removed; the module doc's
+     "Landing auto-orientation assistance" section is replaced by "No
+     airborne self-righting", and `FR-018` is marked superseded.
+  - **Real-data effect, measured alone.** Isolated fixture, whole run:
+    `cars.mean_position_distance` `≈237` → `≈240` uu, mean rotation `1.51`
+    → `0.77` rad, mean velocity `≈254` → `≈337` uu/s, max position `≈459`
+    → `≈791` uu; `mean_ball_distance` unchanged at `≈730`. The shape is
+    what matters: the rotation gap now stays within `0.03`–`0.10` rad from
+    the dodge (`t ≈ 4.32` s) through the flip window *and* the whole
+    post-window decay to `t ≈ 5.52` s, with the velocity gap flat at
+    `≈90`–`113` uu/s — the entire airborne phase of the fixture matches
+    the recording. The whole-run position and velocity means went slightly
+    *up* because the divergence now starts at the landing (`t ≈ 5.57` s:
+    velocity gap `113` → `192` uu/s, then `≈800` at `t ≈ 5.77` s) and the
+    now-correctly-oriented car's grounded phase (landing contact, steering
+    — `FR-065`'s known placeholder — and the wall/curve interactions that
+    follow) diverges differently from step (c)'s wrongly-oriented one,
+    which had happened to bounce closer to the recording for the last
+    second. That grounded phase is the next domain; nothing airborne is
+    left in this fixture.
+  - **Tests.** `rb_physics_bullet` stays at 350: 4 assist tests removed, 4
+    added (a neutral-stick spin bleeds at exactly `1 - coefficient ·
+    CAR_TORQUE_SCALE · dt` per axis; a fully held stick removes its own
+    axis' damping for pitch and yaw but not roll; damping acts along the
+    car's own axes, not the world's; none while grounded), 1 `world.rs`
+    assist test replaced by a tumbling car settling within 2 s, and 19
+    existing flip/cancel tests re-pinned with the pre-step damping folded
+    into their exact per-tick expectations (a new `neutral_damping_step`
+    helper). Full workspace `fmt`/`clippy`/`test` green (411 tests);
+    `rb_verify_cli`'s ratchet holds at `< 250` uu.
+  - **Non-goals (this requirement).** Does not implement real auto-flip or
+    auto-roll (`FR-060`'s Non-goals stand). Does not gate air control on
+    wheel contact the way RocketSim's `numWheelsInContact == 0` does (this
+    port has no wheels; a wall touch leaves air control live). Does not
+    take on the grounded-phase divergence the fixture now exposes. Does
+    not touch `RB-PHYSICS-001-FR-005`'s real-data calibration, no longer
+    blocked on `PHASE-0-EXIT` (now closed), but not itself started.
+  - **Acceptance criteria.** A spinning airborne car with a neutral stick
+    loses spin at `30`/`20`/`50 · CAR_TORQUE_SCALE` per second about its
+    right/up/forward axes; a fully held pitch or yaw stick removes that
+    axis' damping while roll's stays; the damping is active during a flip
+    and under the post-flip pitch lock (at full pitch strength there);
+    `LANDING_AUTO_UPRIGHT_TORQUE` no longer exists; the isolated fixture's
+    rotation gap stays under `0.1` rad through the whole airborne phase;
+    full workspace `fmt`/`clippy`/`test` green with the ratchet holding.
+  - **Verification plan.** The new and re-pinned tests above, the
+    re-measured `--self` / `--self-growth 0.05` numbers recorded in
+    `PROJECT-STATUS.md`, and the ratchet.
 - `RB-PHYSICS-001-FR-072` (normalized diagonal-dodge direction, implemented):
   `RB-PHYSICS-001-FR-059`'s own Non-goals had already found and flagged a
   genuine behavioral gap — this port's dodge summed each axis' own
@@ -6008,14 +6069,11 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     velocity jump should fall from `≈1030` to the low hundreds of uu/s;
     what remains afterward is the post-window decay (`FR-071`'s damping,
     the next gap in line) and any residual dodge-direction subtlety.
-  - **Non-goals (this requirement).** Does not take on `FR-071`'s
-    air-control damping — the post-window decay stays divergent until
-    then, even though step (c)'s 77-tick fit has now pinned the mechanism
-    (`CAR_AIR_CONTROL_DAMPING = (30, 20, 50)` per axis on the body-frame
-    `ω`, the pitch term scaled by `1 - |pitch · pitchTorqueScale|` and the
-    yaw term by `1 - |yaw|`, through `CAR_TORQUE_SCALE`, active whenever
-    airborne including mid-flip) to the recording's own rounding. Does not
-    move `FR-061`'s ball clamp (see the adjacent finding above), nor take
+  - **Non-goals (this requirement).** Did not take on `FR-071`'s
+    air-control damping, even though step (c)'s 77-tick fit had pinned the
+    mechanism to the recording's own rounding — `FR-071`'s own
+    implementation pass adopted it next and closed the post-window decay.
+    Does not move `FR-061`'s ball clamp (see the adjacent finding above), nor take
     on `DOUBLEJUMP_MAX_DELAY` (`1.25` s; this port has no
     double-jump/flip timeout at all — an adjacent gap worth its own
     entry), auto-flip/auto-roll (`FR-060`), or the real dodge's small
@@ -7522,6 +7580,22 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.93.0 (2026-09-05): `RB-PHYSICS-001-FR-071` implemented: real Rocket
+  League's per-axis air-control damping (`AIR_CONTROL_PITCH_DAMPING =
+  30`, `AIR_CONTROL_YAW_DAMPING = 20`, `AIR_CONTROL_ROLL_DAMPING = 50`,
+  via `drive::air_control_damping`) applies every airborne step, the
+  pitch and yaw terms scaled by `1 - |stick|`, inertia-cancelled through
+  `CAR_TORQUE_SCALE`, mid-flip and under the pitch lock included. The
+  placeholder landing auto-orientation assist (`FR-018`'s
+  `LANDING_AUTO_UPRIGHT_TORQUE`) is removed — real Rocket League has no
+  such mechanic (`FR-060`), and the fixture measured a wash with it.
+  Isolated fixture: the rotation gap now stays under `0.1` rad through
+  the whole airborne phase (the post-flip decay included); whole-run mean
+  rotation `1.51` → `0.77` rad, `cars.mean_position_distance` `≈237` →
+  `≈240` uu, with the divergence now starting at the landing. `FR-018`
+  marked superseded, `FR-060`/`FR-068`/`FR-080` cross-referenced. 4
+  tests removed, 4 added, 1 replaced, 19 re-pinned (350 in
+  `rb_physics_bullet`, 411 total).
 - 0.92.0 (2026-09-05): `RB-PHYSICS-001-FR-080` step (c) implemented: the
   real pitch-hold flip cancel (`FR-070`'s `1 - |pitch|` scale on the
   flip's pitch component when the signs match) replaces `FR-016`'s

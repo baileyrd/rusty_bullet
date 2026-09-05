@@ -198,8 +198,18 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   Both adopted: the flip window now matches to within `0.1` rad,
   `cars.mean_position_distance` `≈259` → `≈237` uu, and the un-damped
   post-window spin is the unmasked next gap (`FR-071`). 8 tests rewritten,
-  5 new; ratchet `< 250` uu. See `RB-PHYSICS-001-FR-079`'s and `FR-080`'s
-  own entries for the full evidence chain.
+  5 new; ratchet `< 250` uu. `FR-071` is now implemented too: real Rocket
+  League's per-axis air-control damping (`AIR_CONTROL_PITCH/YAW/ROLL_DAMPING
+  = 30/20/50`, `drive::air_control_damping`) bleeds each body-axis spin
+  component every airborne step, the pitch and yaw terms scaled by `1 -
+  |stick|`, mid-flip and under the pitch lock included; the placeholder
+  landing auto-orientation assist (`FR-018`'s `LANDING_AUTO_UPRIGHT_TORQUE`)
+  is removed, since real Rocket League has none (`FR-060`) and the fixture
+  measured a wash with it. The fixture's rotation gap now stays under
+  `0.1` rad through its entire airborne phase (whole-run mean rotation
+  `1.51` → `0.77` rad); the divergence that remains starts at the landing.
+  See `RB-PHYSICS-001-FR-079`'s, `FR-080`'s and `FR-071`'s own entries for
+  the full evidence chain.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation
