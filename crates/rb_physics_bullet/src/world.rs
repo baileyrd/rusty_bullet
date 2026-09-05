@@ -2972,6 +2972,77 @@ mod tests {
     }
 
     #[test]
+    fn a_seeded_car_carries_the_real_hitbox_offset_and_keeps_its_recorded_position() {
+        // RB-PHYSICS-001-FR-081 finding 5: `from_frame` builds a
+        // `standard_car`, so its hitbox is mounted at the real offset while
+        // the recorded position (the centre of mass) is seeded unchanged and
+        // reported back unchanged by `frame()`.
+        let frame = rb_domain::PhysicsFrame {
+            timestamp_secs: 0.0,
+            ball: rb_domain::BallState {
+                position: Vec3::new(0.0, 0.0, 93.15),
+                rotation: rb_domain::Quat::IDENTITY,
+                velocity: Vec3::ZERO,
+                angular_velocity: Vec3::ZERO,
+            },
+            cars: vec![rb_domain::CarState {
+                player_id: 0,
+                position: Vec3::new(-500.0, 0.0, 17.0),
+                rotation: rb_domain::Quat::IDENTITY,
+                velocity: Vec3::ZERO,
+                angular_velocity: Vec3::ZERO,
+                boost_amount: 33.0,
+                input: None,
+            }],
+        };
+        let world = PhysicsWorld::from_frame(&frame);
+        assert_eq!(world.cars[0].hitbox_offset, crate::body::CAR_HITBOX_OFFSET);
+        assert_eq!(world.cars[0].position, Vec3::new(-500.0, 0.0, 17.0));
+        assert_eq!(world.frame().cars[0].position, Vec3::new(-500.0, 0.0, 17.0));
+    }
+
+    #[test]
+    fn a_car_driving_into_the_ball_hits_it_with_the_raised_hitbox_in_a_live_world() {
+        // A level car at rest height driving at the ball: contact happens on
+        // the real hitbox, whose top is at z ≈ 59 here, not on a box whose
+        // top would be at z ≈ 39 — so the ball is struck below its centre
+        // by less and leaves with more forward, less upward velocity than
+        // the unoffset geometry gives. Only the qualitative sign is pinned.
+        let mut ball = RigidBody::standard_ball(Vec3::new(400.0, 0.0, 93.15));
+        ball.restitution = 0.0;
+        let mut car = some_car(Vec3::new(0.0, 0.0, CAR_HALF_EXTENTS.z));
+        car.hitbox_offset = crate::body::CAR_HITBOX_OFFSET;
+        car.linear_velocity = Vec3::new(1500.0, 0.0, 0.0);
+        let mut world = PhysicsWorld::new(ball, flat_ground()).with_car(car);
+        world.gravity = Vec3::ZERO;
+        let dt = 1.0 / 120.0;
+        let mut hit_z = None;
+        for _ in 0..60 {
+            world.step(dt);
+            if world.ball.linear_velocity.length() > 1.0 {
+                hit_z = Some(world.cars[0].position.z);
+                break;
+            }
+        }
+        assert!(
+            hit_z.is_some(),
+            "expected the car to reach and strike the ball"
+        );
+        assert!(
+            world.ball.linear_velocity.x > 0.0,
+            "got {:?}",
+            world.ball.linear_velocity
+        );
+        // Striking higher on the ball means a flatter launch than the
+        // unoffset box would give: the ball's upward share is bounded.
+        let up_share = world.ball.linear_velocity.z / world.ball.linear_velocity.length();
+        assert!(
+            up_share < 0.75,
+            "expected a flatter launch off the raised hitbox, got up share {up_share}"
+        );
+    }
+
+    #[test]
     fn a_tumbling_airborne_car_stops_tumbling_on_its_own_in_a_live_world() {
         // RB-PHYSICS-001-FR-071: with no stick input, the real air-control
         // damping bleeds an airborne car's spin off — it settles, though it

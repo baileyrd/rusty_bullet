@@ -220,8 +220,14 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   the flattened, horizontal forward/right (`drive::dodge_axes_2d`) in both
   dodge paths — dodge-tick velocity window `121 → 88` uu/s, whole-run mean
   velocity `≈337 → ≈303` uu/s, mean rotation `0.77 → 0.68` rad, position
-  unchanged as diagnosed. Next the hitbox offset, then a wheel/suspension
-  model as its own entry.
+  unchanged as diagnosed. Finding 5 is implemented for body-vs-body
+  contact (`body::CAR_HITBOX_OFFSET`, `RigidBody::hitbox_offset`/
+  `hitbox_center`, `collision::contacts_between` meeting each shape at its
+  mount) — not against static surfaces, since the real car rests on its
+  wheels with the hitbox `18.4` uu clear of the ground and a wheel-less
+  offset box would drop a seeded car `18` uu; the unoffset box stands in
+  for the wheel support until the suspension model, which is next as its
+  own entry.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

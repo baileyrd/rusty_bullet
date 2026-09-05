@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.95.0
+- Version: 0.96.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -6095,7 +6095,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `--self-growth 0.05` numbers recorded in `PROJECT-STATUS.md`, and the
     `rb_verify_cli` ratchet tightened to just above the new figure.
 - `RB-PHYSICS-001-FR-081` (landing and grounded-phase divergence —
-  diagnosis; finding 2, the horizontal dodge impulse, implemented):
+  diagnosis; finding 2, the horizontal dodge impulse, and finding 5, the
+  hitbox offset for body-vs-body contact, implemented):
   `FR-071` left the isolated
   `dodge-derailment` fixture matching the recording to within `0.1` rad
   through its entire airborne phase, with the remaining divergence
@@ -6219,18 +6220,66 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     1's `≈80` uu/s post-jump gap owns it) and the ball still untouched
     (finding 3). Full workspace `fmt`/`clippy`/`test` green (414 tests);
     the ratchet holds at `< 250` uu.
+  - **Finding 5, implemented — with its scoping corrected first.** The
+    diagnosis above sequenced the offset as "a moderate geometry change
+    measurable on the rest height (`19.3 → 17.0`)". That was wrong: the
+    real car rests at `z = 17.0` because its *wheels* hold it there, with
+    the hitbox floating `18.4` uu clear of the ground. A box centred on the
+    offset with no wheels rests with the car's origin `1.4` uu *below* the
+    floor, so a car seeded from a recorded frame at `z = 17.0` would fall
+    `18` uu (`0.24` s) before its first step — the fixture's ground jump,
+    `0.016` s after the seed, would never fire. The offset everywhere is
+    inseparable from the wheel/suspension model (findings 1 and 4). What
+    stands alone, and what this pass implements, is the offset where the
+    real hitbox is what matters and no wheel is involved: **body-vs-body
+    contact**. New `body::CAR_HITBOX_OFFSET = (13.8757, 0, 20.755)`
+    (RocketSim's `HITBOX_OFFSETS[OCTANE]`; its `_BulletSetup` mounts the
+    `btBoxShape` in a `btCompoundShape` at that transform and computes the
+    body's inertia from the box alone, so the centre of mass stays at the
+    origin and the inertia tensor is the box's own — exactly what this
+    port already has); new `RigidBody::hitbox_offset` (local frame,
+    `Vec3::ZERO` by default, set by `standard_car`) and
+    `RigidBody::hitbox_center()`; `collision::contacts_between` (ball,
+    cars, net points) meets each shape at its `hitbox_center`, while every
+    static-surface routine (`contacts_vs_plane` and the rest) keeps the
+    shape centred on `position`, the unoffset box standing in for the
+    wheel support (underside `19.3` uu below the origin, against the
+    wheels' `17.0` at rest) until the suspension replaces it. The solver's
+    lever arms are taken from `position`, the centre of mass, whichever
+    geometry produced the contact — correct for both. `from_frame` seeds
+    the recorded position unchanged and `frame()` reports it unchanged.
+    Tests: two in `body.rs` (the mount, and that it rotates with the car),
+    two in `collision.rs` (a ball `91` uu from the offset hitbox's
+    top-front edge but `107` from the unoffset box's touches only the
+    former, from both sides of the pair; two nose-to-nose cars `147` uu
+    apart touch at their offset fronts but not unoffset), two in
+    `world.rs` (a seeded car carries the offset and keeps its recorded
+    position; a car driving into the ball strikes it on the raised
+    hitbox); the three sphere-vs-box arithmetic tests that borrowed
+    `standard_car` as a box at the origin now use an unoffset real-sized
+    `car_box`, which is what they were testing — `rb_physics_bullet` 353
+    → 359. Measured on the isolated fixture: no change at all
+    (`239.55 uu / 0.68 rad / 302.85 uu/s`), as expected — its car never
+    reaches the ball (finding 3) and static contact is untouched; the
+    change is correctness for every future ball or car contact. Full
+    workspace `fmt`/`clippy`/`test` green (420 tests).
   - **Non-goals (this requirement).** Changes no constant. Does not
-    implement findings 1, 3, 4, or 5. Does not touch
+    implement findings 1, 3, or 4, nor the offset against static surfaces
+    (see finding 5's correction above — that is the suspension's). Does
+    not touch
     `RB-PHYSICS-001-FR-005`'s real-data calibration, no longer blocked on
     `PHASE-0-EXIT` (now closed), but not itself started.
   - **Acceptance criteria.** This entry records the five findings with
     the tick-level evidence for each, their cost ranking, and the
     sequencing; a pitched car's dodge impulse is exactly horizontal at
-    full `DODGE_SPEED` in both dodge paths; `PROJECT-STATUS.md`'s Next
-    item points at finding 5 as the next step.
-  - **Verification plan.** The three finding-2 tests, the re-measured
-    `--self` / `--self-growth 0.05` numbers in `PROJECT-STATUS.md`, and
-    the ratchet; the full workspace stays green (414 tests).
+    full `DODGE_SPEED` in both dodge paths; a ball or car meets a
+    `standard_car` at the real hitbox mount while the car still rests on
+    the unoffset box; `PROJECT-STATUS.md`'s Next item points at scoping
+    the wheel/suspension model as the next step.
+  - **Verification plan.** The three finding-2 and six finding-5 tests,
+    the re-measured `--self` / `--self-growth 0.05` numbers in
+    `PROJECT-STATUS.md`, and the ratchet; the full workspace stays green
+    (420 tests).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -7717,6 +7766,15 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.96.0 (2026-09-05): `RB-PHYSICS-001-FR-081` finding 5 implemented for
+  body-vs-body contact, its scoping corrected first: the real car rests on
+  its wheels with the hitbox `18.4` uu clear of the ground, so the offset
+  cannot apply against static surfaces until the suspension exists (a
+  seeded car would fall `18` uu and miss its own jump). New
+  `body::CAR_HITBOX_OFFSET`, `RigidBody::hitbox_offset`/`hitbox_center`;
+  `collision::contacts_between` meets each shape at its mount, static
+  routines keep the unoffset box as the wheel-support stand-in. Six new
+  tests, three re-based (420 total); fixture unchanged, as expected.
 - 0.95.0 (2026-09-05): `RB-PHYSICS-001-FR-081` finding 2 implemented:
   the dodge's translation impulse is applied along the car's flattened,
   horizontal forward/right (new `drive::dodge_axes_2d`, RocketSim's

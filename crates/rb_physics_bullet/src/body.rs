@@ -136,6 +136,25 @@ pub const CAR_MASS: f32 = 180.0;
 /// call sites to this constant instead of the old placeholder.
 pub const CAR_HALF_EXTENTS: Vec3 = Vec3::new(60.2535, 43.3497, 19.32955);
 
+/// Where real Rocket League's Octane hitbox sits relative to the car's
+/// own position (its rigid-body origin and centre of mass), in the car's
+/// local frame: `13.8757` uu ahead and `20.755` uu above it. Fetched from
+/// RocketSim's own `src/Sim/Car/CarConfig/CarConfig.cpp`
+/// (`HITBOX_OFFSETS[OCTANE] = { 13.8757f, 0, 20.755f }`) and `Car.cpp`'s
+/// `_BulletSetup`, which mounts the `btBoxShape` in a `btCompoundShape` at
+/// exactly this `hitboxOffsetTransform` while computing the body's local
+/// inertia from the box alone (`_childHitboxShape.calculateLocalInertia`)
+/// — so the centre of mass stays at the origin, the inertia tensor is the
+/// box's own about its centre (what `Shape::local_inertia` already gives),
+/// and only the collision geometry moves. `RB-PHYSICS-001-FR-081` finding
+/// 5: a recorded car `position` is that origin (`z = 17.0` at rest on flat
+/// ground), so the real hitbox spans `z = 18.4`–`57.1` there and begins
+/// `13.9` uu ahead of the position; this crate centred its box on the
+/// position until then, `20.8` uu too low and `13.9` uu too far back for
+/// every ball or car contact. See `RigidBody::hitbox_offset` for exactly
+/// which contacts honour it.
+pub const CAR_HITBOX_OFFSET: Vec3 = Vec3::new(13.8757, 0.0, 20.755);
+
 /// A dynamic rigid body: either a sphere (the ball) or a box (a car).
 /// Mirrors the subset of `bullet3/src/BulletDynamics/Dynamics/btRigidBody.h`'s
 /// fields this crate's integration and solver code actually needs.
@@ -158,6 +177,25 @@ pub struct RigidBody {
     /// comment for why (`RB-PHYSICS-001-FR-043`).
     pub restitution: f32,
     pub friction: f32,
+
+    /// Where `shape` sits relative to `position` (the centre of mass), in
+    /// the body's own local frame, for **body-vs-body** contact
+    /// (`collision::contacts_between`: ball, cars, net points) — `Vec3::ZERO`
+    /// for everything but a car, which `standard_car` mounts at
+    /// `CAR_HITBOX_OFFSET` (`RB-PHYSICS-001-FR-081` finding 5). Contact with
+    /// the static arena (`contacts_vs_plane` and the rest) deliberately
+    /// keeps `shape` centred on `position`: real Rocket League's car rests
+    /// on its *wheels*, with the hitbox floating `18.4` uu clear of the
+    /// ground, and this crate has no wheels yet — a box centred on the
+    /// offset would rest with the car's origin `1.4` uu *below* the ground
+    /// instead of the real `17.0` above it, dropping a seeded car `18` uu
+    /// before its first step. So the unoffset box stands in for the wheel
+    /// support (its underside `19.3` uu below the origin, against the
+    /// wheels' `17.0` at rest) until a wheel/suspension model replaces it,
+    /// while the ball and other cars meet the hitbox where the real one is.
+    /// The solver's lever arms are always taken from `position`, the
+    /// centre of mass, whichever geometry produced the contact.
+    pub hitbox_offset: Vec3,
 
     inv_mass: f32,
     /// Diagonal principal moments' inverses, in the body's own local
@@ -233,6 +271,7 @@ impl RigidBody {
             angular_damping: 0.0,
             restitution: 0.5,
             friction: 0.5,
+            hitbox_offset: Vec3::ZERO,
             inv_mass: 1.0 / mass,
             inv_inertia_local,
             inv_inertia_world: Mat3::IDENTITY,
@@ -345,8 +384,21 @@ impl RigidBody {
     /// architecture has no way to represent. Inventing a single number
     /// here would be exactly the "false precision"
     /// `RB-PHYSICS-001-FR-031`/`FR-040` already refused to do.
+    ///
+    /// Since `RB-PHYSICS-001-FR-081` finding 5 the hitbox is mounted at the
+    /// real `CAR_HITBOX_OFFSET` for body-vs-body contact — see
+    /// `hitbox_offset` for the static-contact caveat. `car_box` itself
+    /// stays unoffset (a generic box).
     pub fn standard_car(position: Vec3) -> RigidBody {
-        RigidBody::car_box(CAR_HALF_EXTENTS, CAR_MASS, position)
+        let mut car = RigidBody::car_box(CAR_HALF_EXTENTS, CAR_MASS, position);
+        car.hitbox_offset = CAR_HITBOX_OFFSET;
+        car
+    }
+
+    /// The world-space centre of `shape` for body-vs-body contact:
+    /// `position + orientation · hitbox_offset` — see `hitbox_offset`.
+    pub fn hitbox_center(&self) -> Vec3 {
+        self.position + self.orientation.rotate(&self.hitbox_offset)
     }
 
     /// Recomputes `inv_inertia_world` from the body's current `orientation`
@@ -1006,6 +1058,36 @@ mod tests {
         // other tests -- see standard_car's own doc comment.
         let old_placeholder = Vec3::new(60.0, 30.0, 18.0);
         assert_ne!(CAR_HALF_EXTENTS, old_placeholder);
+    }
+
+    #[test]
+    fn standard_car_mounts_its_hitbox_at_the_real_octane_offset() {
+        // RB-PHYSICS-001-FR-081 finding 5: the hitbox is 13.9 uu ahead of
+        // and 20.8 uu above the car's position, which stays the centre of
+        // mass; a generic car_box has no offset.
+        let car = RigidBody::standard_car(Vec3::new(100.0, 200.0, 17.0));
+        assert_eq!(car.hitbox_offset, CAR_HITBOX_OFFSET);
+        assert!((car.hitbox_center() - Vec3::new(113.8757, 200.0, 37.755)).length() < 1e-4);
+        assert_eq!(car.position, Vec3::new(100.0, 200.0, 17.0));
+        assert_eq!(
+            RigidBody::car_box(CAR_HALF_EXTENTS, CAR_MASS, Vec3::ZERO).hitbox_offset,
+            Vec3::ZERO
+        );
+    }
+
+    #[test]
+    fn hitbox_center_rotates_with_the_car() {
+        // Yawed 90° (nose along +y): the 13.9 uu forward offset points +y,
+        // the 20.8 uu up offset stays +z.
+        let mut car = RigidBody::standard_car(Vec3::ZERO);
+        let half = std::f32::consts::FRAC_PI_4;
+        car.orientation = Quat::new(0.0, 0.0, half.sin(), half.cos());
+        car.update_inertia_tensor();
+        let c = car.hitbox_center();
+        assert!(
+            c.x.abs() < 1e-4 && (c.y - 13.8757).abs() < 1e-4 && (c.z - 20.755).abs() < 1e-4,
+            "got {c:?}"
+        );
     }
 
     #[test]

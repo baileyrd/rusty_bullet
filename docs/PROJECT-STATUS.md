@@ -2244,6 +2244,25 @@
   post-jump contact gap owns it, and the ball is still untouched. Three
   new tests (`rb_physics_bullet` 350 → 353); ratchet holds at `< 250`
   uu. Full workspace `fmt`/`clippy`/`test` green (414 tests).
+- `RB-PHYSICS-001-FR-081` finding 5, implemented for body-vs-body contact
+  — after correcting its own scoping: the diagnosis had sequenced the
+  hitbox offset as measurable on the rest height, but the real car rests
+  at `z = 17.0` on its *wheels* with the hitbox `18.4` uu clear of the
+  ground; a box centred on the offset with no wheels would rest with the
+  origin `1.4` uu below the floor, dropping a seeded car `18` uu before
+  its first step and losing the fixture's ground jump outright. So the
+  offset applies where the real hitbox is what matters and no wheel is
+  involved: new `body::CAR_HITBOX_OFFSET = (13.9, 0, 20.8)` (RocketSim's
+  `HITBOX_OFFSETS[OCTANE]`, mounted in a compound shape with the inertia
+  taken from the box alone — centre of mass at the origin, as this port
+  already has), `RigidBody::hitbox_offset`/`hitbox_center`, and
+  `collision::contacts_between` (ball, cars, net) meeting each shape at
+  its mount, while static-surface contact keeps the unoffset box as the
+  wheel-support stand-in until the suspension model replaces it. Six new
+  tests, three sphere-vs-box arithmetic tests re-based onto an unoffset
+  `car_box` (`rb_physics_bullet` 353 → 359). The isolated fixture is
+  unchanged, as expected (its car never reaches the ball; static contact
+  untouched). Full workspace `fmt`/`clippy`/`test` green (420 tests).
 
 ## In progress
 
@@ -2300,23 +2319,26 @@
    airborne phase now matches to within `0.1` rad. What remains starts at
    the landing — and `RB-PHYSICS-001-FR-081` has now diagnosed it as a
    chain of five findings with a cost-ranked sequencing. Finding 2 (the
-   dodge impulse's flattened axes) is done and measured. Next step:
-   finding 5, the `(13.9, 0, 20.8)` uu hitbox offset — a geometry change
-   with no new physics (box centre = position + rotation · offset,
-   threaded through `from_frame`, `frame()`, the collision routines, and
-   every car test's rest height), measurable on the rest height (`19.3`
-   → the real `17.0`) and the landing's corner geometry. Then scope a
-   wheel/suspension model as its own entry folding in `FR-065`/`FR-066` —
-   the largest remaining piece of the physics core, and the only route to
-   the fixture's landing and its ball hit. See `FR-081`'s own spec
-   entry.
+   dodge impulse's flattened axes) and finding 5 (the hitbox offset, for
+   body-vs-body contact — against static surfaces it is inseparable from
+   the wheels, see the entry) are done. Next step: scope a
+   wheel/suspension model as its own entry — four spring-damper raycast
+   wheels at RocketSim's real mounts (`FRONT/BACK_WHEELS_OFFSET`,
+   `*_WHEEL_SUS_REST`, `SUSPENSION_STIFFNESS = 500`,
+   `WHEELS_DAMPING_COMPRESSION/RELAXATION = 25/40`, `MAX_SUSPENSION_TRAVEL
+   = 12`) with longitudinal/lateral tire forces, replacing the car's
+   box-on-ground contact, `STEER_TORQUE`, `HANDBRAKE_FRICTION_MULTIPLIER`,
+   and the jump's contact cut-off, folding in `FR-065`/`FR-066` and
+   findings 1 and 4 — the largest remaining piece of the physics core, and
+   the only route to the fixture's landing and its ball hit. See
+   `FR-081`'s own spec entry.
 
 ## Validation
 
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
-- `cargo test --workspace`: pass (414 tests: 27 in `rb_domain` (incl. 4
-  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 353 in
+- `cargo test --workspace`: pass (420 tests: 27 in `rb_domain` (incl. 4
+  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 359 in
   `rb_physics_bullet` (incl. 2 new `integrate.rs` tests confirming
   `apply_angular_acceleration` bypasses `inv_inertia_world`, 1 combined
   `drive.rs` air-control test replacing 3 old ones,
@@ -2329,7 +2351,9 @@
   `drive.rs` air-control-damping tests for `RB-PHYSICS-001-FR-071`
   replacing the 4 removed landing-assist tests, with 19 flip/cancel tests
   re-pinned for the damping, and 3 new `drive.rs` tests for
-  `RB-PHYSICS-001-FR-081` finding 2's horizontal dodge impulse), 14 in
+  `RB-PHYSICS-001-FR-081` finding 2's horizontal dodge impulse, and 6 new
+  `body.rs`/`collision.rs`/`world.rs` tests for finding 5's hitbox
+  offset), 14 in
   `rb_replay_ingest` (incl. real-fixture integration test), 10 in
   `rb_capture_ingest` (incl. synthetic-fixture test), 10 in `rb_verify_cli`
   (incl. `score_capture_against_candidate`'s and `score_capture_growth`'s
@@ -2496,6 +2520,12 @@
   uu/s` (from `≈90`–`113`); the rotation gap unchanged at `0.05`–`0.10
   rad` through `t=5.52s`; the landing-phase profile unchanged in shape
   (`805 uu/s` at `t=5.77s`).
+- `RB-PHYSICS-001-FR-081` finding 5 (hitbox offset for body-vs-body
+  contact) re-run against the same fixture (2026-09-05, this sandbox):
+  identical to finding 2's figures above (`239.55 uu / 0.68 rad / 302.85
+  uu/s`, max `776.31 uu / 3.11 rad / 961.41 uu/s`, ball `729.95 uu`) — the
+  fixture's simulated car never reaches the ball and no static contact
+  changed, so no number could move.
 
 ## Risks and decisions needed
 

@@ -6,6 +6,39 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The car's hitbox is where the real one is, for every ball and car contact
+**2026-09-05** · `RB-PHYSICS-001-FR-081` finding 5
+
+- RocketSim mounts the Octane hitbox `13.9` uu ahead of and `20.8` uu
+  above the car's position, which stays its centre of mass and the point
+  a capture records. New `body::CAR_HITBOX_OFFSET`,
+  `RigidBody::hitbox_offset`/`hitbox_center`; `standard_car` mounts it,
+  and `collision::contacts_between` — ball, cars, net points — meets each
+  shape at its mount. The solver's lever arms stay on the centre of mass,
+  as RocketSim's do (its inertia is the box's own about its centre).
+- **The scoping correction that shaped this.** `FR-081` had sequenced the
+  offset as measurable on the car's rest height. It isn't: the real car
+  rests at `z = 17.0` on its *wheels*, hitbox floating `18.4` uu clear of
+  the floor. A wheel-less box centred on the offset would rest with the
+  origin `1.4` uu *below* the floor, so a car seeded from a recorded frame
+  would fall `18` uu and the fixture's ground jump, `0.016` s later, would
+  never fire. So contact with the static arena keeps the unoffset box —
+  its underside `19.3` uu below the origin against the wheels' `17.0` at
+  rest — as the wheel-support stand-in until the suspension model, and
+  the offset against static surfaces goes with that model.
+- Six new tests (the mount and its rotation; a ball that touches the
+  offset hitbox but not the unoffset box, from both sides; two
+  nose-to-nose cars likewise; a seeded car keeps its recorded position
+  and reports it back unchanged; a car driving into the ball strikes it
+  on the raised hitbox) and three sphere-vs-box arithmetic tests re-based
+  onto an unoffset box — `rb_physics_bullet` 353 → 359, 420 workspace
+  tests. The isolated fixture is unchanged to the last digit, as it had
+  to be: its car never reaches the ball, and no static contact changed.
+- Next: scope the wheel/suspension model as its own entry — findings 1
+  and 4, `FR-065`/`FR-066`, and the static half of this offset in one.
+
+---
+
 ## The dodge impulse is horizontal now, as the real one is
 **2026-09-05** · `RB-PHYSICS-001-FR-081` finding 2
 

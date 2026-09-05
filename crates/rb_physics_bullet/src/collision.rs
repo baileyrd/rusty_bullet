@@ -1227,14 +1227,20 @@ fn box_vs_box(
 /// `RigidBody` rather than this scope's one real ball; two actual balls
 /// never collide in this port, but the shape pairing itself is real now.
 pub fn contacts_between(a: &RigidBody, b: &RigidBody) -> Vec<Contact> {
+    // RB-PHYSICS-001-FR-081 finding 5: body-vs-body contact meets each
+    // shape where it is mounted (`RigidBody::hitbox_center`, the real car
+    // hitbox's offset from the centre of mass); the static-surface routines
+    // above deliberately still centre the shape on `position` — see
+    // `RigidBody::hitbox_offset` for why.
+    let (center_a, center_b) = (a.hitbox_center(), b.hitbox_center());
     match (a.shape, b.shape) {
         (Shape::Sphere { radius }, Shape::Box { half_extents }) => {
-            sphere_vs_box(a.position, radius, b.position, b.orientation, half_extents)
+            sphere_vs_box(center_a, radius, center_b, b.orientation, half_extents)
                 .into_iter()
                 .collect()
         }
         (Shape::Box { half_extents }, Shape::Sphere { radius }) => {
-            sphere_vs_box(b.position, radius, a.position, a.orientation, half_extents)
+            sphere_vs_box(center_b, radius, center_a, a.orientation, half_extents)
                 .map(|c| Contact {
                     normal: -c.normal,
                     ..c
@@ -1243,7 +1249,7 @@ pub fn contacts_between(a: &RigidBody, b: &RigidBody) -> Vec<Contact> {
                 .collect()
         }
         (Shape::Sphere { radius: radius_a }, Shape::Sphere { radius: radius_b }) => {
-            sphere_vs_sphere(a.position, radius_a, b.position, radius_b)
+            sphere_vs_sphere(center_a, radius_a, center_b, radius_b)
                 .into_iter()
                 .collect()
         }
@@ -1255,10 +1261,10 @@ pub fn contacts_between(a: &RigidBody, b: &RigidBody) -> Vec<Contact> {
                 half_extents: half_b,
             },
         ) => box_vs_box(
-            a.position,
+            center_a,
             a.orientation,
             half_a,
-            b.position,
+            center_b,
             b.orientation,
             half_b,
         ),
@@ -1270,6 +1276,64 @@ pub fn contacts_between(a: &RigidBody, b: &RigidBody) -> Vec<Contact> {
 mod tests {
     use super::*;
     use crate::body::CAR_HALF_EXTENTS;
+
+    #[test]
+    fn a_ball_meets_a_standard_car_at_its_offset_hitbox_not_at_its_position() {
+        // RB-PHYSICS-001-FR-081 finding 5. A level car at the origin: the
+        // real hitbox spans x ∈ [-46.4, 74.1], z ∈ [1.4, 40.1]; a box
+        // centred on the position would span x ∈ [-60.3, 60.3],
+        // z ∈ [-19.3, 19.3]. A ball whose centre is 91 uu from the offset
+        // box's top-front edge but 107 uu from the unoffset one touches the
+        // real hitbox only.
+        let car = RigidBody::standard_car(Vec3::ZERO);
+        let ball = RigidBody::standard_ball(Vec3::new(165.0, 0.0, 40.0));
+        let contacts = contacts_between(&ball, &car);
+        assert_eq!(
+            contacts.len(),
+            1,
+            "expected the ball to touch the offset hitbox"
+        );
+        let c = contacts[0];
+        assert!(
+            c.point.x > 60.3 && c.point.z > 19.3,
+            "contact {c:?} is on the offset hitbox"
+        );
+
+        let mut unoffset = car;
+        unoffset.hitbox_offset = Vec3::ZERO;
+        assert!(
+            contacts_between(&ball, &unoffset).is_empty(),
+            "the unoffset box must miss"
+        );
+
+        // The same check from the car's side of the pair, with the normal flipped.
+        let flipped = contacts_between(&car, &ball);
+        assert_eq!(flipped.len(), 1);
+        assert!((flipped[0].normal + c.normal).length() < 1e-5);
+    }
+
+    #[test]
+    fn two_standard_cars_meet_at_their_offset_hitboxes() {
+        // Nose to nose along x: the real hitboxes' fronts are 74.1 uu ahead
+        // of each position, so cars 150 uu apart touch (148.2 < 150 would
+        // not; 147 does), where unoffset boxes (fronts at 60.3) need to be
+        // within 120.5 uu.
+        let a = RigidBody::standard_car(Vec3::ZERO);
+        let mut b = RigidBody::standard_car(Vec3::new(147.0, 0.0, 0.0));
+        b.orientation = Quat::new(0.0, 0.0, 1.0, 0.0); // yawed 180°, nose toward a
+        b.update_inertia_tensor();
+        assert!(
+            !contacts_between(&a, &b).is_empty(),
+            "offset hitboxes should touch"
+        );
+        let (mut ua, mut ub) = (a, b);
+        ua.hitbox_offset = Vec3::ZERO;
+        ub.hitbox_offset = Vec3::ZERO;
+        assert!(
+            contacts_between(&ua, &ub).is_empty(),
+            "unoffset boxes should not"
+        );
+    }
 
     fn ground() -> StaticPlane {
         StaticPlane::new(Vec3::new(0.0, 0.0, 1.0), 0.0)
@@ -1353,8 +1417,15 @@ mod tests {
         }
     }
 
+    /// A real-sized car box centred *on* the origin — the sphere-vs-box
+    /// tests below exercise the collision routine's own face/penetration
+    /// arithmetic against a box at a known place, not the real car's
+    /// hitbox mount (`standard_car` sits its hitbox at `CAR_HITBOX_OFFSET`
+    /// since RB-PHYSICS-001-FR-081 finding 5; see
+    /// `a_ball_meets_a_standard_car_at_its_offset_hitbox_not_at_its_position`
+    /// for that).
     fn stationary_car() -> RigidBody {
-        RigidBody::standard_car(Vec3::ZERO)
+        RigidBody::car_box(CAR_HALF_EXTENTS, crate::body::CAR_MASS, Vec3::ZERO)
     }
 
     #[test]
