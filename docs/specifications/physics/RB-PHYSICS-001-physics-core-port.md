@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.94.0
+- Version: 0.95.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -6095,7 +6095,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `--self-growth 0.05` numbers recorded in `PROJECT-STATUS.md`, and the
     `rb_verify_cli` ratchet tightened to just above the new figure.
 - `RB-PHYSICS-001-FR-081` (landing and grounded-phase divergence —
-  diagnosis, documentation only): `FR-071` left the isolated
+  diagnosis; finding 2, the horizontal dodge impulse, implemented):
+  `FR-071` left the isolated
   `dodge-derailment` fixture matching the recording to within `0.1` rad
   through its entire airborne phase, with the remaining divergence
   starting at the landing (`t ≈ 5.57` s). This pass traced that remainder
@@ -6196,16 +6197,40 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `HANDBRAKE_FRICTION_MULTIPLIER`, the ground contact's friction) sits
     on the wrong mechanism, and the fixture's grounded segment is `1.4` s
     of one car's one landing — the wrong data to fit them to.
-  - **Non-goals (this requirement).** Changes no physics and no constant.
-    Does not implement any of the five findings. Does not touch
+  - **Finding 2, implemented: the dodge impulse is horizontal.** New
+    `drive::dodge_axes_2d(car) -> (Vec3, Vec3)`: the car's forward
+    flattened to the horizontal plane and normalized, and the horizontal
+    right `(-forward_2d.y, forward_2d.x, 0)` — RocketSim's `forwardDir2D`/
+    `rightDir2D` symbol for symbol — falling back to the 3D axes only for
+    a car pointing straight up or down (where the flattened forward has no
+    direction; RocketSim's own `Normalized()` is undefined there, this
+    port keeps the impulse finite). Both dodge blocks (ground and
+    wall-jump) apply their translation impulse along that pair; the flip
+    torque keeps the real 3D body axes, as RocketSim's does; the
+    backward/side speed scales and `normalize_dodge_direction` are
+    untouched. Three new tests (a `30°` nose-down car's forward and side
+    dodges are exactly horizontal at full `DODGE_SPEED`; the wall-jump
+    dodge likewise; the flattening and the straight-up fallback) —
+    `rb_physics_bullet` 350 → 353. Measured alone on the isolated fixture:
+    the dodge-tick velocity window `121 → 88` uu/s, the through-flight
+    velocity gap `≈113 → ≈87`–`109` uu/s, whole-run mean velocity `≈337 →
+    ≈303` uu/s and mean rotation `0.77 → 0.68` rad, max position `≈791 →
+    ≈776` uu; `cars.mean_position_distance` unchanged at `≈240` (finding
+    1's `≈80` uu/s post-jump gap owns it) and the ball still untouched
+    (finding 3). Full workspace `fmt`/`clippy`/`test` green (414 tests);
+    the ratchet holds at `< 250` uu.
+  - **Non-goals (this requirement).** Changes no constant. Does not
+    implement findings 1, 3, 4, or 5. Does not touch
     `RB-PHYSICS-001-FR-005`'s real-data calibration, no longer blocked on
     `PHASE-0-EXIT` (now closed), but not itself started.
   - **Acceptance criteria.** This entry records the five findings with
     the tick-level evidence for each, their cost ranking, and the
-    sequencing; `PROJECT-STATUS.md`'s Next item points at finding 2 as
-    the next step.
-  - **Verification plan.** No new tests (documentation-only, matching the
-    established precedent); the full workspace stays green (411 tests).
+    sequencing; a pitched car's dodge impulse is exactly horizontal at
+    full `DODGE_SPEED` in both dodge paths; `PROJECT-STATUS.md`'s Next
+    item points at finding 5 as the next step.
+  - **Verification plan.** The three finding-2 tests, the re-measured
+    `--self` / `--self-growth 0.05` numbers in `PROJECT-STATUS.md`, and
+    the ratchet; the full workspace stays green (414 tests).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -7692,6 +7717,13 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.95.0 (2026-09-05): `RB-PHYSICS-001-FR-081` finding 2 implemented:
+  the dodge's translation impulse is applied along the car's flattened,
+  horizontal forward/right (new `drive::dodge_axes_2d`, RocketSim's
+  `forwardDir2D`/`rightDir2D`) in both dodge paths instead of its tilted
+  3D axes. Isolated fixture: dodge-tick velocity window `121 → 88` uu/s,
+  whole-run mean velocity `≈337 → ≈303` uu/s, mean rotation `0.77 → 0.68`
+  rad; position unchanged (finding 1). Three new tests (414 total).
 - 0.94.0 (2026-09-05): `RB-PHYSICS-001-FR-081` added (documentation
   only): the isolated fixture's remaining, post-airborne divergence
   traced tick by tick to five findings — the through-flight velocity gap

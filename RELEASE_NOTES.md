@@ -6,6 +6,33 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The dodge impulse is horizontal now, as the real one is
+**2026-09-05** · `RB-PHYSICS-001-FR-081` finding 2
+
+- The cheapest of `FR-081`'s five findings: RocketSim applies a dodge's
+  translation impulse along the car's *flattened* forward and right
+  (`forwardDir2D`/`rightDir2D`), so a pitched or rolled car still dodges
+  exactly horizontally at full speed. This port applied it along the
+  car's tilted 3D axes, which at the fixture's dodge (nose `3°` down)
+  leaked `-75` uu/s into vertical velocity. New `drive::dodge_axes_2d`
+  feeds both the ground and wall-jump dodge paths; a car pointing straight
+  up or down falls back to its 3D axes rather than dividing by zero. The
+  flip torque keeps the real 3D body axes, as RocketSim's does.
+- **Measured alone against the isolated fixture:** the dodge-tick
+  velocity window `121 → 88` uu/s, the through-flight velocity gap
+  `≈113 → ≈87`–`109` uu/s, whole-run mean velocity `≈337 → ≈303` uu/s and
+  mean rotation `0.77 → 0.68` rad. Mean position is unchanged at `≈240`
+  uu, exactly as diagnosed: the remaining `≈80` uu/s is finding 1's
+  post-jump contact gap, and the ball is still untouched. Next is the
+  hitbox offset (finding 5).
+- Three new tests (`rb_physics_bullet` 350 → 353): a `30°` nose-down
+  car's forward and side dodges are exactly horizontal at full
+  `DODGE_SPEED`, the wall-jump dodge likewise, and the flattening plus its
+  straight-up fallback. Full workspace green (414 tests); the ratchet
+  holds at `< 250` uu.
+
+---
+
 ## Diagnosed what's left in the fixture: five grounded findings, from a one-liner to a suspension model
 **2026-09-05** · `RB-PHYSICS-001-FR-081` (documentation only)
 

@@ -2230,6 +2230,20 @@
   axes first, then the hitbox offset, then a wheel/suspension model as its
   own entry folding in `FR-065`/`FR-066` — no grounded constant to be
   tuned before that. No physics changed.
+- `RB-PHYSICS-001-FR-081` finding 2, implemented: the dodge's translation
+  impulse is now applied along the car's flattened, horizontal forward
+  and right (new `drive::dodge_axes_2d`, RocketSim's own
+  `forwardDir2D`/`rightDir2D`, with a 3D fallback for a car pointing
+  straight up or down) in both the ground and wall-jump dodge paths,
+  instead of its tilted 3D axes; the flip torque keeps the 3D body axes
+  as RocketSim's does. Measured alone on the isolated fixture: the
+  dodge-tick velocity window `121 → 88` uu/s, the through-flight velocity
+  gap `≈113 → ≈87`–`109` uu/s, whole-run mean velocity `≈337 → ≈303`
+  uu/s, mean rotation `0.77 → 0.68` rad, max position `≈791 → ≈776` uu;
+  mean position unchanged at `≈240` uu, as diagnosed — finding 1's
+  post-jump contact gap owns it, and the ball is still untouched. Three
+  new tests (`rb_physics_bullet` 350 → 353); ratchet holds at `< 250`
+  uu. Full workspace `fmt`/`clippy`/`test` green (414 tests).
 
 ## In progress
 
@@ -2285,21 +2299,24 @@
    landing assist), closing the post-flip decay: the fixture's entire
    airborne phase now matches to within `0.1` rad. What remains starts at
    the landing — and `RB-PHYSICS-001-FR-081` has now diagnosed it as a
-   chain of five findings with a cost-ranked sequencing. Next step:
-   finding 2, the dodge impulse's 2D (flattened) axes — a one-line fix per
-   dodge block, measurable on the fixture's flight altitude and dodge-tick
-   `Δv`. Then finding 5 (the `(13.9, 0, 20.8)` uu hitbox offset), then
-   scope a wheel/suspension model as its own entry folding in
-   `FR-065`/`FR-066` — the largest remaining piece of the physics core,
-   and the only route to the fixture's landing and its ball hit. See
-   `FR-081`'s own spec entry.
+   chain of five findings with a cost-ranked sequencing. Finding 2 (the
+   dodge impulse's flattened axes) is done and measured. Next step:
+   finding 5, the `(13.9, 0, 20.8)` uu hitbox offset — a geometry change
+   with no new physics (box centre = position + rotation · offset,
+   threaded through `from_frame`, `frame()`, the collision routines, and
+   every car test's rest height), measurable on the rest height (`19.3`
+   → the real `17.0`) and the landing's corner geometry. Then scope a
+   wheel/suspension model as its own entry folding in `FR-065`/`FR-066` —
+   the largest remaining piece of the physics core, and the only route to
+   the fixture's landing and its ball hit. See `FR-081`'s own spec
+   entry.
 
 ## Validation
 
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
-- `cargo test --workspace`: pass (411 tests: 27 in `rb_domain` (incl. 4
-  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 350 in
+- `cargo test --workspace`: pass (414 tests: 27 in `rb_domain` (incl. 4
+  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 353 in
   `rb_physics_bullet` (incl. 2 new `integrate.rs` tests confirming
   `apply_angular_acceleration` bypasses `inv_inertia_world`, 1 combined
   `drive.rs` air-control test replacing 3 old ones,
@@ -2311,7 +2328,8 @@
   existing dodge/flip-cancel tests rewritten across (b)/(c), and 4 new
   `drive.rs` air-control-damping tests for `RB-PHYSICS-001-FR-071`
   replacing the 4 removed landing-assist tests, with 19 flip/cancel tests
-  re-pinned for the damping), 14 in
+  re-pinned for the damping, and 3 new `drive.rs` tests for
+  `RB-PHYSICS-001-FR-081` finding 2's horizontal dodge impulse), 14 in
   `rb_replay_ingest` (incl. real-fixture integration test), 10 in
   `rb_capture_ingest` (incl. synthetic-fixture test), 10 in `rb_verify_cli`
   (incl. `score_capture_against_candidate`'s and `score_capture_growth`'s
@@ -2467,6 +2485,17 @@
   40.9`) `→ -4` (`t=5.708`, `z 15.5`) with no bounce, simulated corner
   contact at `t=5.575` (`z 34.5`, `|ω|` `1.13 → 4.97`), `vz` `-200 → +44`,
   hovering at `z ≈ 22` through the press.
+- `RB-PHYSICS-001-FR-081` finding 2 (horizontal dodge impulse) re-run
+  against the same fixture (2026-09-05, this sandbox): `rb-verify --self`
+  now gives `frames compared: 347, mean ball distance: 729.95 uu, max ball
+  distance: 3311.68 uu, car pairs compared: 347, mean car
+  position/rotation/velocity distance: 239.55 uu / 0.68 rad / 302.85
+  uu/s, max car position/rotation/velocity distance: 776.31 uu / 3.11 rad
+  / 961.41 uu/s`. `--self-growth ... 0.05`: the dodge-tick window
+  (`t=4.32s`) `vel 121.39 → 88.06 uu/s`; through the flight `≈87`–`109
+  uu/s` (from `≈90`–`113`); the rotation gap unchanged at `0.05`–`0.10
+  rad` through `t=5.52s`; the landing-phase profile unchanged in shape
+  (`805 uu/s` at `t=5.77s`).
 
 ## Risks and decisions needed
 

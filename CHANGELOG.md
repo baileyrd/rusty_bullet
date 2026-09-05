@@ -215,9 +215,13 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   wheels in contact; the dodge impulse uses tilted 3D axes where RocketSim
   flattens them; the recorded car hits the ball and the port's never does;
   the landing is a suspension there and a bouncing box here; and the real
-  hitbox is offset `(13.9, 0, 20.8)` uu from the recorded position. The
-  2D dodge axes are the next step, then the hitbox offset, then a
-  wheel/suspension model as its own entry.
+  hitbox is offset `(13.9, 0, 20.8)` uu from the recorded position.
+  Finding 2 is now implemented: the dodge's translation impulse runs along
+  the flattened, horizontal forward/right (`drive::dodge_axes_2d`) in both
+  dodge paths — dodge-tick velocity window `121 → 88` uu/s, whole-run mean
+  velocity `≈337 → ≈303` uu/s, mean rotation `0.77 → 0.68` rad, position
+  unchanged as diagnosed. Next the hitbox offset, then a wheel/suspension
+  model as its own entry.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

@@ -342,7 +342,11 @@ mod tests {
     /// itself now matches to within `0.1` rad), `~240` uu (after the real
     /// air-control damping replaced the placeholder landing assist,
     /// `FR-071` — the whole airborne phase now matches to within `0.1`
-    /// rad, and what remains starts at the landing). Mean ball distance
+    /// rad, and what remains starts at the landing), `~240` uu again
+    /// after the dodge impulse's axes were flattened to the horizontal
+    /// (`FR-081` finding 2 — the dodge-tick velocity window fell `121 →
+    /// 88` uu/s, but the position figure is owned by finding 1's
+    /// post-jump contact gap). Mean ball distance
     /// has stayed `~730` uu throughout — the ball is only touched late in
     /// the fixture, so its divergence follows the car's own path, now
     /// dominated by the grounded phase after the landing.

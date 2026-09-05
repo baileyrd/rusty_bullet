@@ -89,8 +89,11 @@
 //! `JUMP_SPEED` kick, or a directional **dodge**, depending on the car's
 //! `pitch`/`roll` stick input at the moment of the press: if either exceeds
 //! `DODGE_DEADZONE`, a dodge fires instead — a purely horizontal
-//! `DODGE_SPEED` impulse (along `forward_axis` for pitch, `right_axis` for
-//! roll) plus, since `RB-PHYSICS-001-FR-080`, the real continuous flip
+//! `DODGE_SPEED` impulse (along the car's *flattened*, horizontal forward
+//! for pitch and horizontal right for roll — RocketSim's own
+//! `forwardDir2D`/`rightDir2D`, since `RB-PHYSICS-001-FR-081` finding 2;
+//! the tilted 3D axes before that) plus, since `RB-PHYSICS-001-FR-080`,
+//! the real continuous flip
 //! torque about the perpendicular axis (`right_axis` for pitch at
 //! `FLIP_TORQUE_Y`, `forward_axis` for roll at `FLIP_TORQUE_X`) for
 //! `FLIP_TORQUE_TIME` seconds, tracked per car as a `DodgeFlip` — the same
@@ -1219,6 +1222,25 @@ fn right_axis(car: &RigidBody) -> Vec3 {
     car.orientation.rotate(&Vec3::new(0.0, 1.0, 0.0))
 }
 
+/// The horizontal `(forward, right)` pair a dodge's translation impulse is
+/// applied along (`RB-PHYSICS-001-FR-081` finding 2): RocketSim's
+/// `_UpdateDoubleJumpOrFlip` uses `forwardDir2D = GetForwardDir().To2D()
+/// .Normalized()` and `rightDir2D = (-forwardDir2D.y, forwardDir2D.x, 0)`,
+/// so the impulse is exactly horizontal whatever the car's pitch or roll —
+/// this port applied it along the car's tilted 3D axes until then, which
+/// at the isolated fixture's dodge (nose `3°` down) leaked `-75` uu/s into
+/// vertical velocity the real dodge doesn't have. Falls back to the 3D
+/// axes for a car pointing straight up or down, where the flattened
+/// forward has no direction (RocketSim's own `Normalized()` of a zero
+/// vector is undefined there; this port keeps the impulse finite).
+fn dodge_axes_2d(car: &RigidBody) -> (Vec3, Vec3) {
+    let forward = forward_axis(car);
+    match Vec3::new(forward.x, forward.y, 0.0).normalize() {
+        Some(forward_2d) => (forward_2d, Vec3::new(-forward_2d.y, forward_2d.x, 0.0)),
+        None => (forward, right_axis(car)),
+    }
+}
+
 /// `RB-PHYSICS-001-FR-037` — whether `input` represents genuine driving
 /// intent, for waking a sleeping car (see `apply_driven_forces`'s own doc
 /// comment). Treats an unrecovered analog channel (`None`, from a replay
@@ -1554,6 +1576,7 @@ pub fn apply_driven_forces(
                     // RB-PHYSICS-001-FR-079: same sign conventions as the
                     // ground dodge below — see that block's own comment.
                     let wall_dodge_forward = -norm_wall_pitch;
+                    let (dodge_forward_2d, dodge_right_2d) = dodge_axes_2d(car);
                     let mut dodge_impulse =
                         wall_normal * WALL_JUMP_HORIZONTAL_SPEED + Vec3::new(0.0, 0.0, JUMP_SPEED);
                     if wall_pitch.abs() > DODGE_DEADZONE {
@@ -1566,12 +1589,13 @@ pub fn apply_driven_forces(
                             } else {
                                 1.0
                             };
-                        dodge_impulse += forward * (wall_dodge_forward * DODGE_SPEED * scale);
+                        dodge_impulse +=
+                            dodge_forward_2d * (wall_dodge_forward * DODGE_SPEED * scale);
                     }
                     if wall_roll.abs() > DODGE_DEADZONE {
                         let scale =
                             dodge_speed_scale(wall_jump_forward_speed, DODGE_SIDE_SPEED_SCALE);
-                        dodge_impulse += right_axis(car) * (norm_wall_roll * DODGE_SPEED * scale);
+                        dodge_impulse += dodge_right_2d * (norm_wall_roll * DODGE_SPEED * scale);
                     }
                     car.apply_impulse(dodge_impulse * car.mass(), Vec3::ZERO);
                     // `flipRelTorque = (-dodgeDir.y, dodgeDir.x)` — see the
@@ -1623,6 +1647,12 @@ pub fn apply_driven_forces(
                     let (norm_dodge_pitch, norm_dodge_roll) =
                         normalize_dodge_direction(dodge_pitch, dodge_roll);
                     let dodge_forward = -norm_dodge_pitch;
+                    // RB-PHYSICS-001-FR-081 finding 2: the impulse is
+                    // horizontal — along the car's *flattened* forward and
+                    // right (RocketSim's forwardDir2D/rightDir2D), not its
+                    // tilted 3D axes. The flip's own torque below still
+                    // uses the real 3D body axes, as RocketSim's does.
+                    let (dodge_forward_2d, dodge_right_2d) = dodge_axes_2d(car);
                     let mut dodge_impulse = Vec3::ZERO;
                     if dodge_pitch.abs() > DODGE_DEADZONE {
                         // RocketSim: the backward speed ramp, then
@@ -1634,11 +1664,11 @@ pub fn apply_driven_forces(
                         } else {
                             1.0
                         };
-                        dodge_impulse += forward * (dodge_forward * DODGE_SPEED * scale);
+                        dodge_impulse += dodge_forward_2d * (dodge_forward * DODGE_SPEED * scale);
                     }
                     if dodge_roll.abs() > DODGE_DEADZONE {
                         let scale = dodge_speed_scale(dodge_forward_speed, DODGE_SIDE_SPEED_SCALE);
-                        dodge_impulse += right_axis(car) * (norm_dodge_roll * DODGE_SPEED * scale);
+                        dodge_impulse += dodge_right_2d * (norm_dodge_roll * DODGE_SPEED * scale);
                     }
                     car.apply_impulse(dodge_impulse * car.mass(), Vec3::ZERO);
                     // RocketSim: `flipRelTorque = (-dodgeDir.y, dodgeDir.x)`
@@ -5117,6 +5147,113 @@ mod tests {
             (c.angular_velocity.y - before.y - damp.y).abs() < 1e-5,
             "expected the pitch component zeroed (damping only)"
         );
+    }
+
+    #[test]
+    fn a_pitched_cars_dodge_impulse_is_horizontal_at_full_magnitude() {
+        // RB-PHYSICS-001-FR-081 finding 2: RocketSim applies the dodge
+        // impulse along forwardDir2D/rightDir2D, so a nose-down car still
+        // dodges exactly horizontally with the full DODGE_SPEED — this port
+        // used to tilt the impulse with the car (a 30° nose-down dodge lost
+        // half its speed to a downward component).
+        let dt = 1.0 / 120.0;
+        let pitch_down = std::f32::consts::FRAC_PI_6;
+        for (input, expected_dir) in [
+            (
+                ControllerInput {
+                    jump: true,
+                    pitch: Some(-1.0),
+                    ..Default::default()
+                },
+                Vec3::new(1.0, 0.0, 0.0),
+            ),
+            (
+                ControllerInput {
+                    jump: true,
+                    roll: Some(1.0),
+                    ..Default::default()
+                },
+                Vec3::new(0.0, 1.0, 0.0),
+            ),
+        ] {
+            let mut c = car();
+            // Nose down 30° about +y (right): forward = (cos, 0, -sin).
+            c.orientation =
+                rb_domain::Quat::new(0.0, (pitch_down / 2.0).sin(), 0.0, (pitch_down / 2.0).cos());
+            c.update_inertia_tensor();
+            let fwd = forward_axis(&c);
+            assert!(
+                fwd.z < -0.4,
+                "expected a nose-down car, got forward {fwd:?}"
+            );
+            airborne_dodge(&mut c, &input, dt);
+            assert!(
+                (c.linear_velocity - expected_dir * DODGE_SPEED).length() < 1e-2,
+                "expected a horizontal DODGE_SPEED impulse along {expected_dir:?}, got {:?}",
+                c.linear_velocity
+            );
+        }
+    }
+
+    #[test]
+    fn a_pitched_cars_wall_jump_dodge_impulse_is_horizontal_too() {
+        let dt = 1.0 / 120.0;
+        let pitch_down = std::f32::consts::FRAC_PI_6;
+        let mut c = car();
+        c.orientation =
+            rb_domain::Quat::new(0.0, (pitch_down / 2.0).sin(), 0.0, (pitch_down / 2.0).cos());
+        c.update_inertia_tensor();
+        let mut boost = MAX_BOOST;
+        let mut jump_held = false;
+        let mut double_jump_available = true;
+        let mut hold_remaining = 0.0;
+        let mut flip = None;
+        step_with_input_and_dodge_flip(
+            &mut c,
+            &ControllerInput {
+                jump: true,
+                pitch: Some(-1.0),
+                ..Default::default()
+            },
+            false,
+            Some(Vec3::new(0.0, -1.0, 0.0)),
+            &mut boost,
+            &mut jump_held,
+            &mut double_jump_available,
+            &mut hold_remaining,
+            &mut flip,
+            dt,
+        );
+        // Wall push-off along -y, jump along +z, dodge along the flattened
+        // forward (+x) only — no dodge component along z.
+        assert!(
+            (c.linear_velocity.x - DODGE_SPEED).abs() < 1e-2,
+            "got {:?}",
+            c.linear_velocity
+        );
+        assert!((c.linear_velocity.y + WALL_JUMP_HORIZONTAL_SPEED).abs() < 1e-2);
+        assert!((c.linear_velocity.z - JUMP_SPEED).abs() < 1e-2);
+    }
+
+    #[test]
+    fn dodge_axes_2d_flatten_the_forward_and_fall_back_when_pointing_straight_up() {
+        let mut c = car();
+        let pitch_down = std::f32::consts::FRAC_PI_6;
+        c.orientation =
+            rb_domain::Quat::new(0.0, (pitch_down / 2.0).sin(), 0.0, (pitch_down / 2.0).cos());
+        let (f, r) = dodge_axes_2d(&c);
+        assert!((f - Vec3::new(1.0, 0.0, 0.0)).length() < 1e-5);
+        assert!((r - Vec3::new(0.0, 1.0, 0.0)).length() < 1e-5);
+
+        // Straight up (nose to +z): the flattened forward vanishes, so the
+        // 3D axes are used instead of producing NaNs.
+        let half = std::f32::consts::FRAC_PI_4;
+        c.orientation = rb_domain::Quat::new(0.0, -half.sin(), 0.0, half.cos());
+        let fwd = forward_axis(&c);
+        assert!(fwd.z > 0.999, "expected nose up, got {fwd:?}");
+        let (f, r) = dodge_axes_2d(&c);
+        assert!((f - fwd).length() < 1e-5);
+        assert!((r - right_axis(&c)).length() < 1e-5);
     }
 
     /// A car rolled 90 degrees about its local forward axis — its right
