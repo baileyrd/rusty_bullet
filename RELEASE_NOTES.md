@@ -6,6 +6,59 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Fixed the sign bug — in air control and the dodge — and the pre-dodge gap is closed
+**2026-09-04** · `RB-PHYSICS-001-FR-079`
+
+- Implemented the pitch/roll sign fix the previous entry identified, and
+  checked the dodge's own impulse/spin path while in there. It had the
+  same bug, three ways.
+- RocketSim's `_UpdateDoubleJumpOrFlip` builds `dodgeDir = (-pitch, yaw +
+  roll)`, translates along `dodgeDir.x * forward + dodgeDir.y * right`, and
+  spins with local torque `(-dodgeDir.y, dodgeDir.x)` (x = forward, y =
+  right). So `pitch = -1` (stick forward) is a *forward* flip spinning
+  about `+right` (nose down first), and a left dodge spins about
+  `+forward`. This port had the pitch translation inverted (stick forward
+  dodged *backward*), the pitch spin inverted, and the roll spin inverted;
+  only the roll translation already matched. `normalize_dodge_direction`'s
+  doc comment had recorded keeping "this port's own sign convention rather
+  than the reference's negated `-controls.pitch`" as a deliberate choice —
+  but the stick values this port replays come straight from real captures
+  in the reference's convention, so that choice silently dodged every
+  recorded forward flip backward.
+- This also corrects the very first FR-079 finding: the dodge-frame
+  velocity mismatch (`+X` real vs. `-Y` candidate) was primarily this sign
+  inversion acting on a nearly-correct orientation, not accumulated
+  orientation drift rotating a correct impulse.
+- **The fix.** Air control applies pitch about `-right_axis` and roll about
+  `-forward` (yaw unchanged). Both dodge blocks form `dodge_forward =
+  -norm_pitch` exactly as the reference forms `dodgeDir.x`, and use it for
+  the forward impulse, the spin about `+right`, and the backward-dodge
+  classification (`dodge_pitch_is_backward` → `dodge_is_backward`, now a
+  symbol-for-symbol match for `shouldDodgeBackwards`); the roll spin is
+  about `-forward`. No constant changed.
+- **Real-data effect: the pre-dodge gap is closed, and the aggregate
+  finally moves.** On the isolated fixture, the last pre-dodge window's
+  orientation gap went `~0.13` → `~0.03` rad (`~1.7°`) — `~0.22` →
+  `~0.13` → `~0.03` across the three fixes, so the pre-dodge divergence
+  this whole investigation set out to isolate is essentially gone. The
+  whole-fixture car position divergence dropped `≈2792` → `≈937` uu
+  (`-66%`; max `≈5919` → `≈2606`), rotation `1.63` → `1.39` rad, velocity
+  `≈2177` → `≈1369` uu/s. What remains is now clearly post-dodge: the
+  velocity gap jumps to `≈1030` uu/s at the dodge tick (`DODGE_SPEED`'s
+  own placeholder magnitude, no vertical component) and the rotation gap
+  then grows at `~2.5` rad/s — `RB-PHYSICS-001-FR-069`'s
+  instantaneous-kick-vs-continuous-torque mismatch, now the dominant
+  remaining piece.
+- 12 `drive.rs` tests and 2 `world.rs` tests switched to real Rocket
+  League's own stick convention (`pitch = -1` forward) and the real spin
+  directions; nothing added or removed. `rb_verify_cli`'s known-bad
+  baseline test became a ratchet (`cars.mean_position_distance < 1000`
+  uu, set just above the new `≈937`) — it fails if this real replay ever
+  gets worse, and should be tightened as fixes land. Full workspace green
+  (397 tests).
+
+---
+
 ## Isolated the residual gap: pitch and roll apply about the wrong sign of their own axis
 **2026-09-04** · `RB-PHYSICS-001-FR-079`
 

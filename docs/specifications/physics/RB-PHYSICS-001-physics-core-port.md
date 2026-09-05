@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.87.0
+- Version: 0.88.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -5215,10 +5215,11 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     change, confirmed only the four intentional/historical references
     remain (the negative-comparison test and three doc comments).
 - `RB-PHYSICS-001-FR-079` (isolated dodge-derailment investigation; the
-  inertia-cancellation fix identified for air control is now implemented,
-  and the residual pre-dodge gap it left open has been traced to a
-  further, separate pitch/roll sign bug — found, not yet fixed): the
-  concrete next step
+  inertia-cancellation fix identified for air control is implemented, and
+  the residual pre-dodge gap it left open was traced to a further,
+  separate pitch/roll sign bug in both air control and the dodge — now
+  also fixed, closing the pre-dodge gap; `FR-069` remains): the concrete
+  next step
   `RB-VERIFY-003-FR-004`'s real run called for — replaying `FR-077`'s own
   real capture's abrupt-derailment dodge in isolation from the same seed
   state — was carried out, and it both confirms the maneuver as the
@@ -5456,48 +5457,98 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
       affected, consistent with Phase A of this same fixture already
       tracking real yaw acceleration closely after the inertia-
       cancellation fix.
-    - **Scope.** Confirmed for air control's own pitch and roll terms
-      only. Whether the dodge's own pitch/roll-direction impulse
-      computation (`drive.rs`'s dodge logic, a separate code path using
-      the same raw `pitch`/`roll` input but its own direct-impulse
-      formula, not `apply_torque`/`apply_angular_acceleration`) shares this
-      same sign convention has not been checked — it's a plausible further
-      instance, given both read the same underlying input fields, but
-      unconfirmed either way.
+    - **Scope: the dodge has the same bug, three ways.** The dodge's own
+      impulse/spin computation (`drive.rs`'s ground and wall-jump dodge
+      blocks — a separate code path reading the same raw `pitch`/`roll`
+      input) was checked against RocketSim's `_UpdateDoubleJumpOrFlip` /
+      `_UpdateAirTorque` in the same pass. Real: `dodgeDir = (-controls.pitch,
+      controls.yaw + controls.roll, 0)` (normalized), impulse `=
+      dodgeDir.x * forwardDir2D + dodgeDir.y * rightDir2D`, and the flip's
+      local torque `= (-dodgeDir.y * FLIP_TORQUE_X, dodgeDir.x *
+      FLIP_TORQUE_Y, 0)` (local x = forward, y = right). So `pitch = -1`
+      (stick forward) is a *forward* flip translating along `+forward` and
+      spinning about `+right` (nose down first), and `yaw + roll = -1` a
+      *left* dodge translating along `-right` and spinning about
+      `+forward` (left side down first). This port had the pitch
+      translation inverted (`forward * pitch`: stick forward dodged
+      backward), the pitch spin inverted (`right * pitch`), and the roll
+      spin inverted (`forward * roll`); only the roll translation
+      (`right * roll`) already matched. `normalize_dodge_direction`'s own
+      doc comment had recorded keeping "this port's own sign convention
+      (positive pitch means forward) rather than the reference's negated
+      `-controls.pitch`" as a deliberate choice — it was a bug, since the
+      stick values this port replays come straight from real captures in
+      the reference's convention. This also corrects the earlier
+      "Translation" finding above: the dodge-frame velocity mismatch
+      (`+X` real vs. `-Y` candidate) was primarily this sign inversion
+      acting on a nearly-correct orientation, not accumulated orientation
+      drift rotating a correct impulse.
+  - **Implemented: the pitch/roll sign fix, for air control and the dodge
+    together.** `drive.rs`'s air control now applies pitch about
+    `-right_axis(car)` and roll about `-forward`, matching
+    `dirPitch_right`/`dirRoll_forward` (yaw unchanged). Both dodge blocks
+    now form `dodge_forward = -norm_pitch` exactly as the reference forms
+    `dodgeDir.x`, and use it for the forward impulse, the spin about
+    `+right`, and the backward classification; the roll spin is now about
+    `-norm_roll * forward` (the reference's `-dodgeDir.y`), with the roll
+    translation unchanged. `dodge_pitch_is_backward` was renamed
+    `dodge_is_backward` and now takes that forward component, making it a
+    symbol-for-symbol match for RocketSim's `shouldDodgeBackwards`
+    (previously it re-derived the same rule under the inverted
+    convention). No constant changed; `DODGE_SPEED`/`DODGE_ANGULAR_SPEED`
+    remain the same placeholders.
+    - **Real-data effect: the pre-dodge gap is closed, and the aggregate
+      finally moves.** On the isolated `dodge-derailment.capture.jsonl`
+      fixture at `0.05`s windows, the last full pre-dodge window's
+      orientation gap went from `~0.13` rad (after the inertia-cancellation
+      fix) to `~0.03` rad (`~1.7°`) — `~0.22` → `~0.13` → `~0.03` rad across
+      the three fixes, so the pre-dodge orientation-rate divergence this
+      entry set out to isolate is now essentially gone. The whole-fixture
+      score moved for the first time: `cars.mean_position_distance` `≈2792`
+      → `≈937` uu (`-66%`; `≈2449` at the original finding), max `≈5919` →
+      `≈2606` uu, mean rotation `1.63` → `1.39` rad, mean velocity `≈2177`
+      → `≈1369` uu/s. `mean_ball_distance` is unchanged at `≈730` uu — the
+      ball is only touched at `t≈5.6`s, so its divergence follows the
+      car's post-dodge path. What remains is now clearly post-dodge: at
+      the dodge tick the velocity gap jumps to `≈1030` uu/s (the dodge
+      impulse's own uncalibrated `DODGE_SPEED` magnitude and missing
+      vertical component), and the rotation gap then grows steadily
+      (`0.13` → `1.14` rad over the following `0.4`s, a `~2.5` rad/s rate
+      difference) — the instantaneous-kick-vs-continuous-torque spin-rate
+      mismatch `FR-069` already documented, now the dominant remaining
+      piece.
   - **Non-goals (this requirement).** Does not implement `FR-069`'s
     continuous-torque flip model, or `FR-071`'s air-control damping
-    mechanism — both remain separate, scoped candidates for future work.
-    Does not implement the pitch/roll sign fix the finding above
-    identifies — a two-term change (`-right_axis`/`-forward` in place of
-    `right_axis`/`forward` for pitch/roll) that's small in code size but
-    flips visible behavior for every existing pitch/roll air-control test,
-    so it isn't started without explicit confirmation first, the same
-    threshold applied to the inertia-cancellation fix itself. Does not
-    check whether the dodge's own impulse computation shares the same sign
-    issue. Does not touch `LANDING_AUTO_UPRIGHT_TORQUE` or `STEER_TORQUE` —
-    see "Scope of the finding" above for why neither is a confirmed
-    instance of the inertia-cancellation mismatch (the sign finding here is
-    a separate, independent bug from that one). Does not claim the
-    translation/rotation split, or any quantitative confirmation above, is
-    the *complete* explanation for every remaining discrepancy; only what
-    this real maneuver's own recorded data and RocketSim's own real source
-    directly show.
+    mechanism — both remain separate, scoped candidates for future work,
+    and `FR-069` is now the clearly dominant remaining piece of this
+    fixture's own divergence. Does not calibrate `DODGE_SPEED`/
+    `DODGE_ANGULAR_SPEED` or add the real dodge's small vertical component
+    (`FR-059`'s and the module doc's own already-recorded gaps) — the sign
+    fix corrects direction only. Does not touch `LANDING_AUTO_UPRIGHT_TORQUE`
+    or `STEER_TORQUE` — see "Scope of the finding" above for why neither is
+    a confirmed instance of the inertia-cancellation mismatch (the sign
+    bug is a separate, independent one). Does not claim any quantitative
+    confirmation above is the *complete* explanation for every remaining
+    discrepancy; only what this real maneuver's own recorded data and
+    RocketSim's own real source directly show.
   - **Acceptance criteria.** The new fixture's own first frame is
     grounded/neutral by construction (verified: `is_grounded_and_neutral`
     accepts it without special-casing); `score_capture_against_candidate`
     against it produces `frames_compared == 347` and
     `cars.pairs_compared == 347` (every frame matched, confirming the
-    fixture's own internal timestamp continuity); the isolated divergence
-    is large enough (`cars.mean_position_distance > 1000` uu,
-    `mean_ball_distance > 100` uu) to be unambiguous, not marginal — this
-    bound still holds after the fix (see the real-data effect above).
-    `apply_angular_acceleration`'s own output is provably independent of
-    `inv_inertia_world` (new unit tests in `integrate.rs`); every one of
-    the 336 pre-existing `rb_physics_bullet` tests (world.rs's live-scene
-    air-control/dodge/wall-jump-dodge tests included) passes unchanged
-    despite the underlying acceleration magnitudes changing substantially,
-    since those tests assert qualitative behavior (direction, clamping)
-    rather than the old model's own exact values.
+    fixture's own internal timestamp continuity); the isolated replay's
+    own divergence is bounded *above* by a ratchet
+    (`cars.mean_position_distance < 1000` uu, `mean_ball_distance < 1000`
+    uu, set just above the `≈937`/`≈730` uu measured after the sign fix)
+    that fails if a later change makes this real replay worse — replacing
+    the earlier known-bad lower bounds (`> 1000`/`> 100`), which the sign
+    fix itself pushed the car figure under. `apply_angular_acceleration`'s
+    own output is provably independent of `inv_inertia_world` (unit tests
+    in `integrate.rs`). Every pitch/roll-direction-asserting test in
+    `drive.rs`/`world.rs` now uses real Rocket League's own stick
+    convention (`pitch = -1` forward, `roll = +1` right) and asserts the
+    real spin direction (a forward flip about `+right`, a right dodge
+    about `-forward`); all other tests pass unchanged.
   - **Verification plan.** `body.rs`: 1 new getter
     (`total_angular_acceleration`), `apply_angular_acceleration`, and the
     new field reset in `clear_forces`. `integrate.rs`: 2 new tests
@@ -5518,9 +5569,17 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     never-committed example (`crates/rb_verify_cli/examples/`, deleted
     after use, matching this project's own established convention for
     throwaway per-frame investigation scripts) plus a direct fetch of
-    RocketSim's real `Car.cpp`/`Car.h` source — no production code changed
-    for this part of the entry; the fix it identifies is scoped above as a
-    Non-goal pending explicit confirmation.
+    RocketSim's real `Car.cpp`/`Car.h` source. The sign fix then touched
+    `drive.rs` only (air control's two axis negations; `dodge_forward =
+    -norm_pitch` and the roll-spin negation in both dodge blocks;
+    `dodge_pitch_is_backward` → `dodge_is_backward`) plus the tests that
+    encoded the old convention: 12 `drive.rs` tests and 2 `world.rs` tests
+    switched their stick sign or expected spin sign (no test added or
+    removed; `rb_physics_bullet` stays at 336), and `rb_verify_cli`'s
+    baseline test was renamed
+    `isolated_replay_of_the_real_dodge_stays_under_its_last_recorded_divergence`
+    and turned into the ratchet described above (10 `rb_verify_cli` tests,
+    unchanged). Full workspace `fmt`/`clippy`/`test` green (397 tests).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -7007,6 +7066,26 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.88.0 (2026-09-04): `RB-PHYSICS-001-FR-079`'s pitch/roll sign fix
+  implemented, for air control and the dodge together. The dodge was
+  checked against RocketSim's `_UpdateDoubleJumpOrFlip` in the same pass
+  and had the same bug three ways (pitch translation, pitch spin, and roll
+  spin all inverted; only the roll translation already matched) — the
+  earlier "Translation" finding's dodge-frame velocity mismatch was
+  primarily this, not accumulated drift. `drive.rs` now applies air
+  control's pitch about `-right_axis` and roll about `-forward`, and both
+  dodge blocks form `dodge_forward = -norm_pitch` (RocketSim's own
+  `dodgeDir.x`) for impulse, spin, and the backward classification
+  (`dodge_pitch_is_backward` → `dodge_is_backward`), with the roll spin
+  about `-forward`. Real-data effect on the isolated fixture: the last
+  pre-dodge window's orientation gap `~0.13` → `~0.03` rad (`~0.22` →
+  `~0.13` → `~0.03` across the three fixes — the pre-dodge divergence is
+  closed), and the whole-fixture car position divergence moved for the
+  first time, `≈2792` → `≈937` uu (`-66%`; max `≈5919` → `≈2606`). What
+  remains is post-dodge (`FR-069`'s continuous flip torque, `DODGE_SPEED`'s
+  own placeholder magnitude). 14 tests switched to real Rocket League's
+  own stick convention; `rb_verify_cli`'s baseline became a ratchet
+  (`< 1000` uu). Full workspace green (397 tests).
 - 0.87.0 (2026-09-04): `RB-PHYSICS-001-FR-079`'s residual pre-dodge gap
   (left open by the inertia-cancellation fix) traced to a further,
   separate bug: real Rocket League's `Car.cpp::_UpdateAirTorque` applies

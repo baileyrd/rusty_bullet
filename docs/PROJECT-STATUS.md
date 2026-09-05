@@ -2048,6 +2048,33 @@
   every existing air-control test — the same threshold applied to the
   inertia-cancellation fix itself. See `FR-079`'s own spec entry for the
   full writeup.
+- `RB-PHYSICS-001-FR-079`'s pitch/roll sign fix, implemented — for air
+  control and the dodge together. Checking the dodge's own impulse/spin
+  against RocketSim's `_UpdateDoubleJumpOrFlip` (`dodgeDir = (-pitch, yaw +
+  roll)`, `flipRelTorque = (-dodgeDir.y, dodgeDir.x)`) found the same bug
+  three ways: pitch translation, pitch spin, and roll spin all inverted
+  (only the roll translation already matched) — so the earlier
+  dodge-frame velocity mismatch (`+X` real vs. `-Y` candidate) was
+  primarily this, not accumulated drift. `drive.rs` now applies air
+  control's pitch about `-right_axis` and roll about `-forward`, and both
+  dodge blocks form `dodge_forward = -norm_pitch` exactly as the reference
+  forms `dodgeDir.x` (impulse, spin about `+right`, and the renamed
+  `dodge_is_backward` classification), with the roll spin about
+  `-forward`. Real-data effect on the isolated fixture: the last pre-dodge
+  window's orientation gap `~0.13` → `~0.03` rad — `~0.22` → `~0.13` →
+  `~0.03` across the three fixes, so the pre-dodge divergence this whole
+  investigation chased is closed — and the whole-fixture car position
+  divergence moved for the first time, `≈2792` → `≈937` uu (`-66%`; max
+  `≈5919` → `≈2606`). What remains is post-dodge: the velocity gap jumps to
+  `≈1030` uu/s at the dodge tick (`DODGE_SPEED`'s own placeholder
+  magnitude) and the rotation gap then grows at `~2.5` rad/s —
+  `RB-PHYSICS-001-FR-069`'s continuous flip torque, now the dominant
+  remaining piece. 12 `drive.rs` and 2 `world.rs` tests switched to real
+  Rocket League's own stick convention (`pitch = -1` forward); no test
+  added or removed; `rb_verify_cli`'s baseline test became a ratchet
+  (`cars.mean_position_distance < 1000` uu). Full workspace
+  `fmt`/`clippy`/`test` green (397 tests). See `FR-079`'s own spec entry
+  for the full writeup.
 
 ## In progress
 
@@ -2086,15 +2113,17 @@
    maneuver as the proximate cause; the pre-dodge orientation-rate
    divergence it left open was traced to and fixed at its inertia-
    cancellation mechanism, then the residual `~7°` gap that fix left was
-   traced further to a separate pitch/roll sign bug (real Rocket League
-   applies both about the *negative* of the car's own right/forward axes;
-   this port applies both about the positive axes) — found, not yet
-   fixed. The concrete next steps: decide whether to implement that sign
-   fix (small in code size, but flips visible pitch/roll behavior for
-   every existing air-control test) and whether to implement `FR-069`'s
-   continuous-torque flip model, the largest remaining piece of the
-   isolated dodge's own divergence — neither started; see `FR-079`'s own
-   spec entry for the full evidence.
+   traced to a separate pitch/roll sign bug (in air control and the
+   dodge) and fixed too — the pre-dodge divergence is now closed
+   (`~0.03` rad) and the isolated fixture's own car divergence dropped
+   `-66%`. What remains is post-dodge, and the concrete next step is
+   `RB-PHYSICS-001-FR-069`'s continuous-torque flip model (real Rocket
+   League's `FLIP_TORQUE_X/Y` over a `0.65`s window, replacing this
+   port's instantaneous `DODGE_ANGULAR_SPEED` kick — the dominant remaining
+   piece, and a redesign needing per-car elapsed-flip-time state), with
+   `DODGE_SPEED`'s own placeholder magnitude and the real dodge's missing
+   vertical component as the smaller remaining gaps — none started; see
+   `FR-079`'s own spec entry for the full evidence.
 
 ## Validation
 
@@ -2110,8 +2139,8 @@
   `rb_capture_ingest` (incl. synthetic-fixture test), 10 in `rb_verify_cli`
   (incl. `score_capture_against_candidate`'s and `score_capture_growth`'s
   happy-path runs against the synthetic capture fixture, and
-  `RB-PHYSICS-001-FR-079`'s isolated-dodge-replay regression baseline
-  against the new real fixture), plus doc-tests)
+  `RB-PHYSICS-001-FR-079`'s isolated-dodge-replay ratchet against the real
+  fixture, `cars.mean_position_distance < 1000` uu), plus doc-tests)
 - `cargo run -p rb_replay_ingest --bin corpus_check` (local only, not CI):
   40/40 real owner replays parsed cleanly, 2026-08-28
 - `cargo run -p rb_verify_cli --bin rb-verify -- <replay> <capture>`
@@ -2184,6 +2213,17 @@
   (`~7.4°`), down from the pre-fix `~0.22 rad` (`~12.5°`) measured at the
   same point — the ~40% reduction cited in `FR-079`'s own entry, measured
   directly rather than asserted.
+- `RB-PHYSICS-001-FR-079`'s pitch/roll sign fix, re-run against the same
+  fixture (2026-09-04, this sandbox): `rb-verify --self` now gives `frames
+  compared: 347, mean ball distance: 729.95 uu, max ball distance: 3311.68
+  uu, car pairs compared: 347, mean car position/rotation/velocity
+  distance: 937.30 uu / 1.39 rad / 1369.05 uu/s, max car position/
+  rotation/velocity distance: 2606.04 uu / 3.14 rad / 2584.32 uu/s` —
+  the first change to move the whole-fixture car figure (`2792.31` →
+  `937.30` uu). `--self-growth ... 0.05`: the last full pre-dodge window
+  (`t=4.27s`) is now `car mean rot = 0.03 rad` (from `0.13`, from `0.22`),
+  and the `t=4.32s` window that contains the dodge tick jumps to `vel
+  1032.35 uu/s` — the remaining divergence starts at the dodge itself.
 
 ## Risks and decisions needed
 

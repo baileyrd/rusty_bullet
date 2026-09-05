@@ -137,9 +137,24 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   about `dirPitch_right = -GetRightDir()`/`dirRoll_forward =
   -GetForwardDir()` (the *negative* of the car's own axes; only yaw's
   `dirYaw_up` is unnegated), while this port applies both about the
-  *positive* axes. Found, not yet fixed — the fix flips visible pitch/roll
-  behavior for every existing air-control test. See
-  `RB-PHYSICS-001-FR-079`'s own entry for the full evidence chain.
+  *positive* axes. Now fixed, for air control and the dodge together —
+  the dodge, checked against RocketSim's `_UpdateDoubleJumpOrFlip` in the
+  same pass, had the same bug three ways (pitch translation, pitch spin,
+  and roll spin all inverted; only the roll translation matched):
+  `drive.rs` applies air control's pitch about `-right_axis` and roll
+  about `-forward`, and both dodge blocks form `dodge_forward =
+  -norm_pitch` (RocketSim's own `dodgeDir.x`) for impulse, spin, and the
+  renamed `dodge_is_backward` classification, with the roll spin about
+  `-forward`. 14 tests switched to real Rocket League's own stick
+  convention (`pitch = -1` is a forward flip / nose-down); the
+  `rb_verify_cli` baseline test became a ratchet
+  (`cars.mean_position_distance < 1000` uu). Real-data effect on the
+  isolated fixture: the pre-dodge orientation gap is closed (`~0.22` →
+  `~0.13` → `~0.03` rad across the three fixes) and the whole-fixture car
+  position divergence dropped `≈2792` → `≈937` uu (`-66%`). What remains
+  is post-dodge — `RB-PHYSICS-001-FR-069`'s continuous flip torque is now
+  the dominant remaining gap. See `RB-PHYSICS-001-FR-079`'s own entry for
+  the full evidence chain.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

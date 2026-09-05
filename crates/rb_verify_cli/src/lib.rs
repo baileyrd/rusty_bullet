@@ -319,16 +319,25 @@ mod tests {
     /// run's own much-earlier kickoff seed frame — removes ~4 seconds of
     /// otherwise near-perfectly-tracked simulation, isolating whether the
     /// jump/dodge maneuver itself (not compounded earlier drift) is
-    /// responsible. It is: divergence still explodes immediately, at
-    /// almost the same magnitude as the full run's own window, confirming
-    /// the maneuver itself as the proximate cause (see
-    /// `RB-PHYSICS-001-FR-079`'s own spec entry for the full evidence
-    /// chain, including the pre-dodge orientation drift and the resulting
-    /// dodge-impulse direction mismatch). These are the current, known-bad
-    /// numbers — a documented baseline this test's own bounds should
-    /// tighten once a fix lands, not a target to defend.
+    /// responsible. It was: divergence exploded immediately, at almost the
+    /// same magnitude as the full run's own window, confirming the maneuver
+    /// itself as the proximate cause (see `RB-PHYSICS-001-FR-079`'s own
+    /// spec entry for the full evidence chain). The bounds below are a
+    /// *ratchet*: upper limits set just above the best divergence measured
+    /// so far, to catch a regression that makes this replay worse — tighten
+    /// them as further fixes land, never loosen them.
+    ///
+    /// History of `cars.mean_position_distance` on this fixture: `~2449` uu
+    /// (first isolated replay, `FR-079`), `~2792` uu (after the
+    /// inertia-cancellation fix alone, which shrank the pre-dodge
+    /// orientation gap but not the aggregate), `~937` uu (after the
+    /// pitch/roll sign fix for air control and the dodge). Mean ball
+    /// distance has stayed `~730` uu throughout — the ball is only touched
+    /// late in the fixture, so its divergence follows the car's own
+    /// post-dodge path, which `RB-PHYSICS-001-FR-069`'s still-unimplemented
+    /// continuous flip torque now dominates.
     #[test]
-    fn isolated_replay_of_the_real_dodge_still_diverges_sharply() {
+    fn isolated_replay_of_the_real_dodge_stays_under_its_last_recorded_divergence() {
         let score = score_capture_against_candidate(
             dodge_derailment_fixture(),
             DEFAULT_MAX_TIMESTAMP_DELTA_SECS,
@@ -337,11 +346,10 @@ mod tests {
 
         assert_eq!(score.frames_compared, 347);
         assert_eq!(score.cars.pairs_compared, 347);
-        // Known-bad baseline (2026-09-04): mean car position distance
-        // ~2449 uu, mean ball distance ~730 uu. Bounded loosely below to
-        // catch a regression that makes this worse, not to pin the exact
-        // figure.
-        assert!(score.cars.mean_position_distance > 1000.0);
-        assert!(score.mean_ball_distance > 100.0);
+        // Ratchet (2026-09-04): mean car position distance ~937 uu, mean
+        // ball distance ~730 uu after the pitch/roll sign fix. Bounded
+        // loosely above to catch a regression, not to pin the exact figure.
+        assert!(score.cars.mean_position_distance < 1000.0);
+        assert!(score.mean_ball_distance < 1000.0);
     }
 }
