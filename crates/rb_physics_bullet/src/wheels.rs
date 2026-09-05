@@ -18,8 +18,10 @@
 //! under full steer, and unsteered tires fight any torque that tries to
 //! imitate that, so steering had to become the real mechanism the moment
 //! the tires did. Raycasts see the flat planes of the scene (the ground
-//! and the walls); the curved fillets, goal walls, and bounded walls, the
-//! auto-roll, and `extraPushback` are step (c).
+//! and the walls); the curved fillets, goal walls, and bounded walls and
+//! the auto-roll are step (c). The `extraPushback` hard stop is here in
+//! step (a): read with `SUSPENSION_SUBTRACTION` in its real units it is
+//! what stops a hard landing, not a rest-height term.
 //!
 //! # Per-tick order (RocketSim `Car::_PreTickUpdate`)
 //!

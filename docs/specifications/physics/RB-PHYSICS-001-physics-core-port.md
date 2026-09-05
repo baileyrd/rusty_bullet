@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.98.0
+- Version: 0.99.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -4164,7 +4164,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `rb_physics_bullet`'s pre-existing tests (as of `FR-062`) pass
     unchanged, confirming zero behavioral change.
 - `RB-PHYSICS-001-FR-064` (real mandatory minimum-hold window for a ground
-  jump's variable-height acceleration): `drive::JUMP_HOLD_MAX_DURATION`'s
+  jump's variable-height acceleration; its `0.62` pre-minimum scale is
+  contradicted by the real capture — see `FR-083` finding 2): `drive::JUMP_HOLD_MAX_DURATION`'s
   own doc comment had flagged, since `RB-PHYSICS-001-FR-031`'s original
   audit, that real Rocket League scales its jump-hold acceleration down
   during a `JUMP_MIN_TIME` (0.025s) mandatory window rather than applying
@@ -6745,6 +6746,146 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     driving up a wall holds it with the sticky force; plus the
     re-measured `--self` / `--self-growth 0.05` numbers and the ratchet
     at every step.
+- `RB-PHYSICS-001-FR-083` (post-hit divergence — diagnosis, documentation
+  only): `FR-082` step (a) left the isolated `dodge-derailment` fixture
+  matching the recording through the grounded ticks, the whole flight
+  (`0.04` rad), and the landing, with the port's car hitting the ball at
+  `t = 5.758` for the first time — and a car velocity error that steps to
+  `220` uu/s at the hit and to `660` uu/s at `t ≈ 6.05` s. This pass
+  traced that segment tick by tick against the recording (car position,
+  velocity, angular velocity, forward and up axes, inputs, wheels in
+  contact, and the ball) from the seed to `t = 6.2` s. The post-hit
+  divergence is not a post-hit mechanism: it is the consequence of a
+  `45` uu lag the port's car carries into the hit, plus the hit itself.
+  Seven findings, ranked by cost. No physics changed; this entry is the
+  plan.
+  1. **Throttle accelerates the car in the air, and this port has no such
+     force.** RocketSim's `_UpdateAirTorque` (which runs whenever fewer
+     than three wheels touch) ends with `applyCentralForce(forward ·
+     throttle · THROTTLE_AIR_ACCEL · mass)`, `THROTTLE_AIR_ACCEL = 200 /
+     3 ≈ 66.7` uu/s². The recording shows it: with boost off and throttle
+     held through the flight, the recorded horizontal velocity climbs
+     `+0.36` uu/s per tick along the car's forward (`vx` `1008.6 →
+     1013.1`, `vy` `1111.5 → 1117.8` over `t = 4.325`–`4.45`), `≈45`–`55`
+     uu/s² horizontal — `66.7` times the pitched forward's horizontal
+     component — while the port's stays at exactly `(988.1, 1100.6)`.
+     Over the `1.4` s flight that is the `≈25` uu/s the port is slower at
+     the landing (`(1657, 1460)` vs `(1664, 1486)`) and the `45` uu it is
+     behind at `t = 5.75`. **That lag is the whole post-hit story**: the
+     recorded car meets the ball at `t = 5.758` on the ground (`z =
+     15.4`) with its jump press on the same tick, so the hit lands first
+     and the jump fires the next tick (`vz` `+14 → -66 → +229`); the
+     port's car, `45` uu (`2.4` ticks at `2240` uu/s) behind, fires its
+     jump at `5.767` and meets the ball three ticks late at `5.783`, `z =
+     22`, rising at `300` uu/s. Hitting from below and mid-jump, it gives
+     the ball more vertical and less horizontal velocity (`(1521, 1969,
+     901)` vs the recorded `(1602, 2148, 790)`) and loses `(-271, -313,
+     -152)` where the recording loses `(-183, -158, -80)`; the `+300`
+     uu/s of jump is spent into the ball. Everything after — the `+150`
+     vs `+230` uu/s climb, the lower and shorter arc, the `660` uu/s step
+     at `6.05` (finding 6) — follows. One line in the air branch.
+  2. **The jump hold applies `JUMP_ACCEL` in full from its first tick;
+     `JUMP_PRE_MIN_ACCEL_SCALE = 0.62` is wrong.** Recorded `vz` after the
+     jump: `295.9, 299.9, 304.0, 308.0, 312.0, 316.1, 320.1` — `+4.0` per
+     tick for seven ticks, which is exactly `JUMP_ACCEL / 120 (12.15) -
+     gravity (5.42) - the sticky half-g (2.71) = 4.02`, then `+6.7` per
+     tick (`326.8, 333.6, 340.3, …`) once the sticky force stops — the
+     full `1458.3` uu/s² hold from the very first tick. The port's `vz`
+     over the same ticks: `291.8, 291.3, 290.7, 290.1, 289.5` — `-0.6`
+     per tick, exactly `0.62 · 12.15 - 5.42 - 2.71`, then `+6.7`. RocketSim
+     carries the `0.62` under a "TODO: preferably don't use this system
+     at all"; RLUtilities' `Jump` has no such scale; the capture has
+     none. `FR-064`'s adoption is reversed on capture evidence: delete the
+     constant. Worth `≈14` uu/s of `vz` — the port flies `≈4` uu low
+     through the flight (`z` `96.2` vs `100.6` at `t = 4.40`).
+  3. **The flip torque acts on the press tick.** Recorded `ω_y` on the
+     dodge tick: `2.57 → 4.75` (`+2.18` = the `1.87` rad/s flip step plus
+     that tick's air-control pitch), then `5.26, 5.38, 5.44, 5.46, 5.47,
+     5.48` up against the `5.5` cap. The port's: `2.57 → 2.80` on the
+     press tick, `4.97` a tick later — because `apply_driven_forces`
+     applies the flip's torque from the tick *after* the dodge sets it,
+     which is also RocketSim's order (`_UpdateAirTorque` runs before
+     `_UpdateDoubleJumpOrFlip`). The recording says RL applies it on the
+     press tick. One tick of phase at `5.5` rad/s is `0.046` rad — the
+     residual `0.04` rad flight rotation error, and the reason the port's
+     `ω_z` decays a tick late under the clamp (`-2.12` vs `-1.54` at `t =
+     4.333`). Apply the first torque step inside the dodge block; a
+     capture-over-reference correction with `FR-080` step (c)'s two as
+     precedent.
+  4. **A seeded car should start with its drive fields primed.** The port's
+     wheels carry RocketSim's one-tick lag on engine force and steer
+     angle, which is right mid-run but wrong at the seed: the recorded car
+     is mid-maneuver (throttle `1`, steer `-1`) with those fields already
+     set. First tick after the seed: recorded `vx` `+6.4`, port `+0.0`;
+     recorded `ω_z` `-1.35 → -1.49`, port `-1.35 → -1.35`. `from_frame`
+     should run `wheels::update_wheels`'s field half once from the seed
+     frame's own input (no sticky force). `≈6` uu/s and `0.15` rad/s at
+     the seed.
+  5. **The car-ball hit itself: per-pair material and the extra impulse.**
+     RocketSim's `Ball::_OnHit` overrides the contact's friction and
+     restitution to `CARBALL_COLLISION_FRICTION = 2.0` /
+     `CARBALL_COLLISION_RESTITUTION = 0.0` (`FR-063`'s finding) and, at
+     most once per two ticks, adds a velocity to the ball: `hitDir =
+     normalize((ball - car) ⊙ (1, 1, BALL_CAR_EXTRA_IMPULSE_Z_SCALE =
+     0.35))`, then `hitDir = normalize(hitDir - forward · (hitDir ·
+     forward) · (1 - BALL_CAR_EXTRA_IMPULSE_FORWARD_SCALE = 0.65))`,
+     `addedVel = hitDir · relSpeed · BALL_CAR_EXTRA_IMPULSE_FACTOR_CURVE
+     (relSpeed)` with `relSpeed = min(|v_ball - v_car|, 4600)` and the
+     curve `{0: 0.65, 500: 0.65, 2300: 0.55, 4600: 0.30}` — a flattened,
+     forward-biased kick worth up to `0.65` of the relative speed. The
+     recorded ball leaves at `2795` uu/s with `vz = 790`; the port's, with
+     the default materials and no extra impulse, at `2645` with `vz =
+     901` — less along the ground and more up, the shape the `0.35`
+     z-scale predicts. The angular kick to the car matches already
+     (`(-0.47, -3.21, 4.44)` vs `(-0.36, -3.41, 4.30)`). But the port's
+     hit is three ticks late and mid-jump (finding 1), so the linear
+     comparison is not clean until findings 1–4 land. Medium cost: a
+     per-pair material hook in the ball-car manifold and a post-solve
+     added velocity on the ball; closes `FR-063`.
+  6. **A fixture caveat, not a physics finding: the capture's pitch input
+     is missing at the second dodge.** At `t = 6.05` the recording jumps
+     with `pitch = 0, yaw = +1` recorded — a pure right dodge — but the
+     recorded `Δv` `(-518, +466, 0)` decomposes on the car's flattened
+     axes to `352` forward and `601` right, which is exactly `500 · 0.707`
+     and `500 · 0.707 · 1.70` (the side scale at `1793` uu/s): a
+     forward-right diagonal, `pitch = -1, yaw = +1`. The first dodge's
+     inputs were exact (`FR-081` finding 2); this one's pitch is not in
+     the capture. The port dodges pure right at `809` uu/s, so the `660`
+     uu/s velocity step at `6.05`–`6.07` and the rotation that follows
+     cannot be matched by any physics change on this fixture. That is the
+     ratchet's floor here, and a note for `RB-VERIFY-001`/`ADR-0005` on
+     capture input fidelity.
+  7. **RocketSim vs. RL: the recording's wheels keep acting one to two
+     ticks longer after the jump than RocketSim's ray allows.** The
+     sticky-force deficit of finding 2 persists through the tick that
+     starts with the origin at `z = 32.3` (mounts `53` uu up), and the
+     recorded `vx` gains through six post-jump ticks where the port's,
+     whose `48.755` uu ray lets go at `z = 28.0`, gains through five. The
+     per-tick gains themselves match (`+9.6, +9.8, +10.4, +10.9, +11.2,
+     +11.5` recorded vs `+10.3, +10.4, +10.9, +11.4, +11.6` in the port).
+     Worth `≈11` uu/s of `vx`; no reference value to adopt, so it is
+     recorded and left.
+  - **What each finding is worth.** Findings 1–4 are a few lines each,
+    each measurable on its own tick: 1 on the flight's horizontal
+    velocity and the hit tick (`5.783 → 5.758`), 2 on `vz` over the seven
+    post-jump ticks and the apex, 3 on the dodge tick's `ω_y`, 4 on the
+    first tick after the seed. Together they should move the hit onto the
+    recorded tick and geometry, after which finding 5 can be compared
+    cleanly and implemented as its own step. Finding 6 bounds what this
+    fixture can show after `6.05`; finding 7 is a known residual.
+  - **Suggested sequencing.** Findings 1, 2, 3, 4 in one implementation
+    pass with a re-measure after each; then finding 5 (closing `FR-063`)
+    as its own pass; then `FR-082` steps (b) and (c). Do not tune
+    anything against the segment after `6.05` s (finding 6).
+  - **Non-goals (this requirement).** Changes no code. Does not touch
+    `RB-PHYSICS-001-FR-005`'s real-data calibration, no longer blocked on
+    `PHASE-0-EXIT` (now closed), but not itself started.
+  - **Acceptance criteria.** This entry records the seven findings with
+    their tick-level evidence, what each is worth, and the sequencing;
+    `PROJECT-STATUS.md`'s Next item points at findings 1–4.
+  - **Verification plan.** No new tests (documentation-only, matching
+    `FR-081`'s diagnosis precedent); the full workspace stays green (443
+    tests).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -8231,6 +8372,20 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.99.0 (2026-09-05): `RB-PHYSICS-001-FR-083` added (documentation
+  only): the post-hit divergence traced tick by tick to seven findings —
+  the port lacks RocketSim's `THROTTLE_AIR_ACCEL` (`66.7` uu/s² forward
+  while airborne with throttle), which is the `45` uu lag that makes
+  the port's car hit the ball three ticks late and mid-jump; the jump
+  hold applies `JUMP_ACCEL` in full from its first tick (the capture
+  contradicts `JUMP_PRE_MIN_ACCEL_SCALE = 0.62`); the flip torque acts
+  on the press tick; a seeded car should start with its drive fields
+  primed; the car-ball hit needs `FR-063`'s per-pair material and
+  `Ball::_OnHit`'s extra impulse; the capture's pitch is missing at the
+  second dodge (a fixture caveat, the ratchet's floor after `6.05` s);
+  and RL's wheels act one to two ticks longer after a jump than
+  RocketSim's ray allows. Ranked by cost with a sequencing: findings
+  1–4 in one pass, then 5, then `FR-082` (b)/(c).
 - 0.98.0 (2026-09-05): `RB-PHYSICS-001-FR-082` step (a) implemented: the
   `wheels` module — four raycast wheels on the real spring-damper
   suspension with the sticky force and the `extraPushback` hard stop,

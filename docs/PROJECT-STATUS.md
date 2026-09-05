@@ -2306,6 +2306,24 @@
   `rb_physics_bullet` 359 → 382, workspace 420 → 443; ratchet `< 165`
   uu (car) and `< 100` uu (ball). Full workspace `fmt`/`clippy`/`test`
   green.
+- `RB-PHYSICS-001-FR-083` diagnosed (documentation only): the post-hit
+  divergence is a `45` uu lag the port's car carries into the hit, not
+  a post-hit mechanism — the port lacks RocketSim's `THROTTLE_AIR_ACCEL`
+  (`66.7` uu/s² forward while airborne with throttle; the recorded
+  horizontal velocity climbs `+0.36` uu/s per tick through the flight,
+  the port's not at all), so its car hits the ball three ticks late and
+  mid-jump instead of on the ground with the jump firing a tick after.
+  Six more findings, ranked: the recorded jump hold is the full
+  `JUMP_ACCEL` from its first tick (the capture contradicts
+  `JUMP_PRE_MIN_ACCEL_SCALE = 0.62`); the flip torque acts on the press
+  tick (`0.046` rad of phase, the residual flight rotation error); a
+  seeded car should start with its drive fields primed; the car-ball
+  hit needs `FR-063`'s per-pair material and `Ball::_OnHit`'s extra
+  impulse (the recorded ball leaves flatter and faster); the capture's
+  pitch is missing at the second dodge at `6.05` s (a fixture caveat —
+  the ratchet's floor there); and RL's wheels act one to two ticks
+  longer after a jump than RocketSim's ray allows. No code changed; 443
+  tests unchanged.
 
 ## In progress
 
@@ -2376,16 +2394,24 @@
    `0.04` rad, the landing bottoms out where the recording does, and
    the port's car hits the ball at `t = 5.758` for the first time
    (`239.55 → 160.19` uu mean position; `mean_ball_distance` `729.95 →
-   79.55` uu). What remains starts *after* the hit: the car's velocity
-   error steps to `220` uu/s at the hit and to `660` uu/s at `t ≈ 6.05`
-   with the rotation climbing to `0.9` rad. Next step: diagnose that
-   post-hit segment tick by tick (the recorded ground jump coinciding
-   with the hit, the hit's own impulse under the default car-ball
-   restitution/friction rather than `FR-063`'s per-pair values, and
-   whatever the recording does at `6.0` s), then `FR-082` step (b) —
+   79.55` uu). What remained started *after* the hit, and
+   `RB-PHYSICS-001-FR-083` has now diagnosed it: the port's car carries
+   a `45` uu lag into the hit because it lacks RocketSim's
+   `THROTTLE_AIR_ACCEL` (`66.7` uu/s² forward while airborne with
+   throttle), so it hits three ticks late and mid-jump. Next step:
+   `FR-083` findings 1–4 in one pass, each re-measured on its own tick
+   — the airborne throttle acceleration (the flight's horizontal
+   velocity and the hit tick, `5.783 → 5.758`), the full `JUMP_ACCEL`
+   from the jump's first tick (`vz` over the seven post-jump ticks),
+   the flip torque on the press tick (the dodge tick's `ω_y`), and the
+   seeded car's primed drive fields (the first tick after the seed).
+   Then finding 5, the car-ball hit's per-pair material and extra
+   impulse (closing `FR-063`), as its own pass; then `FR-082` step (b) —
    the analog handbrake with its two factor curves, the slip-driven
-   lateral friction curve, and the non-sticky curve — and step (c),
-   the rest of the arena. See `FR-082`'s own spec entry.
+   lateral friction curve, and the non-sticky curve — and step (c), the
+   rest of the arena. Nothing is to be tuned against the segment after
+   `6.05` s, where the capture's own pitch input is missing (finding
+   6). See `FR-083`'s and `FR-082`'s own spec entries.
 
 ## Validation
 
@@ -2603,6 +2629,21 @@
   `6.07s`, rotation to `0.9` rad — the post-hit segment is what remains.
   Without the pushback hard stop the car figure was `156.62 uu / 0.46
   rad / 266.67 uu/s`.
+- `RB-PHYSICS-001-FR-083` diagnosis traces (2026-09-05, this sandbox;
+  a temporary example, since removed, stepping the fixture with
+  `simulate_recorded`'s own loop and printing recorded vs. simulated
+  car and ball state per tick): seed-to-dodge (`t = 4.10`–`4.45` s) —
+  first-tick `vx` gain `+0` vs `+6.4`, post-jump `vz` `291.8 → 289.5`
+  vs `295.9 → 312.0` over five ticks, dodge-tick `ω_y` `2.80` vs `4.75`,
+  flight `(988.1, 1100.6)` flat vs `(1008.6, 1111.5) → (1013.1, 1117.8)`;
+  the hit (`5.69`–`5.95` s) — the port `45` uu behind at `5.75`, its
+  jump at `5.767` and hit at `5.783` (`z = 22`, `vz = 300`) vs the
+  recorded hit at `5.758` (`z = 15.4`) and jump at `5.767`, ball
+  `(1521, 1969, 901)` vs `(1602, 2148, 790)`, car `Δv` `(-271, -313,
+  -152)` vs `(-183, -158, -80)`; the second dodge (`6.05` s) — recorded
+  `Δv` `(-518, 466)` = `352` forward + `601` right on the flattened axes
+  with `pitch = 0` recorded, port `809` uu/s pure right. No `--self`
+  re-run: no physics changed.
 
 ## Risks and decisions needed
 

@@ -6,6 +6,37 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Diagnosed the post-hit segment: a 45 uu lag, born in the air, reorders the jump and the hit
+**2026-09-05** · `RB-PHYSICS-001-FR-083`
+
+- The port's car now reaches the ball, but three ticks late and
+  mid-jump, where the recorded car hits on the ground and jumps the
+  tick after. The lag is `45` uu, and it is born in the flight: with
+  throttle held and boost off, the recorded car keeps accelerating
+  along its forward at about `50` uu/s² — RocketSim's
+  `THROTTLE_AIR_ACCEL`, `66.7` uu/s² forward whenever fewer than three
+  wheels touch, which this port never had. One line, and the whole
+  post-hit divergence hangs on it.
+- **Six more, ranked by cost.** The recorded jump hold is the full
+  `JUMP_ACCEL` from its very first tick (`+4.0` uu/s per tick, to the
+  hundredth), so RocketSim's `0.62` pre-minimum scale that `FR-064`
+  adopted is wrong on capture evidence. The recorded flip torque acts
+  on the press tick, one tick before RocketSim and this port apply it
+  — `0.046` rad of phase, the residual flight rotation error. A car
+  seeded mid-maneuver should start with its engine and steer fields
+  primed rather than a tick behind. The car-ball hit needs the real
+  per-pair material (`FR-063`) and `Ball::_OnHit`'s extra impulse: the
+  recorded ball leaves flatter and faster than the port's. And two
+  things nothing can fix on this fixture: the capture's pitch input is
+  missing at the second dodge at `6.05` s (the recorded impulse is
+  exactly a forward-right diagonal while the record says pure right),
+  and RL's wheels keep acting a tick or two longer after a jump than
+  RocketSim's ray allows.
+- No code changed; `443` tests unchanged. Next: findings 1–4 in one
+  pass, then the hit itself.
+
+---
+
 ## The car has wheels: real suspension, real tires, and the first ball hit
 **2026-09-05** · `RB-PHYSICS-001-FR-082` step (a)
 

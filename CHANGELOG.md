@@ -246,7 +246,16 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   `THROTTLE_ACCELERATION` are gone. The isolated fixture went `239.55 →
   160.19` uu and the port's car hits the ball for the first time
   (`mean_ball_distance` `729.95 → 79.55` uu). `THIRD_PARTY_NOTICES.md`
-  gains a RocketSim (MIT) section.
+  gains a RocketSim (MIT) section. `RB-PHYSICS-001-FR-083` then
+  diagnoses what the wheels left: the port's car hits the ball three
+  ticks late and mid-jump because it lacks RocketSim's
+  `THROTTLE_AIR_ACCEL` (`66.7` uu/s² forward while airborne with
+  throttle), and six more findings ranked by cost — the jump hold's
+  `0.62` pre-minimum scale contradicted by the capture, the flip torque
+  on the press tick, primed drive fields at the seed, the car-ball
+  hit's per-pair material and extra impulse, a missing pitch input in
+  the fixture at its second dodge, and RL's wheels outlasting
+  RocketSim's ray by a tick or two after a jump.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation
