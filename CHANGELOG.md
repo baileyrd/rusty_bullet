@@ -185,8 +185,21 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   → `≈259` uu (`-55%`), max `≈2005` → `≈528` uu; the remaining rotation
   gap grows inside the flip window at a pinned `|ω|`, an axis mismatch
   pointing at the real flip cancel, step (c). 12 tests rewritten, 9 new;
-  ratchet `< 300` uu. See `RB-PHYSICS-001-FR-079`'s and `FR-080`'s own
-  entries for the full evidence chain and the remaining step (c).
+  ratchet `< 300` uu. Step (c) is now done too: the real pitch-hold flip
+  cancel (`1 - |pitch|` on the flip's pitch component when the signs
+  match) replaces `FR-016`'s jump-press cancel, which is removed. It
+  changed nothing inside the flip window, so the gap there was run to
+  ground at the tick, against both RocketSim and RLUtilities: yaw/roll
+  air control and the `FR-071` damping stay live mid-flip with only pitch
+  locked (77 ticks fit to `0.0025` rad/s rms; the references' lockout
+  `0.102`), and the angular-speed clamp belongs after the transform
+  integration (the recording turns `7.58` rad/s per tick at a reported
+  `5.50`; RocketSim's `_FinishPhysicsTick` runs after `stepSimulation`).
+  Both adopted: the flip window now matches to within `0.1` rad,
+  `cars.mean_position_distance` `≈259` → `≈237` uu, and the un-damped
+  post-window spin is the unmasked next gap (`FR-071`). 8 tests rewritten,
+  5 new; ratchet `< 250` uu. See `RB-PHYSICS-001-FR-079`'s and `FR-080`'s
+  own entries for the full evidence chain.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

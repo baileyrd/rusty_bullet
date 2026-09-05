@@ -6,6 +6,54 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The real flip cancel landed, and the flip window itself now matches the recording to a tenth of a radian
+**2026-09-05** · `RB-PHYSICS-001-FR-080` step (c)
+
+- Implemented the last of `FR-080`'s three steps: flip cancel is now
+  `FR-070`'s real mechanism. While the flip torque applies, holding pitch
+  in the same sign as the flip's own pitch component scales that
+  component — only that one — by `1 - |pitch|`, step by step (pull back to
+  cancel a front flip); a roll-only dodge is immune and a diagonal one
+  keeps rolling under a full cancel. `FR-016`'s jump-press cancel is
+  removed: a second press mid-flip does nothing, as in RocketSim.
+- The cancel changed nothing inside the fixture's flip window (the
+  recorded pitch never meets the sign gate), so the rotation gap step (b)
+  left there was run to ground at the tick — and both references lost:
+  - **Air control stays live mid-flip.** RocketSim and RLUtilities lock
+    all stick air control out during the flip. The recording's first flip
+    tick changes `ω` by `(+1.75, +1.30, +0.03)` in the car's own axes
+    where pure flip torque gives `(+1.53, +1.32, 0)`; the differences
+    are the held roll's air-control torque and the real damping on all
+    three axes, to two decimals. Over all 77 in-window ticks the
+    references' model misses by `0.102` rad/s rms; flip torque plus
+    yaw/roll air control plus `CAR_AIR_CONTROL_DAMPING = (30, 20, 50)`
+    with pitch zeroed misses by `0.0025`, the recording's own rounding
+    floor. The port now keeps yaw/roll live through the flip.
+  - **The angular-speed clamp belongs after the transform integration.**
+    Before the flip the recording turns at exactly its reported `|ω|`;
+    through the flip it turns `7.58` rad/s per tick at a reported `5.50`.
+    That is RocketSim's `Arena::Step` order — `stepSimulation` integrates
+    the transform with the unclamped velocity, then `_FinishPhysicsTick`
+    clamps it (confirmed in `Arena.cpp`). This port clamped mid-pipeline
+    and turned `5.50`, under-rotating every flip by `2` rad/s.
+    `drive::clamp_angular_speed` now runs at the end of the step.
+- **Measured against the isolated fixture:** the flip window's rotation
+  gap is now `0.03 → 0.10` rad (from `0.05 → 1.33`); whole-run mean car
+  position divergence `≈259` → `≈237` uu, max `≈528` → `≈459`, mean
+  velocity `≈339` → `≈254` uu/s. Mean rotation rose `1.14` → `1.51` rad,
+  and that is the honest shape of what's left: the recording's spin
+  decays at `≈3.9` rad/s after the window under the air-control damping
+  this port lacks (`FR-071`), so the simulated car — now spinning at the
+  right rate through the flip — reaches the ground at a different
+  orientation. Step (b)'s under-rotation had been masking that. The same
+  77-tick fit pins `FR-071`'s constants, so it is next.
+- 8 tests rewritten and 5 new (`rb_physics_bullet` 345 → 350);
+  `rb_verify_cli`'s ratchet tightened to `< 250` uu. Full workspace green
+  (411 tests). `FR-061`'s ball clamp is documented as sitting before the
+  transform integrates; `Arena.cpp` shows it after — noted, not changed.
+
+---
+
 ## The dodge is now a real flip: continuous torque to the cap for 0.65 s, and the fixture's car divergence dropped another 55%
 **2026-09-05** · `RB-PHYSICS-001-FR-080` step (b)
 

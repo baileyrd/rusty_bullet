@@ -2149,6 +2149,34 @@
   tests rewritten, 9 new (`rb_physics_bullet` 337 → 345);
   `rb_verify_cli`'s ratchet tightened to `< 300` uu. Full workspace
   `fmt`/`clippy`/`test` green (406 tests).
+- `RB-PHYSICS-001-FR-080` step (c), implemented: the real pitch-hold flip
+  cancel (`FR-070`'s `1 - |pitch|` scale on the flip's pitch component
+  when the held pitch matches its sign; roll-only dodges immune) replaces
+  `FR-016`'s jump-press cancel, which is removed — a further press
+  mid-flip now does nothing. The cancel alone changed nothing inside the
+  fixture's flip window (the recorded pitch never meets the sign gate), so
+  the in-window rotation gap step (b) left was run to ground with two
+  tick-level comparisons against the recording, both of which overrule
+  the references: (1) yaw/roll stick air control (and `FR-071`'s damping)
+  are live during the flip with only pitch locked — RocketSim and
+  RLUtilities both lock all three out, but the fixture's 77 in-window
+  ticks fit to `0.0025` rad/s rms only with them active (references:
+  `0.102`); the port now keeps yaw/roll live mid-flip. (2) The
+  angular-speed clamp belongs after the transform integration: the
+  recording's orientation advances `7.58` rad/s per tick mid-flip at a
+  reported `|ω| = 5.50`, exactly RocketSim's `Arena::Step` order
+  (`stepSimulation`, then `_FinishPhysicsTick`, confirmed in `Arena.cpp`),
+  while this port clamped mid-pipeline and turned `5.50`;
+  `drive::clamp_angular_speed` now runs at the end of `PhysicsWorld::step`.
+  Measured together: the flip window now matches to within `0.1` rad
+  (from a `1.33` rad gap); whole-run `cars.mean_position_distance` `≈259`
+  → `≈237` uu, max `≈528` → `≈459`, mean velocity `≈339` → `≈254` uu/s;
+  mean rotation rose `1.14` → `1.51` rad because the post-window spin
+  decay (`FR-071`'s damping, which this port lacks) is now the unmasked
+  gap and the simulated car lands at a different orientation. `FR-061`'s
+  ball-clamp placement noted as an adjacent finding. 8 tests rewritten, 5
+  new (`rb_physics_bullet` 345 → 350); ratchet tightened to `< 250` uu.
+  Full workspace `fmt`/`clippy`/`test` green (411 tests).
 
 ## In progress
 
@@ -2194,37 +2222,42 @@
    `RB-PHYSICS-001-FR-080` (real continuous flip torque, replacing this
    port's instantaneous `DODGE_ANGULAR_SPEED` kick and its `DODGE_SPEED`
    placeholder): a settled design, blast radius, and three-step
-   sequencing are in that entry. Step (a) (`DODGE_SPEED → 500`, `-39%` on
-   the fixture's car divergence) and step (b) (the real flip state,
-   cap-and-hold torque, z-damping, pitch lock, and air-control lockout,
-   a further `-55%`, to `≈259` uu) are done and measured; step (c) (the
-   real pitch-hold flip cancel replacing `FR-016`'s) is not started, and
-   the fixture's remaining in-window rotation gap at a pinned `|ω|` is
-   exactly the axis mismatch a held pitch would produce through it.
-   `FR-071`'s air-control damping is next in line after that (the
-   post-window velocity growth the fixture shows). See `FR-080`'s own
-   spec entry.
+   sequencing are in that entry. All three steps are done and measured
+   (`≈2449` → `≈237` uu on the fixture's car divergence overall; the flip
+   window itself now matches to within `0.1` rad). Step (c) also found,
+   against both RocketSim and RLUtilities, that yaw/roll air control and
+   the air-control damping stay live mid-flip, and that the angular-speed
+   clamp belongs after the transform integration. The next gap is
+   `RB-PHYSICS-001-FR-071`'s air-control damping: the recording's spin
+   decays at `≈3.9` rad/s after the flip window while this port's never
+   decays, so the simulated car now lands at a different orientation; the
+   same 77-tick fit pinned the mechanism (`CAR_AIR_CONTROL_DAMPING = (30,
+   20, 50)` on the body-frame `ω`, pitch term scaled by `1 - |pitch|`
+   under the lock, yaw term by `1 - |yaw|`, through `CAR_TORQUE_SCALE`,
+   active whenever airborne including mid-flip). See `FR-080`'s own spec
+   entry.
 
 ## Validation
 
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
-- `cargo test --workspace`: pass (406 tests: 27 in `rb_domain` (incl. 4
-  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 345 in
+- `cargo test --workspace`: pass (411 tests: 27 in `rb_domain` (incl. 4
+  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 350 in
   `rb_physics_bullet` (incl. 2 new `integrate.rs` tests confirming
   `apply_angular_acceleration` bypasses `inv_inertia_world`, 1 combined
   `drive.rs` air-control test replacing 3 old ones,
   `RB-PHYSICS-001-FR-079`'s inertia-cancellation fix, 1 new
   standstill-backward-dodge test for `RB-PHYSICS-001-FR-080` step (a)'s
   `16/15` factor, and 8 new `drive.rs` plus 1 new `world.rs` test for
-  step (b)'s real flip torque, lockout, pitch lock, and vertical bleed,
-  with 12 existing dodge/flip-cancel tests rewritten), 14 in
+  step (b)'s real flip torque, pitch lock, and vertical bleed, and 5 new
+  `drive.rs` tests for step (c)'s real pitch-hold flip cancel, with 20
+  existing dodge/flip-cancel tests rewritten across (b)/(c)), 14 in
   `rb_replay_ingest` (incl. real-fixture integration test), 10 in
   `rb_capture_ingest` (incl. synthetic-fixture test), 10 in `rb_verify_cli`
   (incl. `score_capture_against_candidate`'s and `score_capture_growth`'s
   happy-path runs against the synthetic capture fixture, and
   `RB-PHYSICS-001-FR-079`'s isolated-dodge-replay ratchet against the real
-  fixture, `cars.mean_position_distance < 300` uu), plus doc-tests)
+  fixture, `cars.mean_position_distance < 250` uu), plus doc-tests)
 - `cargo run -p rb_replay_ingest --bin corpus_check` (local only, not CI):
   40/40 real owner replays parsed cleanly, 2026-08-28
 - `cargo run -p rb_verify_cli --bin rb-verify -- <replay> <capture>`
@@ -2332,6 +2365,23 @@
   (`t=4.37s` to `4.97s`) with the velocity gap flat at `≈92 uu/s`, and
   only after the window does velocity grow (`182` at `t=5.02s`, `524` at
   `t=5.57s`) while rotation falls back to `0.38 rad` by `t=5.42s`.
+- `RB-PHYSICS-001-FR-080` step (c) (the real pitch-hold flip cancel,
+  yaw/roll air control live mid-flip, and the angular-speed clamp moved
+  after the transform integration) re-run against the same fixture
+  (2026-09-05, this sandbox): `rb-verify --self` now gives `frames
+  compared: 347, mean ball distance: 729.95 uu, max ball distance: 3311.68
+  uu, car pairs compared: 347, mean car position/rotation/velocity
+  distance: 236.79 uu / 1.51 rad / 254.25 uu/s, max car
+  position/rotation/velocity distance: 458.71 uu / 3.14 rad / 942.06 uu/s`
+  (car position `259.26` → `236.79`). `--self-growth ... 0.05`: the
+  rotation gap through the flip window (`t=4.32s` to `4.97s`) is now
+  `0.03 → 0.10 rad` (from `0.05 → 1.33`) with velocity flat at `≈92
+  uu/s`; after the window it grows `0.14 rad` at `t=5.02s` to `1.05` at
+  `t=5.32s`, where the velocity gap jumps to `358` then `≈700 uu/s`
+  (`t=5.37s`) — the un-damped spin meeting the ground. Intermediate
+  measurements this step: the cancel alone `258.99 uu / 1.14 rad / 338.60
+  uu/s`; plus yaw/roll air control live mid-flip `244.30 uu / 1.06 rad /
+  293.30 uu/s`; plus the clamp move, the figures above.
 
 ## Risks and decisions needed
 
