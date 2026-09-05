@@ -2203,6 +2203,33 @@
   `world.rs` test replaced, 19 re-pinned (`rb_physics_bullet` stays 350);
   ratchet holds at `< 250` uu. Full workspace `fmt`/`clippy`/`test` green
   (411 tests).
+- `RB-PHYSICS-001-FR-081`, diagnosis (documentation only): the isolated
+  fixture's remaining, post-airborne divergence traced tick by tick to
+  five findings. (1) The `≈110` uu/s velocity gap the car carries through
+  the whole flight is born in the four ticks *after the ground jump*: the
+  real car's wheels stay in contact while its suspension springs extend
+  and the tires keep applying throttle and lateral grip (`+77` uu/s in the
+  recording, `0` in the port, which cuts ground forces the tick its box
+  leaves the plane) — three quarters of the gap, and the `172` uu the
+  port's car is behind when it reaches the ball. (2) The dodge impulse is
+  applied along the car's tilted 3D axes where RocketSim flattens them to
+  2D: `-75` uu/s of spurious vertical velocity at the fixture's dodge and
+  the `13`–`15` uu the port flies lower; the flattened axes predict the
+  recorded `Δv` to `1%` — a one-line fix per dodge block. (3) The recorded
+  car hits the ball at `t = 5.758` (the press that coincides is a ground
+  jump, not a dodge); the port's car never touches it, which is why
+  `mean_ball_distance` has read exactly `729.95` uu through every fix.
+  (4) The landing is a spring-damper suspension in the recording (`vz`
+  `-312 → 0` over `0.13` s, no bounce, settles at `z ≈ 15.5`) and a
+  bouncing rigid box in the port (angular kick to `5` rad/s, hovers at
+  `z ≈ 22`, reads airborne at the press and fires a `≈950` uu/s sideways
+  dodge instead). (5) RocketSim's Octane hitbox is centred `(13.9, 0,
+  20.8)` uu from the recorded position; the port centres it on the
+  position, `20.8` uu too low and `13.9` uu too far back (rest height
+  `19.3` vs the real `17.0`). Ranked by cost and sequenced: the 2D dodge
+  axes first, then the hitbox offset, then a wheel/suspension model as its
+  own entry folding in `FR-065`/`FR-066` — no grounded constant to be
+  tuned before that. No physics changed.
 
 ## In progress
 
@@ -2257,12 +2284,15 @@
    then adopted the real air-control damping (and retired the placeholder
    landing assist), closing the post-flip decay: the fixture's entire
    airborne phase now matches to within `0.1` rad. What remains starts at
-   the landing (`t ≈ 5.57` s) — the grounded phase: landing contact,
-   `FR-065`'s placeholder steering model, and the wall/curve interactions
-   that follow. That is the next domain, and it needs its own diagnosis
-   (the growth diagnostic at `0.05` s windows plus a landing-contact
-   trace) before any constant is touched. See `FR-071`'s and `FR-080`'s
-   own spec entries.
+   the landing — and `RB-PHYSICS-001-FR-081` has now diagnosed it as a
+   chain of five findings with a cost-ranked sequencing. Next step:
+   finding 2, the dodge impulse's 2D (flattened) axes — a one-line fix per
+   dodge block, measurable on the fixture's flight altitude and dodge-tick
+   `Δv`. Then finding 5 (the `(13.9, 0, 20.8)` uu hitbox offset), then
+   scope a wheel/suspension model as its own entry folding in
+   `FR-065`/`FR-066` — the largest remaining piece of the physics core,
+   and the only route to the fixture's landing and its ball hit. See
+   `FR-081`'s own spec entry.
 
 ## Validation
 
@@ -2426,6 +2456,17 @@
   uu/s`; the divergence starts at `t=5.57s` (`vel 192`), jumps at
   `t=5.77s` (`vel 799`, `0.48 rad`), and grows through the grounded phase
   to `789 uu / 3.02 rad / 715 uu/s` by `t=6.97s`.
+- `RB-PHYSICS-001-FR-081` diagnosis traces (2026-09-05, this sandbox;
+  throwaway example, not committed): recorded vs simulated at the ground
+  jump — `vx` `308/308` at `t=4.117`, `385/308` by `t=4.183`, `389/308`
+  at the dodge tick; at the dodge tick `Δv` recorded `(620, -28, -6)`,
+  simulated `(612, -3, -75)`; through the flight the simulation `13`–`15`
+  uu lower; at `t=5.758` recorded car `(-74, -121, 15.4)` with the ball
+  leaving `(0, 0, 93)` that tick, simulated car `(-246, -121, 22.1)` with
+  the ball never moving; landing — recorded `vz` `-312` (`t=5.575`, `z
+  40.9`) `→ -4` (`t=5.708`, `z 15.5`) with no bounce, simulated corner
+  contact at `t=5.575` (`z 34.5`, `|ω|` `1.13 → 4.97`), `vz` `-200 → +44`,
+  hovering at `z ≈ 22` through the press.
 
 ## Risks and decisions needed
 

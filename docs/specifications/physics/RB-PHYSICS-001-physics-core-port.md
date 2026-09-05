@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.93.0
+- Version: 0.94.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -6094,6 +6094,118 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     flip-cancel and dodge-spin tests, the re-measured `--self` /
     `--self-growth 0.05` numbers recorded in `PROJECT-STATUS.md`, and the
     `rb_verify_cli` ratchet tightened to just above the new figure.
+- `RB-PHYSICS-001-FR-081` (landing and grounded-phase divergence —
+  diagnosis, documentation only): `FR-071` left the isolated
+  `dodge-derailment` fixture matching the recording to within `0.1` rad
+  through its entire airborne phase, with the remaining divergence
+  starting at the landing (`t ≈ 5.57` s). This pass traced that remainder
+  tick by tick, side by side with the recording (position, velocity, spin,
+  orientation, inputs, and the ball), and found it is not one grounded
+  mechanism but a chain of five, listed here in the order they act. No
+  physics changed; this entry is the plan.
+  1. **The `≈110` uu/s velocity gap the car carries through the whole
+     flight is born in the four ticks after the ground jump, not in the
+     air.** At the seed frame (`t = 4.117`) the simulation matches the
+     recording exactly. Over the next four ticks the recorded `vx` climbs
+     `308 → 322 → 341 → 362 → 385` uu/s (`vy` flat at `≈1132`) while the
+     port's stays at `308` — and it never recovers: `389` vs `308` at the
+     dodge tick, `1276` vs `1169` at the landing approach. The mechanism
+     is the suspension: RocketSim's Octane hangs its wheels on
+     `38.755`/`37.055` uu rest-length springs (`CarConfig.cpp`,
+     `FRONT/BACK_WHEEL_SUS_REST`), compressed `≈13` uu at rest, so after a
+     jump the wheels stay in ground contact for the `≈4` ticks it takes the
+     body to rise `≈20` uu and the springs to extend — and the tires keep
+     applying throttle and lateral grip meanwhile (the recorded gain,
+     `(+77, +1)` uu/s, is throttle along the `57°` heading plus lateral
+     grip pulling a `17°` slip angle back in). This port cuts every ground
+     force the tick its box leaves the plane (`car_on_ground` is a
+     box-vs-plane contact test at the start of the step), so its jump
+     leaves with the pre-jump velocity. About three quarters of the
+     velocity gap, and with it the `172` uu the car is behind in `x` when
+     it reaches the ball.
+  2. **The dodge impulse is applied along the car's tilted 3D axes; the
+     real one is horizontal.** RocketSim's `_UpdateDoubleJumpOrFlip` builds
+     the impulse from `forwardDir2D = GetForwardDir().To2D().Normalized()`
+     and `rightDir2D = (-forwardDir2D.y, forwardDir2D.x, 0)`; this port's
+     dodge blocks (`FR-059`/`FR-072`) use `forward_axis(car)` and
+     `right_axis(car)` unflattened. At the fixture's dodge the car's nose
+     is `3°` down with a little roll, so the port's impulse carried `-75`
+     uu/s of vertical velocity the real one didn't: recorded `Δv = (620,
+     -28, -6)`, port `(612, -3, -75)`; the flattened axes predict `(628,
+     -38, 0)`. That is the `13`–`15` uu the port flies lower through the
+     whole arc and the remaining `≈10` uu/s of the horizontal gap. A
+     one-line fix per dodge block.
+  3. **The recorded car hits the ball; the port's never does.** At `t =
+     5.758` the recorded car is `162` uu from the ball (`(-74, -121, 15)`
+     vs `(0, 0, 93)`), the ball starts moving that same tick and leaves at
+     `≈(1590, 2130, 625)` uu/s, and the car's velocity drops by `(-183,
+     -158, -66)` with `|ω|` jumping to `5.5` — a car-ball collision, not
+     the jump press that coincides with it. The port's car passes `172` uu
+     behind in `x` (finding 1) and `≈8` uu lower, and the ball never moves:
+     that is why `mean_ball_distance` has read exactly `729.95` uu through
+     every fix since `FR-079` — it is `1.24` s of a stationary ball scored
+     against a ball flying at `2700` uu/s, and nothing airborne could ever
+     have touched it.
+  4. **The landing itself: suspension vs. a rigid box.** The recording's
+     wheels touch at `z ≈ 41`; over the next `0.13` s the springs take
+     `vz` from `-312` to `0` with no bounce, the nose levels (`forward.z`
+     `-0.24 → 0.00`), and the car settles at `z = 15.5`–`16` (its rest
+     `17.0` minus compression at speed). The port's box catches a corner at
+     `z ≈ 34.5`, takes an angular kick to `5.0` rad/s, bounces (`vz` `-200
+     → +44`), and hovers at `z ≈ 22` — so when the jump press arrives at
+     `t = 5.758` the port's car reads *airborne*, has its double jump
+     restored by the earlier contact, and fires a sideways dodge (`yaw =
+     +1` at `≈2000` uu/s forward speed: `500 · 1.9 ≈ 950` uu/s of lateral
+     velocity) where the recording's grounded car does a ground jump (`vz`
+     `-66 → +229`, the `292` uu/s impulse). That dodge is the `≈800` uu/s
+     velocity spike at `t ≈ 5.77` s in the growth diagnostic.
+  5. **The hitbox is in the wrong place relative to the recorded
+     position.** RocketSim's Octane hitbox (`120.507 × 86.6994 × 38.6591`,
+     this port's `CAR_HALF_EXTENTS` exactly) is centred `(13.8757, 0,
+     20.755)` uu from the car's position in the car's own frame
+     (`HITBOX_OFFSETS[OCTANE]`), the same `20.755` the wheel mounts sit at;
+     the recorded `position` is that origin, at `z = 17.0` on flat ground,
+     so the real hitbox spans `z = 18.4`–`57.1` and starts `13.9` uu ahead
+     of the origin. This port centres its box *on* the position: `20.8` uu
+     too low (its box bottom is `2.3` uu below the floor at the seed
+     frame, so the solver lifts it to a `19.3` rest height the real car
+     never has) and `13.9` uu too far back. It changes which face meets
+     the ball and at what height, and every ground-contact corner.
+  - **What each finding is worth, in order of cost.** (a) Finding 2 is a
+    constant-free one-liner per dodge block and closes the altitude gap
+    and `≈10%` of the velocity gap alone. (b) Finding 5 is a moderate
+    geometry change — the box centre becomes `position +
+    rotation · HITBOX_OFFSET`, threaded through `from_frame`, `frame()`,
+    the collision routines' use of `RigidBody::position`, and every car
+    test's rest height — with no new physics. (c) Findings 1 and 4 are the
+    same missing subsystem: wheels on spring-damper suspension with
+    longitudinal/lateral tire forces, the `btVehicleRL` model `FR-065`
+    (steering) and `FR-066` (handbrake) already established this port's
+    single-rigid-box car cannot represent. That is the largest remaining
+    piece of `RB-PHYSICS-001` and a multi-requirement project of its own:
+    it would replace this port's ground contact for the car, its steering
+    torque, its handbrake friction multiplier, and its jump's contact
+    cut-off in one model. (d) Finding 3 follows from the others — the ball
+    can only be hit once the car arrives where the recording's did.
+  - **Suggested sequencing.** Finding 2 first (cheap, isolated,
+    measurable on the fixture's altitude and dodge-tick `Δv`), then
+    finding 5 (measurable on the rest height and the landing corner
+    geometry), then scope the wheel/suspension model as its own entry
+    with `FR-065`/`FR-066` folded in. Do not tune any grounded constant
+    before then: every grounded number this port has (`STEER_TORQUE`,
+    `HANDBRAKE_FRICTION_MULTIPLIER`, the ground contact's friction) sits
+    on the wrong mechanism, and the fixture's grounded segment is `1.4` s
+    of one car's one landing — the wrong data to fit them to.
+  - **Non-goals (this requirement).** Changes no physics and no constant.
+    Does not implement any of the five findings. Does not touch
+    `RB-PHYSICS-001-FR-005`'s real-data calibration, no longer blocked on
+    `PHASE-0-EXIT` (now closed), but not itself started.
+  - **Acceptance criteria.** This entry records the five findings with
+    the tick-level evidence for each, their cost ranking, and the
+    sequencing; `PROJECT-STATUS.md`'s Next item points at finding 2 as
+    the next step.
+  - **Verification plan.** No new tests (documentation-only, matching the
+    established precedent); the full workspace stays green (411 tests).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -7580,6 +7692,22 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.94.0 (2026-09-05): `RB-PHYSICS-001-FR-081` added (documentation
+  only): the isolated fixture's remaining, post-airborne divergence
+  traced tick by tick to five findings — the through-flight velocity gap
+  is born in the four ticks after the ground jump, where the real car's
+  wheels stay in contact while its suspension extends; the dodge impulse
+  is applied along tilted 3D axes where RocketSim flattens them (`-75`
+  uu/s of spurious vertical velocity); the recorded car hits the ball at
+  `t = 5.758` while the port's, `172` uu behind, never does (why
+  `mean_ball_distance` has been exactly `729.95` uu through every fix);
+  the landing is a spring-damper suspension in the recording and a
+  bouncing rigid box in the port, which then reads airborne and fires a
+  dodge where the recording ground-jumps; and the real hitbox is centred
+  `(13.9, 0, 20.8)` uu from the recorded position where the port centres
+  it on the position. Ranked by cost with a sequencing: the 2D dodge axes
+  first, the hitbox offset next, then a wheel/suspension model as its
+  own entry folding in `FR-065`/`FR-066`.
 - 0.93.0 (2026-09-05): `RB-PHYSICS-001-FR-071` implemented: real Rocket
   League's per-axis air-control damping (`AIR_CONTROL_PITCH_DAMPING =
   30`, `AIR_CONTROL_YAW_DAMPING = 20`, `AIR_CONTROL_ROLL_DAMPING = 50`,

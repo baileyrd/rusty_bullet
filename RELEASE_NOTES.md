@@ -6,6 +6,46 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Diagnosed what's left in the fixture: five grounded findings, from a one-liner to a suspension model
+**2026-09-05** · `RB-PHYSICS-001-FR-081` (documentation only)
+
+- With the airborne phase matched, the fixture's remaining divergence was
+  traced tick by tick against the recording. It is a chain, not one
+  mechanism:
+  1. **The `≈110` uu/s velocity gap is born in the four ticks after the
+     ground jump, not in the air.** The real car's wheels stay on the
+     ground while its `≈38` uu suspension springs extend, and the tires
+     keep applying throttle and lateral grip (`+77` uu/s in the recording).
+     This port cuts every ground force the tick its box leaves the plane.
+     That gap is why its car reaches the ball `172` uu behind.
+  2. **The dodge impulse is tilted.** RocketSim applies it along the car's
+     *flattened* forward/right; this port uses the 3D axes. At the
+     fixture's dodge that put `-75` uu/s into vertical velocity the real
+     dodge didn't have, and the flattened axes predict the recorded
+     `Δv` to `1%`. A one-line fix per dodge block.
+  3. **The recorded car hits the ball; the port's never does.** The ball
+     leaves at `t = 5.758` in the recording. In the port it never moves —
+     which is why the fixture's ball error has read exactly `729.95` uu
+     through every fix since `FR-079`.
+  4. **The landing is a suspension there and a bouncing box here.** The
+     recording decelerates `vz` from `-312` to `0` over `0.13` s with no
+     bounce and settles at `z ≈ 15.5`; the port catches a corner, spins
+     up to `5` rad/s, bounces, hovers at `z ≈ 22`, and — reading airborne
+     when the jump press comes — fires a `≈950` uu/s sideways dodge where
+     the recording ground-jumps.
+  5. **The hitbox is `20.8` uu too low and `13.9` uu too far back.**
+     RocketSim centres the Octane hitbox `(13.9, 0, 20.8)` uu from the
+     recorded position; this port centres it on the position.
+- Ranked and sequenced: the 2D dodge axes first (cheap, isolated), the
+  hitbox offset next (geometry only), then a wheel/suspension model as its
+  own entry — the `btVehicleRL` subsystem `FR-065`/`FR-066` already showed
+  this port's single rigid box cannot represent, and the only route to the
+  landing and the ball hit. No grounded constant should be tuned before
+  that; every one this port has sits on the wrong mechanism. No physics
+  changed in this entry; full workspace green (411 tests).
+
+---
+
 ## Real air-control damping replaces the invented landing assist, and the fixture's whole airborne phase now matches
 **2026-09-05** · `RB-PHYSICS-001-FR-071`
 

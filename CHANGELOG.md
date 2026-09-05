@@ -209,7 +209,15 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   `0.1` rad through its entire airborne phase (whole-run mean rotation
   `1.51` → `0.77` rad); the divergence that remains starts at the landing.
   See `RB-PHYSICS-001-FR-079`'s, `FR-080`'s and `FR-071`'s own entries for
-  the full evidence chain.
+  the full evidence chain. `RB-PHYSICS-001-FR-081` (documentation only)
+  then diagnosed what remains: the through-flight velocity gap is born in
+  the four post-jump ticks where the real car's suspension keeps its
+  wheels in contact; the dodge impulse uses tilted 3D axes where RocketSim
+  flattens them; the recorded car hits the ball and the port's never does;
+  the landing is a suspension there and a bouncing box here; and the real
+  hitbox is offset `(13.9, 0, 20.8)` uu from the recorded position. The
+  2D dodge axes are the next step, then the hitbox offset, then a
+  wheel/suspension model as its own entry.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation
