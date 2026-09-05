@@ -2324,6 +2324,23 @@
   the ratchet's floor there); and RL's wheels act one to two ticks
   longer after a jump than RocketSim's ray allows. No code changed; 443
   tests unchanged.
+- `RB-PHYSICS-001-FR-083` findings 1–4 implemented: `THROTTLE_AIR_ACCEL`
+  (`200/3` uu/s² forward while airborne with throttle), the full
+  `JUMP_ACCEL` hold from the press tick (`JUMP_PRE_MIN_ACCEL_SCALE`
+  deleted), the flip torque on the press tick, and `from_frame` priming
+  a seeded car's wheel drive fields from its recorded input. Each lands
+  on its own tick: the first tick after the seed `314.2` vs `314.0`
+  uu/s, the post-jump `vz` climbing `+4.0` per tick as recorded, the
+  dodge tick's `ω_y` `4.75` vs `4.75`, and the car `16` uu behind at the
+  hit instead of `45` — one tick late instead of three. The flight now
+  matches to `0.02` rad. Isolated fixture `160.19 → 139.52` uu;
+  `mean_ball_distance` `79.55 → 91.16` uu, expected, since the earlier
+  hit under the default car-ball material gives the ball more vertical
+  velocity (finding 5's). Two RocketSim-vs-RL residuals around the jump
+  recorded: the recorded press tick has no spring push (the port reads
+  `+8` uu/s high) and the recording keeps its ground effect a tick
+  longer. `rb_physics_bullet` 382 → 383, workspace 443 → 444; ratchet
+  `< 145` uu. Full workspace `fmt`/`clippy`/`test` green.
 
 ## In progress
 
@@ -2398,15 +2415,14 @@
    `RB-PHYSICS-001-FR-083` has now diagnosed it: the port's car carries
    a `45` uu lag into the hit because it lacks RocketSim's
    `THROTTLE_AIR_ACCEL` (`66.7` uu/s² forward while airborne with
-   throttle), so it hits three ticks late and mid-jump. Next step:
-   `FR-083` findings 1–4 in one pass, each re-measured on its own tick
-   — the airborne throttle acceleration (the flight's horizontal
-   velocity and the hit tick, `5.783 → 5.758`), the full `JUMP_ACCEL`
-   from the jump's first tick (`vz` over the seven post-jump ticks),
-   the flip torque on the press tick (the dodge tick's `ω_y`), and the
-   seeded car's primed drive fields (the first tick after the seed).
-   Then finding 5, the car-ball hit's per-pair material and extra
-   impulse (closing `FR-063`), as its own pass; then `FR-082` step (b) —
+   throttle), so it hit three ticks late and mid-jump. Findings 1–4 are
+   done and each lands on its tick (`160.19 → 139.52` uu; the hit is
+   now one tick late, the last tick being a RocketSim-vs-RL residual
+   around the jump). Next step: finding 5, the car-ball hit's per-pair
+   material (`CARBALL` friction `2.0` / restitution `0.0`) and
+   `Ball::_OnHit`'s extra impulse (closing `FR-063`) — the recorded ball
+   leaves at `2795` uu/s with `vz = 790`, the port's now at `vz = 1057`
+   — as its own pass; then `FR-082` step (b) —
    the analog handbrake with its two factor curves, the slip-driven
    lateral friction curve, and the non-sticky curve — and step (c), the
    rest of the arena. Nothing is to be tuned against the segment after
@@ -2417,8 +2433,8 @@
 
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
-- `cargo test --workspace`: pass (443 tests: 27 in `rb_domain` (incl. 4
-  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 382 in
+- `cargo test --workspace`: pass (444 tests: 27 in `rb_domain` (incl. 4
+  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 383 in
   `rb_physics_bullet` (incl. `19` new `wheels.rs` tests and 4 new `world.rs`
   acceptance tests for `RB-PHYSICS-001-FR-082` step (a), with 12
   `drive.rs` throttle/steer/handbrake tests moved onto the wheel
@@ -2443,7 +2459,7 @@
   (incl. `score_capture_against_candidate`'s and `score_capture_growth`'s
   happy-path runs against the synthetic capture fixture, and
   `RB-PHYSICS-001-FR-079`'s isolated-dodge-replay ratchet against the real
-  fixture, `cars.mean_position_distance < 165` uu and
+  fixture, `cars.mean_position_distance < 145` uu and
   `mean_ball_distance < 100` uu), plus doc-tests)
 - `cargo run -p rb_replay_ingest --bin corpus_check` (local only, not CI):
   40/40 real owner replays parsed cleanly, 2026-08-28
@@ -2644,6 +2660,21 @@
   `Δv` `(-518, 466)` = `352` forward + `601` right on the flattened axes
   with `pitch = 0` recorded, port `809` uu/s pure right. No `--self`
   re-run: no physics changed.
+- `RB-PHYSICS-001-FR-083` findings 1–4 re-run against the same fixture
+  (2026-09-05, this sandbox): `frames compared: 347, mean ball distance:
+  91.16 uu, max ball distance: 405.66 uu, car pairs compared: 347, mean
+  car position/rotation/velocity distance: 139.52 uu / 0.47 rad / 253.03
+  uu/s, max car position/rotation/velocity distance: 714.05 uu / 1.95 rad
+  / 692.89 uu/s` (from `160.19 / 0.44 / 264.09`, ball `79.55`).
+  `--self-growth ... 0.05`: the flight `0.5`–`3.4` uu / `0.02` rad (from
+  `1`–`45` uu / `0.04` rad), the landing `24` uu / `0.02` rad at
+  `t=5.67s`, the hit `24` uu / `0.05` rad at `t=5.77s`; the post-`6.05`
+  step unchanged (finding 6). Per-tick traces (a temporary example, since
+  removed): first tick after the seed `vx` `314.2` vs `314.0`; post-jump
+  `vz` `304.0, 308.0, 312.0, 316.1, 320.1` vs `295.9, 299.9, 304.0, 308.0,
+  312.0`; dodge tick `ω_y` `4.75` vs `4.75`; the hit at `t=5.775` (was
+  `5.783`, recorded `5.758`), ball `(1548, 1983, 1057)` vs `(1602, 2148,
+  790)`.
 
 ## Risks and decisions needed
 

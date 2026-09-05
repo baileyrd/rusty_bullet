@@ -355,7 +355,14 @@ mod tests {
     /// hit). Mean ball distance had stayed `~730` uu through every
     /// earlier fix — the ball was never touched, so `1.24` s of a
     /// stationary ball was scored against one flying at `2700` uu/s; with
-    /// the hit it dropped to `~80` uu.
+    /// the hit it dropped to `~80` uu. Then `~140` uu after
+    /// `RB-PHYSICS-001-FR-083` findings 1–4 (the airborne throttle
+    /// acceleration, the full jump hold from the press tick, the flip
+    /// torque on the press tick, primed drive fields at the seed): the
+    /// flight now matches to `0.02` rad and the hit is one tick late
+    /// instead of three; the ball figure rose to `~91` uu because the
+    /// earlier hit gives it more vertical velocity under the default
+    /// car-ball material, which finding 5 owns.
     #[test]
     fn isolated_replay_of_the_real_dodge_stays_under_its_last_recorded_divergence() {
         let score = score_capture_against_candidate(
@@ -366,11 +373,11 @@ mod tests {
 
         assert_eq!(score.frames_compared, 347);
         assert_eq!(score.cars.pairs_compared, 347);
-        // Ratchet (2026-09-05): mean car position distance ~160 uu and
-        // mean ball distance ~80 uu after the wheels landed (`FR-082` step
-        // (a); `~240` / `~730` before it). Bounded loosely above to catch a
-        // regression, not to pin the exact figure.
-        assert!(score.cars.mean_position_distance < 165.0);
+        // Ratchet (2026-09-05): mean car position distance ~140 uu and
+        // mean ball distance ~91 uu after `FR-083` findings 1–4 (`~160` /
+        // `~80` after the wheels, `~240` / `~730` before them). Bounded
+        // loosely above to catch a regression, not to pin the exact figure.
+        assert!(score.cars.mean_position_distance < 145.0);
         assert!(score.mean_ball_distance < 100.0);
     }
 }

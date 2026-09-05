@@ -344,9 +344,42 @@ impl PhysicsWorld {
             world = world.with_car(car);
             let index = world.cars.len() - 1;
             world.set_car_boost(index, car_state.boost_amount);
+            if let Some(input) = car_state.input {
+                world.prime_car_wheels(index, input);
+            }
         }
 
         world
+    }
+
+    /// Gives a freshly seeded car the wheel drive fields (engine force,
+    /// brake, steer angle, friction factors) its recorded input would have
+    /// set on the tick before the seed frame — `RB-PHYSICS-001-FR-083`
+    /// finding 4. The wheels carry RocketSim's one-tick lag on those
+    /// fields, which is right mid-run but leaves a car seeded mid-maneuver
+    /// a tick behind the recording (`+0` vs `+6.4` uu/s and `-1.35` vs
+    /// `-1.49` rad/s on the fixture's first tick). Casts the rays so the
+    /// contact count is real (the engine force is quartered under three
+    /// wheels), runs `wheels::update_wheels`, and discards the sticky force
+    /// it accumulated: only the fields are wanted.
+    fn prime_car_wheels(&mut self, index: usize, input: ControllerInput) {
+        let planes: Vec<&StaticPlane> = std::iter::once(&self.ground)
+            .chain(self.walls.iter())
+            .collect();
+        let car = &mut self.cars[index];
+        let car_wheels = &mut self.car_wheels[index];
+        wheels::raycast_wheels(car, car_wheels, &planes, 1.0 / 120.0);
+        wheels::update_wheels(
+            car,
+            car_wheels,
+            input.throttle,
+            input.steer,
+            input.boost,
+            self.car_boost[index],
+            input.handbrake,
+            self.gravity.z,
+        );
+        car.clear_forces();
     }
 
     /// Adds one arena wall to the scene — a flat `StaticPlane`, typically
@@ -1395,9 +1428,11 @@ mod tests {
         // Three ticks: the throttle is recorded on the first frame only.
         // RB-PHYSICS-001-FR-082's wheels carry RocketSim's one-tick lag
         // (a tick's engine force is set after that tick's friction
-        // impulses are computed), so the recorded throttle shows up in the
-        // *second* step's velocity — driven by the first frame's input,
-        // not the second's neutral one.
+        // impulses are computed) — but `from_frame` primes the seeded
+        // car's drive fields from its recorded input
+        // (RB-PHYSICS-001-FR-083 finding 4), so the first step already
+        // drives, and the second still does, from the first frame's input
+        // rather than the second's neutral one.
         let car_state = |input: ControllerInput| CarState {
             player_id: 0,
             position: Vec3::new(0.0, 0.0, 17.0),
@@ -1427,15 +1462,60 @@ mod tests {
         let world = PhysicsWorld::from_frame(&recorded[0]);
         let frames = simulate_recorded(world, &recorded);
         assert_eq!(frames.len(), 3);
-        assert_eq!(
-            frames[1].cars[0].velocity.x, 0.0,
-            "the first tick's engine force is not yet set when its impulses are computed"
+        assert!(
+            frames[1].cars[0].velocity.x > 1.0,
+            "the seed primes the first tick's engine force: {:?}",
+            frames[1].cars[0].velocity
         );
         assert!(
-            frames[2].cars[0].velocity.x > 1.0,
-            "expected recorded throttle input to actually drive the car, got velocity {:?}",
+            frames[2].cars[0].velocity.x > frames[1].cars[0].velocity.x + 1.0,
+            "expected recorded throttle input to keep driving the car, got velocity {:?}",
             frames[2].cars[0].velocity
         );
+    }
+
+    #[test]
+    fn from_frame_primes_a_seeded_cars_drive_fields_from_its_recorded_input() {
+        // RB-PHYSICS-001-FR-083 finding 4: a car seeded mid-maneuver
+        // starts with the engine force and steer angle its input set on
+        // the tick before the seed, not a tick behind.
+        let driving = ControllerInput {
+            throttle: 1.0,
+            steer: -1.0,
+            ..ControllerInput::default()
+        };
+        let car_state = |input: Option<ControllerInput>| CarState {
+            player_id: 0,
+            position: Vec3::new(0.0, 0.0, 17.0),
+            rotation: Quat::IDENTITY,
+            velocity: Vec3::ZERO,
+            angular_velocity: Vec3::ZERO,
+            boost_amount: 0.0,
+            input,
+        };
+        let frame = |input| PhysicsFrame {
+            timestamp_secs: 0.0,
+            ball: ball_state_at(Vec3::new(1000.0, 0.0, 1000.0)),
+            cars: vec![car_state(input)],
+        };
+        let primed = PhysicsWorld::from_frame(&frame(Some(driving)));
+        let wheels = primed.car_wheels(0);
+        assert_eq!(wheels::wheels_in_contact(wheels), 4);
+        assert_eq!(wheels[0].engine_force, wheels::THROTTLE_TORQUE_AMOUNT);
+        assert!(
+            wheels[0].steer_angle < 0.0,
+            "full left lock: {}",
+            wheels[0].steer_angle
+        );
+        assert_eq!(wheels[2].steer_angle, 0.0);
+        assert_eq!(
+            primed.cars[0].total_force(),
+            Vec3::ZERO,
+            "the priming's sticky force is discarded"
+        );
+
+        let unprimed = PhysicsWorld::from_frame(&frame(None));
+        assert_eq!(unprimed.car_wheels(0)[0].engine_force, 0.0);
     }
 
     #[test]
@@ -2300,9 +2380,12 @@ mod tests {
         );
         world.step(dt);
         let velocity_after_ground_jump = world.cars[0].linear_velocity.z;
+        // JUMP_SPEED plus the press tick's own hold tick, less gravity
+        // and the sticky half-g (RB-PHYSICS-001-FR-083 finding 2).
         assert!(
-            (velocity_after_ground_jump - crate::drive::JUMP_SPEED).abs() < 1.0,
-            "expected the ground jump to give ~JUMP_SPEED upward velocity, got {velocity_after_ground_jump}"
+            velocity_after_ground_jump > crate::drive::JUMP_SPEED
+                && velocity_after_ground_jump < crate::drive::JUMP_SPEED + 15.0,
+            "expected the ground jump to give ~JUMP_SPEED plus one hold tick of upward velocity, got {velocity_after_ground_jump}"
         );
 
         // Release, then let the car actually leave the ground before
@@ -3059,7 +3142,7 @@ mod tests {
         // leftover flip torque (≈1.87 rad/s) would dwarf.
         assert!(
             (world.cars[0].angular_velocity - angular_velocity_after_plain_double_jump).length()
-                < 0.01,
+                < 0.02,
             "expected no flip torque after an unrelated plain double jump, before \
              release/re-press={angular_velocity_after_plain_double_jump:?}, after={:?}",
             world.cars[0].angular_velocity

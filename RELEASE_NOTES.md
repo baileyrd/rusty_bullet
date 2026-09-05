@@ -6,6 +6,33 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Four one-liners from the diagnosis, each landing on its tick
+**2026-09-05** · `RB-PHYSICS-001-FR-083` findings 1–4
+
+- Throttle now accelerates an airborne car along its forward at
+  RocketSim's `THROTTLE_AIR_ACCEL` (`66.7` uu/s²); the jump hold is
+  the full `JUMP_ACCEL` from the press tick itself (RocketSim's `0.62`
+  pre-minimum scale is gone, on capture evidence); the flip's first
+  torque tick fires on the press tick; and a car seeded mid-maneuver
+  starts with its wheel drive fields primed from its recorded input.
+- **Each measured on its own tick.** The first tick after the seed
+  reads `314.2` uu/s against the recorded `314.0`; the post-jump climb
+  is `+4.0` uu/s per tick as recorded; the dodge tick's pitch rate is
+  `4.75` against `4.75`; the flight matches to `0.02` rad; and the
+  car reaches the ball `16` uu behind instead of `45`, hitting one
+  tick late instead of three. The isolated fixture goes `160.19 →
+  139.52` uu.
+- **Two more RocketSim-versus-RL residuals, recorded.** The recording's
+  press tick carries no spring push (the port, like RocketSim, reads
+  `8` uu/s high there), and the recording keeps its ground effect a
+  tick longer after the jump. The ball figure rose `79.55 → 91.16` uu,
+  as it had to: the earlier, faster hit under the default car-ball
+  material sends the ball steeper. Finding 5 is next.
+- `rb_physics_bullet` 382 → 383 tests, the workspace 443 → 444; the
+  ratchet tightens to `< 145` uu on the car.
+
+---
+
 ## Diagnosed the post-hit segment: a 45 uu lag, born in the air, reorders the jump and the hit
 **2026-09-05** · `RB-PHYSICS-001-FR-083`
 

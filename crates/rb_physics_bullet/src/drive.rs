@@ -209,7 +209,8 @@
 //! held-vs-tapped jump height difference. Since `RB-PHYSICS-001-FR-064`,
 //! that release isn't *always* immediate: for the first `JUMP_MIN_TIME`
 //! seconds after the press, the acceleration keeps applying regardless of
-//! whether `jump` is still held (scaled down by `JUMP_PRE_MIN_ACCEL_SCALE`)
+//! whether `jump` is still held, in full (RocketSim's `0.62` scale inside
+//! that window was retired by `RB-PHYSICS-001-FR-083` on capture evidence)
 //! — real Rocket League's own `_UpdateJump` has this same mandatory
 //! minimum-hold quirk, so even an instantaneous tap gets a small amount of
 //! extra height. Only past that mandatory window does releasing `jump` end
@@ -291,7 +292,7 @@
 //! actually cite), `JUMP_SPEED`, `JUMP_HOLD_MAX_DURATION`,
 //! `JUMP_HOLD_ACCELERATION`, (since `RB-PHYSICS-001-FR-057`)
 //! `MAX_CAR_ANGULAR_SPEED`, and (since `RB-PHYSICS-001-FR-064`)
-//! `JUMP_MIN_TIME`/`JUMP_PRE_MIN_ACCEL_SCALE` are commonly-cited,
+//! `JUMP_MIN_TIME` are commonly-cited,
 //! multi-source-confirmed community-reverse-engineered approximations (the
 //! same body of public research `PhysicsWorld::new`'s gravity constant
 //! comes from);
@@ -1047,10 +1048,10 @@ const FLIP_REFERENCE_TICK_RATE: f32 = 120.0;
 /// `RB-PHYSICS-001-FR-031`'s audit: this port's pre-existing `0.2` already
 /// matches both RocketSim's `RLConst.h` (`JUMP_MAX_TIME = 0.2f`) and
 /// RLUtilities' `Jump::max_duration = 0.2f`. Real Rocket League also has a
-/// `JUMP_MIN_TIME` (0.025s) during which the hold acceleration is scaled
-/// down (`JUMP_PRE_MIN_ACCEL_SCALE`) rather than applied at full strength
-/// immediately — since `RB-PHYSICS-001-FR-064`, that two-phase ramp is
-/// modeled too, see `JUMP_MIN_TIME`'s own doc comment.
+/// `JUMP_MIN_TIME` (0.025s) during which the hold acceleration keeps
+/// applying regardless of whether `jump` is still held — since
+/// `RB-PHYSICS-001-FR-064`, that mandatory window is modeled too, see
+/// `JUMP_MIN_TIME`'s own doc comment.
 const JUMP_HOLD_MAX_DURATION: f32 = 0.2;
 
 /// Continuous upward acceleration (uu/s^2) applied every step `jump` is
@@ -1059,42 +1060,40 @@ const JUMP_HOLD_MAX_DURATION: f32 = 0.2;
 /// impulse. Refined from an earlier `1400.0` approximation to the precise
 /// value during `RB-PHYSICS-001-FR-031`'s audit: RocketSim's `RLConst.h`
 /// defines `JUMP_ACCEL = 4375.f/3.f`, matched independently by RLUtilities'
-/// `Jump::acceleration = 1458.3333f`. Scaled down by `JUMP_PRE_MIN_ACCEL_SCALE`
-/// during `JUMP_MIN_TIME`'s own mandatory window — see that constant's own
-/// doc comment.
+/// `Jump::acceleration = 1458.3333f`. Applied in full from the jump's very
+/// first tick: the real capture shows `+4.0` uu/s per tick through the
+/// mandatory window (`RB-PHYSICS-001-FR-083` finding 2), which is this
+/// value less gravity and the sticky half-g to the hundredth — see
+/// `JUMP_MIN_TIME`'s own doc comment.
 const JUMP_HOLD_ACCELERATION: f32 = 4375.0 / 3.0;
 
 /// Seconds after a ground-jump press during which `JUMP_HOLD_ACCELERATION`
-/// (scaled by `JUMP_PRE_MIN_ACCEL_SCALE`) keeps applying regardless of
-/// whether `jump` is still held — a mandatory minimum hold real Rocket
-/// League's own engine applies even to an instantaneous tap. Confirmed
-/// exact against RocketSim's real `RLConst.h` (`JUMP_MIN_TIME = 0.025f`)
-/// during `RB-PHYSICS-001-FR-064`; fetching the same reference's actual
-/// `Car.cpp` (`_UpdateJump`) directly confirmed the exact mechanism —
-/// `jumpTime < JUMP_MIN_TIME || (jumpPressed && jumpTime < JUMP_MAX_TIME)`
-/// gates whether the force applies at all, with the pre-`JUMP_MIN_TIME`
-/// branch scaling it down regardless of `jumpPressed` — not merely the
-/// constant's existence. That same source's own inline comment (`// TODO:
-/// Either move to RLConst or preferably don't use this system at all`)
-/// flags this as a stopgap even its own authors consider provisional, not a
-/// deliberate permanent design choice — adopted here anyway since it's
-/// still the real, currently-shipping behavior, and both this and
-/// `JUMP_PRE_MIN_ACCEL_SCALE` are a duration and a dimensionless ratio
-/// respectively, not a torque or force calibrated against real Rocket
-/// League's own specific car mass/inertia, so unlike most of `drive.rs`'s
-/// own torque-shaped placeholders (see the module doc comment's own
-/// "false precision" discussion) they transfer cleanly regardless of this
-/// port's car body not matching that calibration.
+/// keeps applying regardless of whether `jump` is still held — a mandatory
+/// minimum hold real Rocket League's own engine applies even to an
+/// instantaneous tap. Confirmed exact against RocketSim's real `RLConst.h`
+/// (`JUMP_MIN_TIME = 0.025f`) during `RB-PHYSICS-001-FR-064`; fetching the
+/// same reference's actual `Car.cpp` (`_UpdateJump`) directly confirmed the
+/// mechanism — `jumpTime < JUMP_MIN_TIME || (jumpPressed && jumpTime <
+/// JUMP_MAX_TIME)` gates whether the force applies at all. RocketSim also
+/// scales the force by a `JUMP_PRE_MIN_ACCEL_SCALE = 0.62` inside this
+/// window, under its own `// TODO: ... preferably don't use this system at
+/// all`; `FR-064` adopted that scale and `RB-PHYSICS-001-FR-083` finding 2
+/// removed it again on real-capture evidence — the recorded `vz` climbs
+/// `+4.0` uu/s per tick from the jump's first tick, exactly the full
+/// `JUMP_HOLD_ACCELERATION / 120` less gravity and the sticky half-g,
+/// where the `0.62` scale predicts `-0.6` per tick; RLUtilities' `Jump`
+/// has no such scale either. The window itself stays.
 const JUMP_MIN_TIME: f32 = 0.025;
 
-/// Multiplier applied to `JUMP_HOLD_ACCELERATION` during `JUMP_MIN_TIME`'s
-/// own mandatory window. Confirmed exact against RocketSim's real
-/// `Car.cpp` (`_UpdateJump`, `constexpr float JUMP_PRE_MIN_ACCEL_SCALE =
-/// 0.62f;`) during `RB-PHYSICS-001-FR-064` — a hard step-scale applied
-/// all-or-nothing for the whole window (`totalJumpForce *=
-/// JUMP_PRE_MIN_ACCEL_SCALE`), not an interpolation ramping from `0.62` up
-/// to `1.0` as `JUMP_MIN_TIME` approaches.
-const JUMP_PRE_MIN_ACCEL_SCALE: f32 = 0.62;
+/// RocketSim's `THROTTLE_AIR_ACCEL = 200 / 3` — the forward acceleration
+/// throttle gives a car whenever fewer than three wheels touch (applied at
+/// the end of `_UpdateAirTorque`, `applyCentralForce(forward · throttle ·
+/// THROTTLE_AIR_ACCEL · mass)`), independent of boost. Adopted in
+/// `RB-PHYSICS-001-FR-083` finding 1: the real capture's car keeps
+/// accelerating along its forward at `≈50` uu/s² through a `1.4` s flight
+/// with boost off and throttle held, and the `45` uu that lag cost this
+/// port by the landing is what made its car hit the ball three ticks late.
+pub const THROTTLE_AIR_ACCEL: f32 = 200.0 / 3.0;
 
 pub(crate) fn forward_axis(car: &RigidBody) -> Vec3 {
     car.orientation.rotate(&Vec3::new(1.0, 0.0, 0.0))
@@ -1252,8 +1251,9 @@ pub fn apply_driven_forces(
     // re-arm it — so a fresh ground-jump press's own step here never gets
     // the extra force, only continued holding (or the mandatory window
     // below) into later calls does. RB-PHYSICS-001-FR-064: real Rocket
-    // League's own `_UpdateJump` keeps applying this force, scaled by
-    // `JUMP_PRE_MIN_ACCEL_SCALE`, for the first `JUMP_MIN_TIME` seconds
+    // League's own `_UpdateJump` keeps applying this force, in full
+    // (RB-PHYSICS-001-FR-083 finding 2 retired RocketSim's `0.62` scale on
+    // capture evidence), for the first `JUMP_MIN_TIME` seconds
     // since the press regardless of whether `jump` is still held — derived
     // here as `JUMP_HOLD_MAX_DURATION - *jump_hold_time_remaining` rather
     // than tracked as a second, separate elapsed-time field, since at rest
@@ -1265,14 +1265,10 @@ pub fn apply_driven_forces(
     let in_mandatory_pre_min_window =
         JUMP_HOLD_MAX_DURATION - *jump_hold_time_remaining < JUMP_MIN_TIME;
     if in_mandatory_pre_min_window || (input.jump && *jump_hold_time_remaining > 0.0) {
-        let mut hold_acceleration = JUMP_HOLD_ACCELERATION;
-        if in_mandatory_pre_min_window {
-            hold_acceleration *= JUMP_PRE_MIN_ACCEL_SCALE;
-        }
         // Along the car's own up, as RocketSim's `_UpdateJump` applies
         // `jumpAccel` (`GetUpDir()`), not world z — identical on flat
         // ground, different on a wall or a curve (RB-PHYSICS-001-FR-082).
-        car.apply_central_force(up_axis(car) * (hold_acceleration * car.mass()));
+        car.apply_central_force(up_axis(car) * (JUMP_HOLD_ACCELERATION * car.mass()));
         *jump_hold_time_remaining = (*jump_hold_time_remaining - dt).max(0.0);
     } else {
         *jump_hold_time_remaining = 0.0;
@@ -1300,12 +1296,15 @@ pub fn apply_driven_forces(
             // `jumpImmediateForce` along `GetUpDir()` (RB-PHYSICS-001-
             // FR-082) — identical on flat ground.
             car.apply_impulse(up_axis(car) * (JUMP_SPEED * car.mass()), Vec3::ZERO);
-            // Arms the hold window for continued holding on subsequent
-            // calls — this call's own jump_hold_time_remaining check above
-            // already ran against the *previous* value (0, since no ground
-            // jump was in flight yet), so only the fixed impulse above
-            // fires this step.
-            *jump_hold_time_remaining = JUMP_HOLD_MAX_DURATION;
+            // The press tick also gets its first tick of hold force:
+            // RocketSim's `_UpdateJump` sets `isJumping` on the press and
+            // applies `jumpAccel` in the same call, and the real capture's
+            // press tick reads `295.9` uu/s — the impulse plus one full
+            // hold tick less gravity and the sticky half-g
+            // (RB-PHYSICS-001-FR-083 finding 2). The window it arms is one
+            // tick shorter to keep the same 24 ticks of force in total.
+            car.apply_central_force(up_axis(car) * (JUMP_HOLD_ACCELERATION * car.mass()));
+            *jump_hold_time_remaining = (JUMP_HOLD_MAX_DURATION - dt).max(0.0);
         }
     } else {
         if wall_normal.is_some() {
@@ -1323,6 +1322,15 @@ pub fn apply_driven_forces(
         // step per *tick* is `FLIP_TORQUE / 120` at any `dt`) and the
         // vertical bleed below is raised to it.
         let tick_scale = dt * FLIP_REFERENCE_TICK_RATE;
+
+        // RB-PHYSICS-001-FR-083 finding 1: throttle keeps pushing a car
+        // along its forward in the air (RocketSim `_UpdateAirTorque`,
+        // `THROTTLE_AIR_ACCEL`), whether or not it is boosting.
+        let air_throttle = input.throttle.clamp(-1.0, 1.0);
+        if air_throttle != 0.0 {
+            car.apply_central_force(forward * (air_throttle * THROTTLE_AIR_ACCEL * car.mass()));
+        }
+
         let is_flipping = dodge_flip.is_some_and(|flip| flip.elapsed < FLIP_TORQUE_TIME);
         let pitch_locked = dodge_flip
             .is_some_and(|flip| flip.elapsed < FLIP_TORQUE_TIME + FLIP_PITCHLOCK_EXTRA_TIME);
@@ -1338,22 +1346,7 @@ pub fn apply_driven_forces(
         // (RocketSim: `hasFlipped` makes `canUse` false), which the spent
         // double jump below already models.
         if let Some(flip) = dodge_flip.filter(|_| is_flipping) {
-            // RocketSim `_UpdateAirTorque`: `applyTorque(invInertiaWorld
-            // .inverse() * basis * (flipRelTorque * (FLIP_TORQUE_X,
-            // FLIP_TORQUE_Y, 0)))` — inertia cancelled like air control
-            // (hence apply_angular_acceleration), but with no
-            // CAR_TORQUE_SCALE; see FLIP_TORQUE_X's own doc comment.
-            // `clamp_angular_speed` after this step's integrate_velocities
-            // then supplies the cap-and-hold at MAX_CAR_ANGULAR_SPEED.
-            let (rel_forward, mut rel_right) = flip.rel_torque;
-            if rel_right != 0.0 && pitch != 0.0 && (rel_right > 0.0) == (pitch > 0.0) {
-                rel_right *= 1.0 - pitch.abs();
-            }
-            car.apply_angular_acceleration(
-                (forward * (rel_forward * FLIP_TORQUE_X)
-                    + right_axis(car) * (rel_right * FLIP_TORQUE_Y))
-                    * (1.0 / tick_scale),
-            );
+            apply_flip_torque(car, &flip, pitch, tick_scale);
         }
 
         // Air control: pitch/yaw/roll angular acceleration about the car's
@@ -1464,11 +1457,13 @@ pub fn apply_driven_forces(
                     }
                     car.apply_impulse(dodge_impulse * car.mass(), Vec3::ZERO);
                     // `flipRelTorque = (-dodgeDir.y, dodgeDir.x)` — see the
-                    // ground dodge below.
-                    *dodge_flip = Some(DodgeFlip {
+                    // ground dodge below, including the press-tick torque.
+                    let flip = DodgeFlip {
                         rel_torque: (-norm_wall_roll, wall_dodge_forward),
                         elapsed: 0.0,
-                    });
+                    };
+                    apply_flip_torque(car, &flip, pitch, tick_scale);
+                    *dodge_flip = Some(flip);
                     *double_jump_available = false;
                 } else {
                     // Plain wall jump (unchanged): doesn't consume
@@ -1538,13 +1533,19 @@ pub fn apply_driven_forces(
                     car.apply_impulse(dodge_impulse * car.mass(), Vec3::ZERO);
                     // RocketSim: `flipRelTorque = (-dodgeDir.y, dodgeDir.x)`
                     // with `dodgeDir = (-pitch, yaw + roll)` normalized —
-                    // local (forward, right). The torque starts on the
-                    // *next* step (RB-PHYSICS-001-FR-080) and is what
-                    // flip-cancel below spends on a later press.
-                    *dodge_flip = Some(DodgeFlip {
+                    // local (forward, right). RocketSim's order applies the
+                    // first torque step on the *next* tick; the real capture
+                    // spins up on the press tick itself (`ω_y` `2.57 → 4.75`
+                    // on the dodge tick, RB-PHYSICS-001-FR-083 finding 3),
+                    // so the first step is applied here, now. Flip-cancel
+                    // (the `pitch` argument) can't fire on this tick: a
+                    // dodge's own pitch is the opposite sign of its torque.
+                    let flip = DodgeFlip {
                         rel_torque: (-norm_dodge_roll, dodge_forward),
                         elapsed: 0.0,
-                    });
+                    };
+                    apply_flip_torque(car, &flip, pitch, tick_scale);
+                    *dodge_flip = Some(flip);
                 } else {
                     // Same fixed-magnitude impulse as the ground jump — reusing
                     // JUMP_SPEED rather than a second, separately-calibrated
@@ -1619,6 +1620,29 @@ pub fn apply_driven_forces(
 /// cancel out, since each is used both to project and to reconstruct),
 /// applied through the same inertia-cancelled path as the stick torque.
 /// Apply once per airborne step via `apply_angular_acceleration`.
+/// One tick of the flip's torque (RocketSim `_UpdateAirTorque`:
+/// `applyTorque(invInertiaWorld.inverse() * basis * (flipRelTorque *
+/// (FLIP_TORQUE_X, FLIP_TORQUE_Y, 0)))` — inertia cancelled like air
+/// control, hence `apply_angular_acceleration`, but with no
+/// `CAR_TORQUE_SCALE`; see `FLIP_TORQUE_X`'s own doc comment), with the
+/// flip cancel folded in: `pitch` held in the *same* sign as the flip's
+/// pitch-axis torque scales that component by `1 - |pitch|`
+/// (`RB-PHYSICS-001-FR-080` step (c)). `clamp_angular_speed` after the
+/// step's transform integration supplies the cap-and-hold at
+/// `MAX_CAR_ANGULAR_SPEED`. Called on the press tick (`RB-PHYSICS-001-
+/// FR-083` finding 3) and on every flipping tick after it.
+fn apply_flip_torque(car: &mut RigidBody, flip: &DodgeFlip, pitch: f32, tick_scale: f32) {
+    let (rel_forward, mut rel_right) = flip.rel_torque;
+    if rel_right != 0.0 && pitch != 0.0 && (rel_right > 0.0) == (pitch > 0.0) {
+        rel_right *= 1.0 - pitch.abs();
+    }
+    car.apply_angular_acceleration(
+        (forward_axis(car) * (rel_forward * FLIP_TORQUE_X)
+            + right_axis(car) * (rel_right * FLIP_TORQUE_Y))
+            * (1.0 / tick_scale),
+    );
+}
+
 fn air_control_damping(car: &RigidBody, effective_pitch: f32, yaw: f32) -> Vec3 {
     let forward = forward_axis(car);
     let right = right_axis(car);
@@ -2044,7 +2068,10 @@ mod tests {
     }
 
     #[test]
-    fn throttle_has_no_effect_while_airborne() {
+    fn throttle_accelerates_an_airborne_car_along_its_forward_at_the_real_air_rate() {
+        // RB-PHYSICS-001-FR-083 finding 1: no wheel touches, so the tires
+        // add nothing, but RocketSim's THROTTLE_AIR_ACCEL (200/3) does —
+        // one second of held throttle in the air is +66.7 uu/s forward.
         let mut c = car();
         let mut boost = MAX_BOOST;
         let mut wheels = crate::wheels::initial_wheels();
@@ -2057,10 +2084,29 @@ mod tests {
                 1.0 / 60.0,
             );
         }
-        assert_eq!(
-            c.linear_velocity.x, 0.0,
-            "airborne throttle shouldn't add forward speed"
+        assert!(
+            (c.linear_velocity.x - THROTTLE_AIR_ACCEL).abs() < 1e-3,
+            "airborne throttle adds THROTTLE_AIR_ACCEL per second, got {}",
+            c.linear_velocity.x
         );
+        // Reverse throttle pulls backward at the same rate; a grounded
+        // step applies no such central force (the wheels drive instead).
+        let mut reversing = car();
+        let reverse = ControllerInput {
+            throttle: -1.0,
+            ..Default::default()
+        };
+        step_with_input(&mut reversing, &reverse, false, &mut boost, 1.0 / 60.0);
+        assert!((reversing.linear_velocity.x + THROTTLE_AIR_ACCEL / 60.0).abs() < 1e-4);
+        let mut grounded = car();
+        step_with_input(
+            &mut grounded,
+            &full_throttle(),
+            true,
+            &mut boost,
+            1.0 / 60.0,
+        );
+        assert_eq!(grounded.linear_velocity.x, 0.0);
     }
 
     #[test]
@@ -2472,9 +2518,12 @@ mod tests {
         let mut c = car();
         let mut boost = MAX_BOOST;
         step_with_input(&mut c, &full_jump(), true, &mut boost, 1.0 / 60.0);
+        // The press tick carries the impulse plus its first tick of hold
+        // force (RB-PHYSICS-001-FR-083 finding 2).
+        let press_tick = JUMP_SPEED + JUMP_HOLD_ACCELERATION / 60.0;
         assert!(
-            (c.linear_velocity.z - JUMP_SPEED).abs() < 1.0,
-            "expected roughly JUMP_SPEED upward velocity, got {}",
+            (c.linear_velocity.z - press_tick).abs() < 1.0,
+            "expected JUMP_SPEED plus one hold tick of upward velocity, got {}",
             c.linear_velocity.z
         );
     }
@@ -2703,7 +2752,7 @@ mod tests {
             1.0 / 60.0,
         );
         assert!(
-            (c.linear_velocity.z - JUMP_SPEED).abs() < 1.0,
+            (c.linear_velocity.z - (JUMP_SPEED + JUMP_HOLD_ACCELERATION / 60.0)).abs() < 1.0,
             "expected the ordinary ground jump, not a wall-jump push-off, got {:?}",
             c.linear_velocity
         );
@@ -2793,21 +2842,22 @@ mod tests {
             }),
             "expected a forward dodge to start a flip about +right with one step elapsed"
         );
-        // The dodge's own step gets only that step's ordinary stick
-        // air-control pitch (RocketSim runs air torque before the flip
-        // begins) — a small fraction of one flip tick, not a kick.
-        let air_control_only = c.angular_velocity;
+        // The dodge's own step gets the flip's first torque tick
+        // (RB-PHYSICS-001-FR-083 finding 3: the real capture spins up on
+        // the press tick, a tick before RocketSim's order would) plus that
+        // step's ordinary stick air-control pitch.
+        let press_tick = c.angular_velocity;
         assert!(
-            air_control_only.y > 0.0 && air_control_only.y < 0.2,
-            "expected only the step's own air-control pitch on the dodge step, got {:?}",
-            air_control_only
+            press_tick.y > FLIP_PITCH_STEP_PER_TICK
+                && press_tick.y < FLIP_PITCH_STEP_PER_TICK + 0.2,
+            "expected the first flip tick plus the step's own air-control pitch on the dodge step, got {:?}",
+            press_tick
         );
 
         let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(&mut c, &ControllerInput::default(), &mut flip, dt);
         assert!(
-            (c.angular_velocity.y - air_control_only.y - damp.y - FLIP_PITCH_STEP_PER_TICK).abs()
-                < 1e-3,
+            (c.angular_velocity.y - press_tick.y - damp.y - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
             "expected FLIP_TORQUE_Y / 120 rad/s about +right after one tick of flip torque, got {}",
             c.angular_velocity.y
         );
@@ -2833,7 +2883,8 @@ mod tests {
         // RB-PHYSICS-001-FR-079: a right dodge (`roll = +1`) spins about
         // the *negative* forward axis (right side down first), matching
         // RocketSim's `flipRelTorque.x = -dodgeDir.y`; RB-PHYSICS-001-FR-080:
-        // at the real FLIP_TORQUE_X per-tick rate, from the next step.
+        // at the real FLIP_TORQUE_X per-tick rate, from the press tick
+        // (RB-PHYSICS-001-FR-083 finding 3).
         assert_eq!(
             flip,
             Some(DodgeFlip {
@@ -2841,18 +2892,17 @@ mod tests {
                 elapsed: dt
             })
         );
-        let air_control_only = c.angular_velocity;
+        let press_tick = c.angular_velocity;
         assert!(
-            air_control_only.x < 0.0 && air_control_only.x > -0.5,
-            "expected only the step's own air-control roll on the dodge step, got {:?}",
-            air_control_only
+            press_tick.x < -FLIP_ROLL_STEP_PER_TICK && press_tick.x > -FLIP_ROLL_STEP_PER_TICK - 0.5,
+            "expected the first flip tick plus the step's own air-control roll on the dodge step, got {:?}",
+            press_tick
         );
 
         let damp = neutral_damping_step(&c, dt);
         airborne_flip_step(&mut c, &ControllerInput::default(), &mut flip, dt);
         assert!(
-            (c.angular_velocity.x - air_control_only.x - damp.x + FLIP_ROLL_STEP_PER_TICK).abs()
-                < 1e-3,
+            (c.angular_velocity.x - press_tick.x - damp.x + FLIP_ROLL_STEP_PER_TICK).abs() < 1e-3,
             "expected -FLIP_TORQUE_X / 120 rad/s about the forward axis after one tick, got {}",
             c.angular_velocity.x
         );
@@ -2863,10 +2913,11 @@ mod tests {
     fn a_flips_torque_reaches_the_angular_speed_cap_within_three_ticks_and_holds_it_through_flip_torque_time(
     ) {
         // RB-PHYSICS-001-FR-080: 224 / 120 ≈ 1.87 rad/s per tick reaches
-        // MAX_CAR_ANGULAR_SPEED = 5.5 on the third tick, and
+        // MAX_CAR_ANGULAR_SPEED = 5.5 on the third tick counting the press
+        // tick itself (RB-PHYSICS-001-FR-083 finding 3), and
         // clamp_angular_speed then holds it there for the rest of the
         // 0.65 s window — the isolated dodge-derailment capture's own
-        // `3.40 → 5.22 → 5.50, then 5.50 every tick` trace.
+        // `2.57 → 4.75 → 5.26 → 5.38 …` climb to the cap.
         let dt = 1.0 / 120.0;
         let mut c = car();
         let mut flip = airborne_dodge(
@@ -2879,16 +2930,16 @@ mod tests {
             dt,
         );
         let neutral = ControllerInput::default();
-        // The dodge step's own air-control pitch (≈0.1 rad/s).
-        let head_start = c.angular_velocity.y;
+        // The press tick: one flip step plus the step's own air-control
+        // pitch (≈0.1 rad/s).
+        let press_tick = c.angular_velocity.y;
+        assert!(
+            press_tick > FLIP_PITCH_STEP_PER_TICK && press_tick < FLIP_PITCH_STEP_PER_TICK + 0.2
+        );
 
         let damp = neutral_damping_step(&c, dt).y;
         airborne_flip_step(&mut c, &neutral, &mut flip, dt);
-        assert!((c.angular_velocity.y - head_start - damp - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3);
-        let after_one = c.angular_velocity.y;
-        let damp = neutral_damping_step(&c, dt).y;
-        airborne_flip_step(&mut c, &neutral, &mut flip, dt);
-        assert!((c.angular_velocity.y - after_one - damp - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3);
+        assert!((c.angular_velocity.y - press_tick - damp - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3);
         airborne_flip_step(&mut c, &neutral, &mut flip, dt);
         assert!(
             (c.angular_velocity.y - MAX_CAR_ANGULAR_SPEED).abs() < 1e-3,
@@ -3445,7 +3496,7 @@ mod tests {
             yaw: Some(1.0),
             ..Default::default()
         };
-        let mut flip = airborne_dodge(&mut c, &input, 1.0 / 60.0);
+        let flip = airborne_dodge(&mut c, &input, 1.0 / 60.0);
         assert!(
             (c.linear_velocity.y - DODGE_SPEED).abs() < 1.0,
             "expected roughly DODGE_SPEED lateral velocity from yaw alone, got {}",
@@ -3453,13 +3504,15 @@ mod tests {
         );
         // Right dodge spins about -forward (RB-PHYSICS-001-FR-079), same
         // as `dodge_gives_lateral_velocity_and_spin_when_rolled_in_the_air`
-        // — from the next step (RB-PHYSICS-001-FR-080).
-        airborne_flip_step(&mut c, &ControllerInput::default(), &mut flip, 1.0 / 60.0);
+        // — from the press tick (RB-PHYSICS-001-FR-083 finding 3), at the
+        // same per-tick step whatever `dt` is; yaw alone adds no roll air
+        // control, so the press tick is exactly one flip step.
         assert!(
             (c.angular_velocity.x + FLIP_ROLL_STEP_PER_TICK).abs() < 1e-3,
-            "expected -FLIP_TORQUE_X / 120 spin about the forward axis after one tick, got {}",
+            "expected -FLIP_TORQUE_X / 120 spin about the forward axis on the press tick, got {}",
             c.angular_velocity.x
         );
+        assert!(flip.is_some());
     }
 
     #[test]
@@ -3771,7 +3824,7 @@ mod tests {
             "expected no dodge push-off from a grounded jump, regardless of stick input"
         );
         assert!(
-            (c.linear_velocity.z - JUMP_SPEED).abs() < 1.0,
+            (c.linear_velocity.z - (JUMP_SPEED + JUMP_HOLD_ACCELERATION / 60.0)).abs() < 1.0,
             "expected the ordinary ground jump instead, got {}",
             c.linear_velocity.z
         );
@@ -4374,11 +4427,12 @@ mod tests {
     }
 
     #[test]
-    fn jump_hold_acceleration_is_scaled_down_during_the_mandatory_pre_min_time_window() {
-        // RB-PHYSICS-001-FR-064: real Rocket League's own `_UpdateJump`
-        // scales the hold acceleration by `JUMP_PRE_MIN_ACCEL_SCALE` for the
-        // first `JUMP_MIN_TIME` seconds after a ground-jump press, applied
-        // regardless of whether `jump` is still held.
+    fn jump_hold_acceleration_is_applied_in_full_during_the_mandatory_pre_min_time_window() {
+        // RB-PHYSICS-001-FR-064 adopted RocketSim's `0.62` scale inside the
+        // mandatory `JUMP_MIN_TIME` window; RB-PHYSICS-001-FR-083 finding 2
+        // retired it — the real capture's `vz` climbs by the full
+        // `JUMP_HOLD_ACCELERATION` (less gravity and the sticky half-g)
+        // from the jump's first tick.
         let dt = 1.0 / 120.0;
         let mut c = car();
         let mut boost = MAX_BOOST;
@@ -4415,10 +4469,10 @@ mod tests {
             dt,
         );
 
-        let expected_gain = JUMP_HOLD_ACCELERATION * JUMP_PRE_MIN_ACCEL_SCALE * dt;
+        let expected_gain = JUMP_HOLD_ACCELERATION * dt;
         assert!(
             (c.linear_velocity.z - (velocity_after_press + expected_gain)).abs() < 1e-2,
-            "expected the mandatory pre-min-time window's own scaled acceleration, \
+            "expected the mandatory pre-min-time window's own full acceleration, \
              got a gain of {}, expected {}",
             c.linear_velocity.z - velocity_after_press,
             expected_gain
@@ -4466,10 +4520,10 @@ mod tests {
             dt,
         );
 
-        let expected_gain = JUMP_HOLD_ACCELERATION * JUMP_PRE_MIN_ACCEL_SCALE * dt;
+        let expected_gain = JUMP_HOLD_ACCELERATION * dt;
         assert!(
             (c.linear_velocity.z - (velocity_after_press + expected_gain)).abs() < 1e-2,
-            "expected a tap to still gain the mandatory window's own scaled acceleration \
+            "expected a tap to still gain the mandatory window's own full acceleration \
              despite releasing jump immediately, got a gain of {}, expected {}",
             c.linear_velocity.z - velocity_after_press,
             expected_gain
@@ -4721,9 +4775,12 @@ mod tests {
             dt,
         );
 
+        // Capped: with the press tick's own torque step the flip reaches
+        // MAX_CAR_ANGULAR_SPEED here (RB-PHYSICS-001-FR-083 finding 3).
+        let expected =
+            (spin_before_press.y + damp + FLIP_PITCH_STEP_PER_TICK).min(MAX_CAR_ANGULAR_SPEED);
         assert!(
-            (c.angular_velocity.y - spin_before_press.y - damp - FLIP_PITCH_STEP_PER_TICK).abs()
-                < 1e-3,
+            (c.angular_velocity.y - expected).abs() < 1e-3,
             "expected the flip torque to carry on through the press, got {:?} from {:?}",
             c.angular_velocity,
             spin_before_press
@@ -4960,9 +5017,10 @@ mod tests {
             "expected the wall jump's outward push-off, got {:?}",
             c.linear_velocity
         );
+        let expected =
+            (spin_before_press.y + damp + FLIP_PITCH_STEP_PER_TICK).min(MAX_CAR_ANGULAR_SPEED);
         assert!(
-            (c.angular_velocity.y - spin_before_press.y - damp - FLIP_PITCH_STEP_PER_TICK).abs()
-                < 1e-3,
+            (c.angular_velocity.y - expected).abs() < 1e-3,
             "expected the wall jump to leave the flip's torque running, got {:?} from {:?}",
             c.angular_velocity,
             spin_before_press
@@ -5098,8 +5156,11 @@ mod tests {
             let before = c.angular_velocity.x;
             let damp = neutral_damping_step(&c, dt).x;
             airborne_flip_step(&mut c, &input, &mut flip, dt);
+            // Capped at -MAX_CAR_ANGULAR_SPEED once the press tick's own
+            // step is counted (RB-PHYSICS-001-FR-083 finding 3).
+            let expected = (before + damp - FLIP_ROLL_STEP_PER_TICK).max(-MAX_CAR_ANGULAR_SPEED);
             assert!(
-                (c.angular_velocity.x - before - damp + FLIP_ROLL_STEP_PER_TICK).abs() < 1e-3,
+                (c.angular_velocity.x - expected).abs() < 1e-3,
                 "expected the full roll torque regardless of pitch, got Δ{}",
                 c.angular_velocity.x - before - damp
             );

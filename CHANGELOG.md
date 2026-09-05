@@ -255,7 +255,12 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   on the press tick, primed drive fields at the seed, the car-ball
   hit's per-pair material and extra impulse, a missing pitch input in
   the fixture at its second dodge, and RL's wheels outlasting
-  RocketSim's ray by a tick or two after a jump.
+  RocketSim's ray by a tick or two after a jump. Findings 1–4 are
+  implemented: `drive::THROTTLE_AIR_ACCEL`, the full jump hold from the
+  press tick with `JUMP_PRE_MIN_ACCEL_SCALE` gone, the flip torque on
+  the press tick, and `from_frame` priming a seeded car's wheel drive
+  fields — each landing on its tick, the fixture `160.19 → 139.52` uu,
+  the hit one tick late instead of three.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation
