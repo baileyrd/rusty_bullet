@@ -331,11 +331,12 @@ mod tests {
     /// (first isolated replay, `FR-079`), `~2792` uu (after the
     /// inertia-cancellation fix alone, which shrank the pre-dodge
     /// orientation gap but not the aggregate), `~937` uu (after the
-    /// pitch/roll sign fix for air control and the dodge). Mean ball
-    /// distance has stayed `~730` uu throughout — the ball is only touched
-    /// late in the fixture, so its divergence follows the car's own
-    /// post-dodge path, which `RB-PHYSICS-001-FR-069`'s still-unimplemented
-    /// continuous flip torque now dominates.
+    /// pitch/roll sign fix for air control and the dodge), `~573` uu (after
+    /// `DODGE_SPEED` became the real `FLIP_INITIAL_VEL_SCALE = 500`,
+    /// `RB-PHYSICS-001-FR-080` step (a)). Mean ball distance has stayed
+    /// `~730` uu throughout — the ball is only touched late in the fixture,
+    /// so its divergence follows the car's own post-dodge path, which
+    /// `FR-080`'s still-unimplemented continuous flip torque now dominates.
     #[test]
     fn isolated_replay_of_the_real_dodge_stays_under_its_last_recorded_divergence() {
         let score = score_capture_against_candidate(
@@ -346,10 +347,11 @@ mod tests {
 
         assert_eq!(score.frames_compared, 347);
         assert_eq!(score.cars.pairs_compared, 347);
-        // Ratchet (2026-09-04): mean car position distance ~937 uu, mean
-        // ball distance ~730 uu after the pitch/roll sign fix. Bounded
-        // loosely above to catch a regression, not to pin the exact figure.
-        assert!(score.cars.mean_position_distance < 1000.0);
+        // Ratchet (2026-09-04): mean car position distance ~573 uu, mean
+        // ball distance ~730 uu after `DODGE_SPEED` became the real 500.
+        // Bounded loosely above to catch a regression, not to pin the exact
+        // figure.
+        assert!(score.cars.mean_position_distance < 600.0);
         assert!(score.mean_ball_distance < 1000.0);
     }
 }

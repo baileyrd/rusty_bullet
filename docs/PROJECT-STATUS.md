@@ -2103,6 +2103,25 @@
   `DODGE_SPEED → 500` first (measurable alone), then the flip state and
   torque, then flip cancel. No code changed. See `FR-080`'s own spec
   entry.
+- `RB-PHYSICS-001-FR-080` step (a), implemented: `drive::DODGE_SPEED` is
+  now RocketSim's real `FLIP_INITIAL_VEL_SCALE = 500.0` (from the `1400.0`
+  placeholder — a mass-independent velocity change `FR-031`'s "false
+  precision" reasoning never applied to, confirmed to `~1%` from the real
+  capture's own dodge tick), and the backward dodge's forward-axis
+  component now carries the real `FLIP_BACKWARD_IMPULSE_SCALE_X = 16/15`
+  (`DODGE_BACKWARD_SCALE_X`, the one scale from that block `FR-059` hadn't
+  adopted, confirmed absent by grep first). Both dodge blocks changed
+  identically; nothing else about the dodge changed. Measured alone on the
+  isolated fixture: `cars.mean_position_distance` `≈937` → `≈573` uu
+  (`-39%`), mean velocity distance `≈1369` → `≈744` uu/s, max position
+  `≈2606` → `≈2005` uu, and the `0.05`s window containing the dodge tick
+  went from `≈1032` to `≈126` uu/s mean velocity distance — the jump
+  `FR-079` left at the dodge was almost entirely the placeholder. What
+  remains grows steadily *after* the dodge: the spin-rate mismatch steps
+  (b)/(c) address, plus `FR-071`'s post-window decay. One updated and one
+  new test (`rb_physics_bullet` 336 → 337); `rb_verify_cli`'s ratchet
+  tightened to `< 600` uu. Full workspace `fmt`/`clippy`/`test` green (398
+  tests).
 
 ## In progress
 
@@ -2148,20 +2167,26 @@
    `RB-PHYSICS-001-FR-080` (real continuous flip torque, replacing this
    port's instantaneous `DODGE_ANGULAR_SPEED` kick and its `DODGE_SPEED`
    placeholder): a settled design, blast radius, and three-step
-   sequencing are in that entry, none of it started. `FR-071`'s
-   air-control damping is next in line after it (the post-window decay
-   the fixture shows). See `FR-080`'s own spec entry.
+   sequencing are in that entry. Step (a) (`DODGE_SPEED → 500`) is done
+   and measured (`-39%` on the fixture's car divergence); steps (b) (flip
+   state, cap-and-hold torque, z-damping, pitch lock, air-control lockout)
+   and (c) (the real pitch-hold flip cancel replacing `FR-016`'s) are not
+   started. `FR-071`'s air-control damping is next in line after those
+   (the post-window decay the fixture shows). See `FR-080`'s own spec
+   entry.
 
 ## Validation
 
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
-- `cargo test --workspace`: pass (397 tests: 27 in `rb_domain` (incl. 4
-  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 336 in
+- `cargo test --workspace`: pass (398 tests: 27 in `rb_domain` (incl. 4
+  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 337 in
   `rb_physics_bullet` (incl. 2 new `integrate.rs` tests confirming
-  `apply_angular_acceleration` bypasses `inv_inertia_world`, and 1
-  combined `drive.rs` air-control test replacing 3 old ones,
-  `RB-PHYSICS-001-FR-079`'s inertia-cancellation fix), 14 in
+  `apply_angular_acceleration` bypasses `inv_inertia_world`, 1 combined
+  `drive.rs` air-control test replacing 3 old ones,
+  `RB-PHYSICS-001-FR-079`'s inertia-cancellation fix, and 1 new
+  standstill-backward-dodge test for `RB-PHYSICS-001-FR-080` step (a)'s
+  `16/15` factor), 14 in
   `rb_replay_ingest` (incl. real-fixture integration test), 10 in
   `rb_capture_ingest` (incl. synthetic-fixture test), 10 in `rb_verify_cli`
   (incl. `score_capture_against_candidate`'s and `score_capture_growth`'s
@@ -2251,6 +2276,17 @@
   (`t=4.27s`) is now `car mean rot = 0.03 rad` (from `0.13`, from `0.22`),
   and the `t=4.32s` window that contains the dodge tick jumps to `vel
   1032.35 uu/s` — the remaining divergence starts at the dodge itself.
+- `RB-PHYSICS-001-FR-080` step (a) (`DODGE_SPEED` → RocketSim's real
+  `FLIP_INITIAL_VEL_SCALE = 500`, plus `FLIP_BACKWARD_IMPULSE_SCALE_X =
+  16/15` on a backward dodge) re-run against the same fixture (2026-09-04,
+  this sandbox): `rb-verify --self` now gives `frames compared: 347, mean
+  ball distance: 729.95 uu, max ball distance: 3311.68 uu, car pairs
+  compared: 347, mean car position/rotation/velocity distance: 572.93 uu /
+  1.28 rad / 743.63 uu/s, max car position/rotation/velocity distance:
+  2004.66 uu / 3.14 rad / 1540.73 uu/s` (car position `937.30` →
+  `572.93`). `--self-growth ... 0.05`: the window containing the dodge
+  tick (`t=4.32s`) is now `vel 125.81 uu/s` (from `1032.35`); the
+  pre-dodge windows are unchanged (`t=4.27s` still `0.03 rad`).
 
 ## Risks and decisions needed
 

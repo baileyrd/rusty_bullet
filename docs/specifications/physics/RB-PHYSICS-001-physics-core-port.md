@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.89.0
+- Version: 0.90.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -3820,7 +3820,9 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   - **Non-goals (this requirement).** Does not adopt RocketSim's own real
     base magnitude (`FLIP_INITIAL_VEL_SCALE = 500.f`) for `DODGE_SPEED`
     itself — still an independently uncalibrated placeholder, per the
-    "ratio confirmed, magnitude not" split above. Does not adopt
+    "ratio confirmed, magnitude not" split above
+    (`RB-PHYSICS-001-FR-080` step (a) later adopted it, once the isolated
+    dodge fixture confirmed the real value to `~1%`). Does not adopt
     RocketSim's own direction-normalization for a diagonal dodge (this
     port's own pre-existing, already-documented simplification: pitch and
     roll contribute independently rather than being normalized into one
@@ -4696,7 +4698,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
      stays zero).
   - **Non-goals (this requirement).** Does not adopt `DODGE_SPEED`'s own
     real base magnitude (`FLIP_INITIAL_VEL_SCALE = 500.f`) — still
-    independently uncalibrated, unaffected by this requirement. Does not
+    independently uncalibrated, unaffected by this requirement
+    (`RB-PHYSICS-001-FR-080` step (a) later adopted it). Does not
     fold real yaw input into the dodge direction. Does not adopt
     RocketSim's own continuous torque-over-`FLIP_TORQUE_TIME` spin model —
     `DODGE_ANGULAR_SPEED` remains a single instantaneous kick, scaled by
@@ -5585,8 +5588,9 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `isolated_replay_of_the_real_dodge_stays_under_its_last_recorded_divergence`
     and turned into the ratchet described above (10 `rb_verify_cli` tests,
     unchanged). Full workspace `fmt`/`clippy`/`test` green (397 tests).
-- `RB-PHYSICS-001-FR-080` (real continuous flip torque — scoped, not
-  implemented): `FR-069` confirmed the mechanism as a documentation
+- `RB-PHYSICS-001-FR-080` (real continuous flip torque — scoped; step
+  (a), the real dodge impulse magnitude, implemented): `FR-069` confirmed
+  the mechanism as a documentation
   finding and `FR-079` made it the dominant remaining piece of the
   isolated dodge's own divergence. This entry scopes actually adopting
   it: the complete real mechanism (not just the torque line), what the
@@ -5727,6 +5731,41 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
        dodge-tick velocity jump); (b) the flip state, torque, vertical
        damping, pitch lock, and air-control lockout; (c) the real flip
        cancel replacing `FR-016`'s.
+  - **Step (a), implemented: the real dodge impulse magnitude.**
+    `drive::DODGE_SPEED` is now RocketSim's own `FLIP_INITIAL_VEL_SCALE =
+    500.0` (from `1400.0`; the name is kept, per this port's convention of
+    its own names citing the real one), and the backward dodge's
+    forward-axis component now also carries the real
+    `FLIP_BACKWARD_IMPULSE_SCALE_X = 16/15` (`DODGE_BACKWARD_SCALE_X`,
+    multiplied on top of `DODGE_BACKWARD_SPEED_SCALE`'s speed ramp exactly
+    as `_UpdateDoubleJumpOrFlip` does, so it applies at a standstill too)
+    — the one scale from that block `FR-059` had not adopted, confirmed
+    absent by grep before adding. `DODGE_SPEED`'s doc comment now records
+    why `FR-031`'s "false precision" reasoning never applied to it (a
+    mass-independent velocity change) and the `~1%` real-capture
+    confirmation. Both dodge blocks (ground and wall-jump) changed
+    identically. Nothing else about the dodge changed — the instant spin
+    kick, `DODGE_ANGULAR_SPEED`, and `FR-016`'s flip cancel are steps (b)
+    and (c).
+    - **Real-data effect, measured alone.** Isolated fixture, whole run:
+      `cars.mean_position_distance` `≈937` → `≈573` uu (`-39%`), mean
+      velocity distance `≈1369` → `≈744` uu/s, max position `≈2606` →
+      `≈2005` uu, mean rotation `1.39` → `1.28` rad; `mean_ball_distance`
+      unchanged at `≈730`. At `0.05`s windows, the window containing the
+      dodge tick (`t = 4.32`s) drops from `≈1032` to `≈126` uu/s mean
+      velocity distance — the `≈1030` uu/s jump `FR-079` left at the dodge
+      was almost entirely the `1400` placeholder. The remaining divergence
+      now grows steadily *after* the dodge (`0.13 → 1.14` rad over the
+      following `0.4`s is unchanged), which is exactly the spin-rate
+      mismatch steps (b)/(c) address, plus the post-window decay
+      (`FR-071`).
+    - **Tests.** `a_backward_dodge_scales_up_with_current_forward_speed`
+      now expects the `16/15` factor on top of the speed ramp; one new
+      test, `a_backward_dodge_at_a_standstill_still_carries_the_real_16_15_forward_factor`,
+      pins the standstill case (`rb_physics_bullet`: 336 → 337). Every
+      other `DODGE_SPEED` assertion is symbolic and passed unchanged.
+      `rb_verify_cli`'s ratchet tightened to `cars.mean_position_distance
+      < 600` uu. Full workspace `fmt`/`clippy`/`test` green (398 tests).
   - **Blast radius.** `drive.rs`: the three dodge-spin tests
     (`dodge_gives_forward_velocity_and_spin_when_pitched_in_the_air`,
     `dodge_gives_lateral_velocity_and_spin_when_rolled_in_the_air`,
@@ -5754,8 +5793,9 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     velocity jump should fall from `≈1030` to the low hundreds of uu/s;
     what remains afterward is the post-window decay (`FR-071`'s damping,
     the next gap in line) and any residual dodge-direction subtlety.
-  - **Non-goals (this requirement).** Does not implement anything — this
-    entry is the scope. The implementation will not take on `FR-071`'s
+  - **Non-goals (this requirement).** Steps (b) and (c) are not yet
+    implemented — this entry is their scope, with only step (a) done. The
+    implementation will not take on `FR-071`'s
     air-control damping (the post-window decay stays divergent until
     then), `DOUBLEJUMP_MAX_DELAY` (`1.25` s; this port has no
     double-jump/flip timeout at all — an adjacent gap worth its own
@@ -7261,6 +7301,17 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.90.0 (2026-09-04): `RB-PHYSICS-001-FR-080` step (a) implemented:
+  `drive::DODGE_SPEED` is now RocketSim's real `FLIP_INITIAL_VEL_SCALE =
+  500.0` (from the `1400.0` placeholder), and the backward dodge's
+  forward-axis component carries the real `FLIP_BACKWARD_IMPULSE_SCALE_X =
+  16/15` (`DODGE_BACKWARD_SCALE_X`, the one scale `FR-059` hadn't adopted).
+  Measured alone on the isolated fixture: `cars.mean_position_distance`
+  `≈937` → `≈573` uu (`-39%`), mean velocity distance `≈1369` → `≈744`
+  uu/s, and the dodge-tick window's velocity gap `≈1032` → `≈126` uu/s —
+  the jump `FR-079` left at the dodge was almost entirely the placeholder.
+  One new test; `rb_verify_cli`'s ratchet tightened to `< 600` uu. Full
+  workspace green (398 tests). Steps (b)/(c) unchanged, still scoped.
 - 0.89.0 (2026-09-04): `RB-PHYSICS-001-FR-080` added — the real continuous
   flip torque (`FR-069`'s finding, `FR-079`'s dominant remaining gap)
   scoped for implementation, doc-only. Records the complete real

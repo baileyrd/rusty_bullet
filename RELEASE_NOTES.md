@@ -6,6 +6,41 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The dodge impulse is now the real 500, and the fixture's car divergence dropped another 39%
+**2026-09-04** · `RB-PHYSICS-001-FR-080` step (a)
+
+- Implemented the first of `FR-080`'s three sequenced steps: `DODGE_SPEED`
+  is now RocketSim's own `FLIP_INITIAL_VEL_SCALE = 500.0`, replacing the
+  `1400.0` placeholder that had stood since the dodge was first built. The
+  name is kept (this port's convention is its own names citing the real
+  one).
+- Why the old "false precision" caveat never applied here: the dodge is a
+  mass-independent velocity change (`apply_impulse` divides by mass and
+  the call site multiplies by `car.mass()`), not a force or torque, so
+  nothing about it depends on the placeholder car body. And the real value
+  was confirmed to `~1%` from `FR-079`'s real capture: the recorded
+  dodge-tick `Δv` is `≈620` uu/s; `500` with the confirmed side-speed
+  scale at the recorded forward speed predicts `626`.
+- Also added the one scale from the same RocketSim block `FR-059` hadn't
+  adopted (confirmed absent by grep first): a backward dodge's forward-axis
+  component carries `FLIP_BACKWARD_IMPULSE_SCALE_X = 16/15`
+  (`DODGE_BACKWARD_SCALE_X`), multiplied on top of the speed ramp exactly
+  as `_UpdateDoubleJumpOrFlip` does — so it applies at a standstill too.
+- **Measured alone against the isolated fixture:** mean car position
+  divergence `≈937` → `≈573` uu (`-39%`), mean velocity divergence `≈1369`
+  → `≈744` uu/s, max position `≈2606` → `≈2005` uu. The `0.05`s window
+  containing the dodge tick went from `≈1032` to `≈126` uu/s — the
+  velocity jump `FR-079` left at the dodge was almost entirely this one
+  constant. The pre-dodge windows are untouched (`0.03` rad), and what
+  remains now grows steadily *after* the dodge: the spin-rate mismatch
+  steps (b)/(c) address, plus `FR-071`'s post-window decay.
+- One test updated for the `16/15` factor and one new standstill test;
+  every other `DODGE_SPEED` assertion was symbolic and passed unchanged.
+  `rb_verify_cli`'s ratchet tightened to `< 600` uu. Full workspace green
+  (398 tests). Steps (b) and (c) remain scoped, not started.
+
+---
+
 ## Scoped the real flip torque: it's "slam into the spin cap and hold it for 0.65 s"
 **2026-09-04** · `RB-PHYSICS-001-FR-080`
 

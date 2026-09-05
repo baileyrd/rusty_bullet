@@ -163,9 +163,16 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   fixture (`|ω|` pinned at exactly `5.50` through `t ≈ 4.967`, `vel.z` at
   the `-15.5` uu/s damping equilibrium). The same data confirms the real
   initial dodge velocity is `500` (`FLIP_INITIAL_VEL_SCALE`), so
-  `DODGE_SPEED = 1400` is `2.8x` too large. See `RB-PHYSICS-001-FR-079`'s
-  and `FR-080`'s own entries for the full evidence chain and the proposed
-  design.
+  `DODGE_SPEED = 1400` is `2.8x` too large. `FR-080` step (a) is now
+  done: `drive::DODGE_SPEED` is the real `500.0`, and the backward dodge's
+  forward-axis component carries the real `FLIP_BACKWARD_IMPULSE_SCALE_X =
+  16/15` (`DODGE_BACKWARD_SCALE_X`). Measured alone on the isolated
+  fixture: `cars.mean_position_distance` `≈937` → `≈573` uu (`-39%`), and
+  the dodge-tick window's velocity gap `≈1032` → `≈126` uu/s — that jump
+  was almost entirely the placeholder. One new test; the `rb_verify_cli`
+  ratchet tightened to `< 600` uu. See `RB-PHYSICS-001-FR-079`'s and
+  `FR-080`'s own entries for the full evidence chain and the remaining
+  steps (b)/(c).
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation
