@@ -89,7 +89,8 @@ few uu (see `rb_verify_cli::tests::isolated_replay_of_a_real_airborne_hit_tracks
 
 The whole clips these three are cut from (`groundjumpthrottle03`,
 `walldrive04`, `hittickjump01`/`hittickjump01b`, `curverun05`,
-`onewheellanding06`) are not vendored; `RB-PHYSICS-001-FR-085`'s entry
+`onewheellanding06`) are kept untrimmed under `raw/` (see its own
+README; no test reads them); `RB-PHYSICS-001-FR-085`'s entry
 records what each showed, including the two capture-side defects
 (analog axes recorded as zero throughout `hittickjump01`/`01b`; a dodge
 at `t=30.175` in `walldrive04` with no `jump` press recorded at all).
