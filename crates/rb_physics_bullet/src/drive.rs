@@ -1682,6 +1682,31 @@ pub fn clamp_angular_speed(car: &mut RigidBody) {
     }
 }
 
+/// Scales `car.linear_velocity` back down to `MAX_CAR_SPEED` if its length
+/// exceeds it, preserving direction — a no-op otherwise. The linear half
+/// of the same RocketSim block `clamp_angular_speed` is the angular half
+/// of (`Car::_FinishPhysicsTick`'s `// Limit velocities`: `if
+/// (vel.length2() > CAR_MAX_SPEED²) vel = vel.normalized() *
+/// CAR_MAX_SPEED`), so call it from the same place, once per step after
+/// the transform has integrated.
+///
+/// Added by `RB-PHYSICS-001-FR-085`: until then `MAX_CAR_SPEED` only
+/// *gated* new boost force (see `apply_driven_forces`), so any other
+/// source of speed — a jump's vertical kick on top of a 2300 uu/s boost
+/// run, a wall's suspension push, a collision impulse — carried the car
+/// past it. The second capture session's straight boost-and-jump clip
+/// shows the real car pinned at exactly `|v| = 2300` through the jump:
+/// its *horizontal* speed drops as the jump's `vz` rises (recorded
+/// `(−2281, 292)` where the ungated port read `(−2305, 304)`), which is
+/// precisely a whole-vector rescale, not a per-axis or horizontal-only
+/// cap.
+pub fn clamp_linear_speed(car: &mut RigidBody) {
+    let speed = car.linear_velocity.length();
+    if speed > MAX_CAR_SPEED {
+        car.linear_velocity *= MAX_CAR_SPEED / speed;
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -5438,6 +5463,57 @@ mod tests {
         );
         c.update_inertia_tensor();
         c
+    }
+
+    #[test]
+    fn clamp_linear_speed_is_a_no_op_at_or_below_the_cap() {
+        let mut c = car();
+        c.linear_velocity = Vec3::new(MAX_CAR_SPEED, 0.0, 0.0);
+        clamp_linear_speed(&mut c);
+        assert_eq!(
+            c.linear_velocity,
+            Vec3::new(MAX_CAR_SPEED, 0.0, 0.0),
+            "expected a velocity exactly at the cap to pass through unchanged, got {:?}",
+            c.linear_velocity
+        );
+        c.linear_velocity = Vec3::new(-1500.0, 300.0, 100.0);
+        clamp_linear_speed(&mut c);
+        assert_eq!(
+            c.linear_velocity,
+            Vec3::new(-1500.0, 300.0, 100.0),
+            "expected an under-cap velocity to pass through unchanged, got {:?}",
+            c.linear_velocity
+        );
+    }
+
+    #[test]
+    fn clamp_linear_speed_rescales_the_whole_vector_so_a_jump_kick_costs_horizontal_speed() {
+        // RB-PHYSICS-001-FR-085: the second capture session's boost-and-
+        // jump clip has the real car at |v| = 2300 (−2281 along x) when the
+        // jump's vertical kick arrives; the tick after, it reads (−2281,
+        // 292) — still exactly 2300 long — where an ungated port read
+        // (−2305, 304). The cap is a whole-vector rescale: the kick's vz
+        // costs horizontal speed rather than stacking on top of it.
+        let mut c = car();
+        c.linear_velocity = Vec3::new(-2305.0, 0.0, 304.0);
+        clamp_linear_speed(&mut c);
+        assert!(
+            (c.linear_velocity.length() - MAX_CAR_SPEED).abs() < 1e-3,
+            "expected the clamp to scale magnitude down to exactly MAX_CAR_SPEED, got {:?}",
+            c.linear_velocity
+        );
+        let scale = MAX_CAR_SPEED / Vec3::new(-2305.0, 0.0, 304.0).length();
+        assert!(
+            (c.linear_velocity.x - -2305.0 * scale).abs() < 1e-2
+                && (c.linear_velocity.z - 304.0 * scale).abs() < 1e-2,
+            "expected the clamp to preserve direction, got {:?}",
+            c.linear_velocity
+        );
+        assert!(
+            c.linear_velocity.x > -2305.0 && c.linear_velocity.z < 304.0,
+            "expected both components to shrink, got {:?}",
+            c.linear_velocity
+        );
     }
 
     #[test]

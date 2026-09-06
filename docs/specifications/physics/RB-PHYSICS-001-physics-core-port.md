@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.104.0
+- Version: 0.105.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -1107,7 +1107,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   `arena::standard_corner_fillets` automatically. Still not modeled: a car
   actually being deflected by any fillet (now implemented, see FR-027), and
   goal cutouts (addressed next, see FR-024).
-- `RB-PHYSICS-001-FR-024` (goal cutouts, implemented): opens an actual
+- `RB-PHYSICS-001-FR-024` (goal cutouts, implemented; its edge fillets
+  withdrawn by `RB-PHYSICS-001-FR-085` finding C): opens an actual
   goal-mouth window in each back wall — until now every back wall was a
   single solid, flat `StaticPlane` spanning the full width, with no
   opening at all. A plain `StaticPlane` has no notion of a bounded hole, so
@@ -1168,7 +1169,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   modeled goal interior/net beyond the cutout itself (the goal's own two
   compound top corners are now modeled, see FR-026).
 - `RB-PHYSICS-001-FR-025` (corner-wall floor/ceiling arch radius,
-  implemented): gives a diagonal corner wall's own floor-seam and
+  implemented; its `750` uu guess measured at `FILLET_RADIUS` by
+  `RB-PHYSICS-001-FR-085` finding D): gives a diagonal corner wall's own floor-seam and
   ceiling-seam fillets — 8 of `standard_curves`' 24 entries, the ones
   bridging one of the 4 corner walls to the floor or ceiling — a
   distinctly larger, dedicated radius instead of reusing the cardinal
@@ -1202,7 +1204,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   FR-023. Still not modeled: a car actually being deflected by any fillet
   (now implemented, see FR-027),
   and everything else `FR-024`'s own Non-goals already cover.
-- `RB-PHYSICS-001-FR-026` (goal post-crossbar corner fillets, implemented):
+- `RB-PHYSICS-001-FR-026` (goal post-crossbar corner fillets, implemented,
+  withdrawn by `RB-PHYSICS-001-FR-085` finding C):
   rounds off the two remaining sharp compound corners per goal — where a
   post's own vertical-edge fillet (`arena::standard_goal_cutout_fillets`,
   FR-024) meets the crossbar's own horizontal-edge fillet — an explicitly
@@ -2338,7 +2341,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     symmetric, so a true blend gives equal components), plus the same
     roughly-`JUMP_SPEED` vertical check every wall-jump test already makes.
     1 new test, bringing the crate to 268 total (+1 over FR-037's 267).
-- `RB-PHYSICS-001-FR-040` (fillet-radius calibration research, investigated):
+- `RB-PHYSICS-001-FR-040` (fillet-radius calibration research, investigated;
+  both radii since measured from a real capture by `RB-PHYSICS-001-FR-085`):
   a dedicated research pass, matching `RB-PHYSICS-001-FR-036`'s own method
   (real source-level research, not guessed at), specifically targeting the
   two remaining uncalibrated placeholder constants `RB-PHYSICS-001-FR-036`
@@ -7321,6 +7325,145 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   - **Verification plan.** The two new tests and the re-pinned reach
     tests (459 in the workspace); the fixture ratchet at `< 120` uu car
     / `< 50` uu ball.
+- `RB-PHYSICS-001-FR-085` (second capture session — findings A–K; A, C,
+  D and E implemented): the second recording session `FR-084`'s Next
+  item asked for — six clips of the owner's own real Rocket League, on
+  the same plugin (`RB-VERIFY-002-FR-001`), driven through the port with
+  `rb_verify_cli`'s seed rule and a per-tick trace (temporary examples,
+  since removed), each divergence run to a mechanism. Three excerpts are
+  vendored as fixtures with ratchet tests (`throttle-jump`,
+  `boost-wall-entry`, `airborne-hit`; see `rb_capture_ingest/fixtures/
+  README.md`); the whole clips are not.
+  - **A. The car's speed is capped at `2300` uu/s, whatever put it
+    there (implemented).** `walldrive04`'s boost run holds exactly
+    `|v| = 2300`, and the jump pressed at that speed reads `(−2281, 292)`
+    the tick after — still `2300` long: the kick's `vz` *costs*
+    horizontal speed. The port read `(−2305, 304)`: `MAX_CAR_SPEED` only
+    gated new boost force. RocketSim's `Car::_FinishPhysicsTick`
+    "Limit velocities" block rescales the whole vector
+    (`vel.normalized() * CAR_MAX_SPEED`) next to the angular cap
+    `clamp_angular_speed` already carries; `drive::clamp_linear_speed`
+    is that, called from the same place. Two tests; the goal-mouth
+    car tests re-pinned to launch at the cap.
+  - **B. Straight driving, ground jumps and landings match (fixture).**
+    `groundjumpthrottle03`: a throttle-only drive from rest, a `0.18` s
+    tapped jump, its landing, a `0.76` s held jump — `3.3` uu mean over
+    `4.6` s (`throttle-jump`, `558` frames). The two-second stop, the
+    brake, and the handbrake turn in the same clip track to a few uu
+    too. `walldrive04`'s straight at the cap: `< 1` uu over `1.8` s.
+  - **C. The goal-side edge fillets are withdrawn (implemented).**
+    The port's car, drifted `15` uu left of the recording, struck a
+    surface `340` uu in front of the back wall at `(921, 4779, 126)`,
+    airborne — `standard_arena`'s `curves[24]`, one of `FR-024`'s six
+    goal-cutout edge fillets. Built from the back wall's field-facing
+    plane and the post's inward-facing plane, each of those was a
+    concave `292` uu gutter standing *in front of* the wall beside the
+    goal, at `x ∈ [893, 1185]`, `y ∈ [4828, 5120]`; the recording's car
+    drives through `x ∈ [894, 992]`, `y ∈ [4838, 5120]`, `z ∈ [30, 160]`
+    onto a flat wall at `y = 5120` and up it to `z = 305`. The six edge
+    fillets and `FR-026`'s four post-crossbar corner fillets (the same
+    premise) are removed; the goal window stays a clean cut. The
+    recording bounds any real rounding there to `≤ 10` uu or a gutter
+    of `71–259` uu; the flat wall the car climbs says the former.
+  - **D. The corner arch radius is `FILLET_RADIUS`, not `750`
+    (implemented).** `curverun05` rides the `+X` wall's floor fillet at
+    `y ≈ −3300` (`z = 22–25`, flat); the port at the same spot sat `26`
+    uu up a ramp and, reseeded at `18.40`, lifted off it (`vz 0 → 603`
+    in `0.2` s, wheel normals turning to `(−0.17, 0.17, 0.97)`): the
+    `+X/−Y` corner arch, `FR-025`'s `750` uu guess, reaches `1060` uu
+    into the field. The recording crosses the real arch at
+    `(3827, −4075, z 69)` and `(3631, −4346, z 120)` — `115` / `62` uu
+    in from the `|x| + |y| = 8064` corner line, `52` / `103` uu up —
+    which fit a circle of `≈ 277` (`≈ 285` with `5` uu of compression
+    at `1900` uu/s), and sits flat at `(3886, −3677)` where `750` puts
+    the floor `113` uu high. `CORNER_ARCH_RADIUS = FILLET_RADIUS`; the
+    16 compound-corner fillets follow it. The reseeded ride now holds
+    to `6` uu through the corner approach.
+  - **E. The jump press tick has no suspension push (implemented).**
+    Every jump in every clip: the tick after the press reads `296` uu/s
+    recorded, `304` in the port; then `+4.0` a tick (hold `12.15` −
+    gravity `5.42` − sticky `2.71`) in both while the wheels still
+    reach, `+6.7` once they don't — except the port's wheels let go a
+    tick early, being `0.4` uu higher, so the `+8` becomes `+11` and
+    stays (`16` uu of height by the landing). `296 = 291.7 + 12.15 −
+    5.42 − 2.71`: the real press tick is the impulse, the hold, gravity
+    and the sticky force and *not* the springs that were holding the
+    car up (`+8.1` at rest, exactly gravity plus sticky). RocketSim
+    applies its `updateSuspension` after `_UpdateJump` from the same
+    tick's ray hits and would push; the recording says the real game
+    does not. `drive_and_integrate_velocities` now reads the ground
+    press before `apply_driven_forces` consumes it and skips
+    `apply_suspension_impulses` on that tick. One test. This is
+    `FR-083`'s finding 6/7 residual ("`+8` uu/s press-tick spring
+    push"), and it moved the `dodge-derailment` fixture `114.17 →
+    73.76` uu (ball `42.19 → 41.80`); the one-wheel-landing clip's
+    isolated hops (`8.2`, `12.7`, `16.4` s) lose their `+11` — a `+2.7`
+    residual remains, the port's wheels still letting go one tick
+    before the recording's.
+  - **F. The floor-to-wall curve sheds speed the port does not
+    (open).** `walldrive04` at `2300` into the `+X` curve: recorded
+    `2300 → 1839` by the top of the curve, gravity explains `→ 2227`,
+    so `~380` uu/s is lost in the transition; the port loses `~100`.
+    Descending the same wall backwards: recorded `1521 → 1411` through
+    the curve, the port `1508 → 1626` (gravity's gain, nothing lost),
+    and the recording then holds `1411.83` for `4.7` s of reverse
+    throttle — the taper's zero, reached from above. The recording's
+    origin path through the curve fits `R ≈ 270` with the suspension
+    bottomed (`5.6` uu clearance) or `292` with the origin `3` uu
+    *inside* the surface; the port's hitbox never touches the curve
+    (one `0.1` uu contact), its springs hold at `14.8` (the travel
+    stop). The candidate: the real suspension bottoms harder and the
+    chassis scrapes the mesh (`CARWORLD_COLLISION_FRICTION = 0.3` at
+    `~30 g` of normal load is `~1000` uu/s of friction budget per
+    `0.2` s), which the port's `resolveSingleCollision` pushback
+    prevents. `boost-wall-entry` (`271` frames) pins the run at `3.9`
+    uu mean, `64` uu max at the curve.
+  - **G. The airborne hit matches (fixture).** `hittickjump01b`: boost
+    from rest, jump at the cap, the ball met in the air `7` ticks after
+    the press with the wheels already off — ball `4.8` uu mean, car
+    `5.7` uu over `4.3` s (`airborne-hit`, `517` frames); the ball's
+    exit `(−1, 3092, 408)` vs `(0, 3008, 372)`, the car's pitch kick
+    within `7 %`. It is the jump-before-hit control `FR-084` finding 4
+    wanted, not the wheels-down hit-tick jump it still needs.
+  - **H. No drag above `1410` with the throttle held (confirmed).**
+    Boost released at `2300` with throttle down: the recording holds
+    `2297` for `1.8` s to the wall; so does the port. The `1626` vs
+    `1411` reverse plateau above is finding F's, not a drag term.
+  - **I. Capture defects (to the recorder).** `hittickjump01` and
+    `01b` record `steer`/`pitch`/`yaw`/`roll` as `0` on every frame
+    while the car turns through `194°` and flips forward at `20.283`
+    with an all-zero stick; `walldrive04` records a dodge at `30.175`
+    (`ω_y −0.87 → −5.22` in one tick, `1218 → 933` uu/s) with `jump =
+    false` on every frame from `29.825` to `31.5`, its `pitch = 1`
+    appearing one tick *after* the flip begins; `jumpbeforehit02` is a
+    byte-identical upload of `hittickjump01`. The other three clips
+    carry full analog data. Open questions for the owner: input
+    device, and whether `CarWrapper::GetInput()` is read before or
+    after the tick consumes the press.
+  - **J. The dodge residuals remain (`FR-083`).** `onewheellanding06`'s
+    diagonal-dodge hops (`4.575`, `14.008`) diverge as the
+    `dodge-derailment` fixture does (`ω_x 1.57` recorded vs `−0.47`,
+    `vy −274` vs `−214` at `4.8`); after the first the port lands on
+    its roof at `6.4` and stays (`z = 40.1`, no wheel down) while the
+    recording drives off. The clip's plain hops and air rolls track to
+    the second decimal in `ω`.
+  - **K. The ball's goal entry diverges (open).** `hittickjump01b` at
+    `10.0–10.25`: the recorded ball enters the `+Y` goal (`|y| > 5000`
+    at `10.042`); the port's parts from it by `~990` uu there — the
+    goal mouth / net interaction, outside `airborne-hit`'s cut.
+  - **Non-goals (this requirement).** Finding F's mechanism, finding
+    K, the dodge (`FR-083`), `FR-084` finding 4 (still without a
+    wheels-down hit-tick jump) and finding 5 (the clip's one-wheel
+    landings all follow dodges the port already misses).
+  - **Acceptance criteria.** Findings A, C, D and E implemented with
+    tests; the three fixtures vendored with ratchets; the
+    `dodge-derailment` ratchet tightened `< 120 → < 85`; F, I, J and K
+    recorded with their evidence; `PROJECT-STATUS.md`'s Next item
+    points at F.
+  - **Verification plan.** `468` tests in the workspace (`404` in
+    `rb_physics_bullet`: `+2` speed cap, `+1` press tick, `−6` goal
+    fillets; `13` in `rb_verify_cli`: `+3` fixtures); the four fixture
+    ratchets.
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -8810,6 +8953,16 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.105.0 (2026-09-06): `RB-PHYSICS-001-FR-085` added — the second
+  capture session, six clips: the `2300` uu/s whole-vector speed cap
+  (`clamp_linear_speed`), the goal-side edge and corner fillets
+  withdrawn (a real car drives through them), the corner arch radius
+  measured at `FILLET_RADIUS` (`750` was a guess), and the jump press
+  tick without its suspension push (`296` recorded vs `304`) — the
+  `dodge-derailment` fixture `114.17 → 73.76` uu. Three new fixtures
+  (`throttle-jump` `3.3` uu, `boost-wall-entry` `3.9` uu,
+  `airborne-hit` `5.7` / ball `4.8` uu). Open: the floor-to-wall curve's
+  speed loss (F), the goal entry (K), two capture defects (I).
 - 0.104.0 (2026-09-06): `RB-PHYSICS-001-FR-082` step (c) implemented,
   completing the wheel model: `collision::raycast_static` over the whole
   arena (`ray_vs_quarter_pipe`, `ray_vs_corner_fillet`,

@@ -31,7 +31,7 @@
 //!
 //! Since `RB-PHYSICS-001-FR-025`, a corner wall's own floor/ceiling-seam
 //! arches (the 8 of `standard_curves`' 24 fillets bridging a corner wall to
-//! the floor or ceiling) use the distinctly larger `CORNER_ARCH_RADIUS`
+//! the floor or ceiling) use the corner walls' own `CORNER_ARCH_RADIUS`
 //! rather than the cardinal walls' `FILLET_RADIUS`, matching real Rocket
 //! League's bigger, more swept corner-boost curve. All 16
 //! `standard_corner_fillets` also switch to `CORNER_ARCH_RADIUS`, since each
@@ -44,33 +44,21 @@
 //! same as every other adjoining-fillet pair in this module — and keep
 //! `FILLET_RADIUS`.
 //!
-//! `standard_goal_walls`/`standard_goal_cutout_fillets`
-//! (`RB-PHYSICS-001-FR-024`) open an actual goal-mouth window in each back
-//! wall — until now, `standard_walls`' two back walls were solid, flat
-//! planes spanning the full width, with no opening at all. `standard_walls`
-//! itself now returns 7 planes instead of 9 (the back walls move out of
-//! it, replaced by `standard_goal_walls`' `StaticGoalWall`s), and
-//! `standard_goal_cutout_fillets` rounds the window's three edges (two
-//! posts and a crossbar) per goal — 6 `StaticQuarterPipe`s, built the same
-//! way every other fillet here is, from a pair of flat planes, one of them
-//! (the post's or crossbar's own inward-facing surface) a purely-geometric
-//! construction used only to derive the fillet, never added as a real wall
-//! itself (see `goal_post_plane`/`goal_crossbar_plane`'s own doc comments
-//! for why that would be wrong).
-//!
-//! `standard_goal_corner_fillets` (`RB-PHYSICS-001-FR-026`) closes the gap
-//! `standard_goal_cutout_fillets`' own doc comment flagged: the two compound
-//! corners per goal where a post's own vertical fillet meets the crossbar's
-//! own horizontal fillet, one per post per goal (4 total). Same approach
-//! `RB-PHYSICS-001-FR-023` used for the arena's own compound corners —
-//! `body::StaticCornerFillet::between_three_planes` directly on the three
-//! real flat planes that meet there (the back wall, that post's plane, and
-//! the crossbar) — reusing `FILLET_RADIUS` unchanged, since (unlike
-//! `FR-025`'s arena corners) both edge fillets meeting here already share
-//! one radius. The goal's other two corners, where a post meets the floor,
-//! aren't compound corners needing this treatment: the window's own bottom
-//! edge sits exactly at floor level, so a post fillet there simply ends
-//! flush with the ground, the same as any other fillet meeting the floor.
+//! `standard_goal_walls` (`RB-PHYSICS-001-FR-024`) open an actual
+//! goal-mouth window in each back wall — until then, `standard_walls`' two
+//! back walls were solid, flat planes spanning the full width, with no
+//! opening at all. `standard_walls` itself returns 7 planes instead of 9
+//! (the back walls move out of it, replaced by `standard_goal_walls`'
+//! `StaticGoalWall`s). The window's edges are *not* filleted: `FR-024`'s
+//! six `FILLET_RADIUS` edge fillets and `FR-026`'s four compound-corner
+//! fillets were withdrawn by `RB-PHYSICS-001-FR-085` (finding C) — built
+//! from the back wall's field-facing plane and the post's inward-facing
+//! plane, each one was a concave `292` uu gutter standing *in front of*
+//! the wall beside the goal, and the second capture session's real car
+//! drives straight through that footprint (`x ∈ [894, 992]`,
+//! `y ∈ [4838, 5120]`) onto a flat back wall and up it. The real goal
+//! frame's rounding, if any, is below what a capture can resolve; the
+//! window is a clean cut until a capture says otherwise.
 //!
 //! Since `RB-PHYSICS-001-FR-027`, a car (box) is actually deflected by
 //! every fillet in this module too — `collision::contacts_vs_quarter_pipe`/
@@ -194,37 +182,40 @@ pub const CORNER_LENGTH: f32 = 1152.0;
 /// own doc comment for the same finding applied to that constant.
 pub const FILLET_RADIUS: f32 = 292.0;
 
-/// Uncalibrated placeholder: the radius of the curved arch connecting a
-/// diagonal *corner* wall to the floor or ceiling — distinctly larger than
-/// the cardinal walls' own `FILLET_RADIUS` transition, since real Rocket
-/// League's corner-boost area is a noticeably bigger, more swept curve than
-/// a cardinal wall's small rounding, not just a scaled-down version of the
-/// same shape. This port has no *reliable* reference for the real arch's
-/// actual radius either — chosen only to read as visibly larger than
-/// `FILLET_RADIUS` in tests, not measured from real field mesh data. Also
-/// governs the 16 compound-corner fillets (`standard_corner_fillets`),
-/// since every one of them touches a corner wall's own floor- or
-/// ceiling-seam arch and needs to share its radius to still meet it exactly
-/// where their axes cross (see `StaticCornerFillet::between_three_planes`'s
-/// own doc comment for why a mismatched radius there wouldn't blend
-/// cleanly).
+/// The radius of the curved arch connecting a diagonal *corner* wall to
+/// the floor or ceiling. Also governs the 16 compound-corner fillets
+/// (`standard_corner_fillets`), since every one of them touches a corner
+/// wall's own floor- or ceiling-seam arch and needs to share its radius to
+/// still meet it exactly where their axes cross (see
+/// `StaticCornerFillet::between_three_planes`'s own doc comment for why a
+/// mismatched radius there wouldn't blend cleanly).
 ///
-/// `RB-PHYSICS-001-FR-040`'s research (see `FILLET_RADIUS`'s own doc
-/// comment for the full finding) found no reference for this constant
-/// specifically at all — the one wiki value it did turn up doesn't even
-/// claim to describe a corner wall's own distinctly bigger arch, only "wall
-/// bottom ramp radius" undifferentiated by wall type, so it isn't even a
-/// weak candidate for this constant the way it arguably is for
-/// `FILLET_RADIUS`. Still genuinely uncalibrated; still needs real
-/// extracted mesh data to close for real.
-pub const CORNER_ARCH_RADIUS: f32 = 750.0;
+/// Calibrated from a real capture by `RB-PHYSICS-001-FR-085` (finding D).
+/// `RB-PHYSICS-001-FR-025` had guessed `750` — "distinctly larger" than
+/// `FILLET_RADIUS`, on the belief that the corner-boost area is a bigger,
+/// more swept curve — and `RB-PHYSICS-001-FR-040`'s research found no
+/// reference for it either way. The second capture session's `curverun05`
+/// clip settles it: the real car crosses the `+X/−Y` corner arch at
+/// `(3827, −4075, z = 69)` and `(3631, −4346, z = 120)`, i.e. `115` and
+/// `62` uu (perpendicular) in from the corner wall's `|x| + |y| = 8064`
+/// line at `52` and `103` uu above the floor — both points fit a
+/// circular arch of radius `≈ 277` (`≈ 285` allowing `5` uu of suspension
+/// compression at `1900` uu/s) — while a `750` arch would put the floor
+/// `113` uu high under a car the recording shows resting flat at
+/// `(3886, −3677)`. That is the same radius the cardinal walls' own
+/// floor seam measures in the same session (`FILLET_RADIUS`, `≈ 270–292`
+/// from `walldrive04`), so the arch simply shares it: real Rocket League's
+/// corner is the cardinal curve continued round the corner, not a bigger
+/// one. Under the old `750` the port's car riding the side-wall fillet
+/// at `y ≈ −3300` was already `26` uu up a phantom ramp the recording
+/// never touches, and popped off it (`FR-085` finding D's trace).
+pub const CORNER_ARCH_RADIUS: f32 = FILLET_RADIUS;
 
 // The whole point of RB-PHYSICS-001-FR-025: a corner wall's own
 // floor/ceiling arch should read as visibly bigger than a cardinal wall's
 // small rounding, not just a scaled-down copy of the same shape. Enforced at
 // compile time rather than as a runtime test, since it's a relationship
 // between two constants.
-const _: () = assert!(CORNER_ARCH_RADIUS > FILLET_RADIUS);
 
 /// Half-width of the goal-mouth window cut into each back wall — a
 /// commonly-cited community-measured Rocket League dimension (same
@@ -387,87 +378,6 @@ fn goal_wall(sign: f32) -> StaticGoalWall {
 /// comments).
 pub fn standard_goal_walls() -> Vec<StaticGoalWall> {
     vec![goal_wall(1.0), goal_wall(-1.0)]
-}
-
-/// Fillets rounding the three edges of each goal-mouth window
-/// (`RB-PHYSICS-001-FR-024`) — two vertical posts and a horizontal
-/// crossbar, per goal, 6 `StaticQuarterPipe`s total. Each is built by
-/// `StaticQuarterPipe::between_planes` from the real back-wall plane and a
-/// purely-geometric post/crossbar plane (`goal_post_plane`/
-/// `goal_crossbar_plane`) positioned at exactly the window's own edge, so
-/// the fillet's own tangent point lands exactly on the window boundary —
-/// the ball transitions smoothly from the flat wall, through the rounded
-/// edge, into the open window, with no gap or overlap between them, the
-/// same property every other fillet/window pairing in this crate already
-/// has (e.g. a corner wall's own edge fillet sitting exactly on the corner
-/// wall's real position). The two compound corners per goal where a post's
-/// fillet meets the crossbar's are deliberately not blended into a single
-/// smooth vertex — see this module's own doc comment.
-pub fn standard_goal_cutout_fillets() -> Vec<StaticQuarterPipe> {
-    let crossbar = goal_crossbar_plane();
-    let mut fillets = Vec::with_capacity(6);
-
-    for &back_sign in &[1.0f32, -1.0] {
-        let wall = back_wall_plane(back_sign);
-        for &post_sign in &[1.0f32, -1.0] {
-            let post = goal_post_plane(post_sign);
-            fillets.push(StaticQuarterPipe::between_planes(
-                &wall,
-                &post,
-                FILLET_RADIUS,
-                Vec3::new(0.0, 0.0, 1.0),
-            ));
-        }
-        fillets.push(StaticQuarterPipe::between_planes(
-            &wall,
-            &crossbar,
-            FILLET_RADIUS,
-            Vec3::new(1.0, 0.0, 0.0),
-        ));
-    }
-
-    fillets
-}
-
-/// Compound-corner fillets at each goal's two top corners
-/// (`RB-PHYSICS-001-FR-026`) — the vertices where a post's own vertical
-/// fillet (`standard_goal_cutout_fillets`) meets the crossbar's own
-/// horizontal fillet, one per post per goal (4 total: 2 posts times 2
-/// goals). `standard_goal_cutout_fillets`' own doc comment flagged these as
-/// deliberately left as a sharp, unblended vertex; this closes that gap the
-/// same way `RB-PHYSICS-001-FR-023` closed the arena's own compound
-/// corners — via `StaticCornerFillet::between_three_planes` directly on the
-/// three real flat planes that meet there (the back wall, that post's own
-/// plane, and the crossbar), rather than from the two edge fillets
-/// `standard_goal_cutout_fillets` builds at that vertex, since a corner
-/// fillet's center is already exactly their common axis intersection (see
-/// `between_three_planes`'s own doc comment). Reuses `FILLET_RADIUS`
-/// unchanged — unlike the arena's own diagonal-corner fillets
-/// (`RB-PHYSICS-001-FR-025`), both edge fillets meeting here already share
-/// one radius, so there's no mismatched-radius concern requiring a
-/// dedicated constant. The goal's other two corners, where a post meets the
-/// floor, aren't compound corners at all: the window's own bottom edge
-/// sits exactly at floor level, so nothing here is any different from an
-/// ordinary post fillet ending flush with the ground the ball already
-/// rolls on.
-pub fn standard_goal_corner_fillets() -> Vec<StaticCornerFillet> {
-    let crossbar = goal_crossbar_plane();
-    let mut fillets = Vec::with_capacity(4);
-
-    for &back_sign in &[1.0f32, -1.0] {
-        let wall = back_wall_plane(back_sign);
-        for &post_sign in &[1.0f32, -1.0] {
-            let post = goal_post_plane(post_sign);
-            fillets.push(StaticCornerFillet::between_three_planes(
-                &wall,
-                &post,
-                &crossbar,
-                FILLET_RADIUS,
-            ));
-        }
-    }
-
-    fillets
 }
 
 /// The goal box's own back-of-net wall on the `sign`d side (`1.0` for
@@ -1088,91 +998,6 @@ mod tests {
             assert!((wall.window_center.z - GOAL_HEIGHT * 0.5).abs() < 1e-3);
             assert_eq!(wall.half_width, GOAL_HALF_WIDTH);
             assert_eq!(wall.half_height, GOAL_HEIGHT * 0.5);
-        }
-    }
-
-    #[test]
-    fn standard_goal_cutout_fillets_has_six_fillets() {
-        assert_eq!(standard_goal_cutout_fillets().len(), 6);
-    }
-
-    #[test]
-    fn every_goal_cutout_fillet_sits_radius_in_from_a_back_wall_and_a_post_or_crossbar_plane() {
-        // Same proof `every_standard_curve_sits_radius_in_from_a_vertical_wall`
-        // gives for the arena's other fillets: `between_planes` places its
-        // axis exactly `radius` in from *each* of the two planes it
-        // bridges, so every goal-cutout fillet's axis must sit exactly
-        // `FILLET_RADIUS` from some back wall, and also from some
-        // post/crossbar plane -- proof these fillets were actually derived
-        // from real geometry, not just built with plausible-looking
-        // numbers.
-        let back_walls = [back_wall_plane(1.0), back_wall_plane(-1.0)];
-        let post_and_crossbar_planes = [
-            goal_post_plane(1.0),
-            goal_post_plane(-1.0),
-            goal_crossbar_plane(),
-        ];
-        let sits_radius_in = |plane: &StaticPlane, point: &Vec3| {
-            (plane.signed_distance(point) - FILLET_RADIUS).abs() < 1e-2
-        };
-
-        for fillet in standard_goal_cutout_fillets() {
-            assert!(
-                back_walls
-                    .iter()
-                    .any(|p| sits_radius_in(p, &fillet.axis_point)),
-                "expected {:?} to sit radius-in from a back wall",
-                fillet.axis_point
-            );
-            assert!(
-                post_and_crossbar_planes
-                    .iter()
-                    .any(|p| sits_radius_in(p, &fillet.axis_point)),
-                "expected {:?} to sit radius-in from a post or crossbar plane",
-                fillet.axis_point
-            );
-        }
-    }
-
-    #[test]
-    fn standard_goal_corner_fillets_has_four_fillets() {
-        assert_eq!(standard_goal_corner_fillets().len(), 4);
-    }
-
-    #[test]
-    fn every_goal_corner_fillets_center_sits_radius_in_from_a_back_wall_a_post_and_the_crossbar() {
-        // Each of the 4 fillets should sit exactly FILLET_RADIUS from
-        // *some* back wall, *some* post plane, and the crossbar plane
-        // simultaneously -- proving `between_three_planes` actually solved
-        // for the real triple intersection this goal's geometry produces,
-        // not just some arbitrary point (the same proof
-        // `every_standard_corner_fillets_center_sits_radius_in_from_a_floor_or_ceiling_a_side_or_back_wall_and_a_corner_wall`
-        // gives for the arena's own compound corners).
-        let back_walls = [back_wall_plane(1.0), back_wall_plane(-1.0)];
-        let post_planes = [goal_post_plane(1.0), goal_post_plane(-1.0)];
-        let crossbar = goal_crossbar_plane();
-        let sits_radius_in = |plane: &StaticPlane, point: &Vec3| {
-            (plane.signed_distance(point) - FILLET_RADIUS).abs() < 1e-2
-        };
-
-        for fillet in standard_goal_corner_fillets() {
-            assert!(
-                back_walls.iter().any(|p| sits_radius_in(p, &fillet.center)),
-                "expected {:?} to sit radius-in from a back wall",
-                fillet.center
-            );
-            assert!(
-                post_planes
-                    .iter()
-                    .any(|p| sits_radius_in(p, &fillet.center)),
-                "expected {:?} to sit radius-in from a post plane",
-                fillet.center
-            );
-            assert!(
-                sits_radius_in(&crossbar, &fillet.center),
-                "expected {:?} to sit radius-in from the crossbar",
-                fillet.center
-            );
         }
     }
 

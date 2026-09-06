@@ -267,13 +267,7 @@ impl PhysicsWorld {
         for curve in crate::arena::standard_curves() {
             world = world.with_curve(curve);
         }
-        for curve in crate::arena::standard_goal_cutout_fillets() {
-            world = world.with_curve(curve);
-        }
         for corner_fillet in crate::arena::standard_corner_fillets() {
-            world = world.with_corner_fillet(corner_fillet);
-        }
-        for corner_fillet in crate::arena::standard_goal_corner_fillets() {
             world = world.with_corner_fillet(corner_fillet);
         }
         for goal_wall in crate::arena::standard_goal_walls() {
@@ -605,6 +599,16 @@ impl PhysicsWorld {
         // tick's contact count, not this tick's raycast.
         let stick_control = *prev_wheels_in_contact == 0;
         *prev_wheels_in_contact = wheels::wheels_in_contact(car_wheels);
+        // RB-PHYSICS-001-FR-085 finding E: the tick a ground jump starts,
+        // the real car gets the jump impulse, its hold acceleration,
+        // gravity and the sticky force — and *no* suspension push. The
+        // springs that were holding it up (at rest exactly gravity plus
+        // sticky, `8.1` uu/s a tick) act on every other contact tick but
+        // not this one: every recorded jump reads `296` uu/s the tick after
+        // the press where the port read `304`, and the `+8` never decays
+        // (`+11` by the time the wheels let go a tick early). Read the
+        // press before `apply_driven_forces` consumes it.
+        let ground_jump_started = on_ground && input.jump && !*jump_held;
         drive::apply_driven_forces(
             car,
             input,
@@ -622,7 +626,9 @@ impl PhysicsWorld {
         // with one to three wheels down presses and levels the car onto
         // the surface.
         wheels::apply_auto_roll(car, car_wheels, input.throttle.clamp(-1.0, 1.0));
-        wheels::apply_suspension_impulses(car, car_wheels, dt);
+        if !ground_jump_started {
+            wheels::apply_suspension_impulses(car, car_wheels, dt);
+        }
         wheels::apply_friction_impulses(car, car_wheels, dt);
         integrate::apply_damping(car, dt);
         integrate::integrate_velocities(car, dt);
@@ -1022,6 +1028,11 @@ impl PhysicsWorld {
             // integrated, as this port did until now, under-rotated every
             // flip by ≈2 rad/s.
             drive::clamp_angular_speed(car);
+            // RB-PHYSICS-001-FR-085: the linear half of that same
+            // RocketSim block — |v| can never exceed MAX_CAR_SPEED, whatever
+            // put it there (a jump kick on a full-speed boost run, a wall
+            // push, a collision). Same placement, same whole-vector rescale.
+            drive::clamp_linear_speed(car);
         }
 
         self.elapsed_secs += dt;
@@ -2187,6 +2198,52 @@ mod tests {
         let z = world.cars[0].position.z;
         assert!((z - 17.0).abs() < 0.5, "settled at rest height: {z}");
         assert!(wheels::is_on_ground(world.car_wheels(0)));
+    }
+
+    #[test]
+    fn the_jump_press_tick_gets_no_suspension_push() {
+        // RB-PHYSICS-001-FR-085 finding E: the tick a ground jump starts,
+        // the real car reads `296` uu/s — the `291.7` impulse plus one
+        // tick of hold acceleration (`+12.2`), gravity (`-5.4`) and the
+        // sticky force (`-2.7`) — where the port read `304`, the springs
+        // that were holding the car up (`+8.1`, exactly gravity plus
+        // sticky at rest) pushing once more on the way out. Every jump in
+        // every capture shows it, and the `+8` never decays.
+        let car = RigidBody::standard_car(Vec3::new(0.0, 0.0, 17.0));
+        let mut world = wheeled_car_world(car);
+        let dt = 1.0 / 120.0;
+        for _ in 0..30 {
+            world.step(dt);
+        }
+        let resting_z = world.cars[0].position.z;
+        assert!(
+            (resting_z - 17.0).abs() < 0.5 && world.cars[0].linear_velocity.z.abs() < 1.0,
+            "expected the car to rest on its wheels first, z={resting_z}"
+        );
+        assert!(wheels::is_on_ground(world.car_wheels(0)));
+
+        world.set_car_input(
+            0,
+            rb_domain::ControllerInput {
+                jump: true,
+                ..Default::default()
+            },
+        );
+        world.step(dt);
+        let press_tick = world.cars[0].linear_velocity.z;
+        let hold = 4375.0 / 3.0 * dt;
+        let gravity = 650.0 * dt;
+        let sticky = wheels::STICKY_FORCE_BASE_SCALE * 650.0 * dt;
+        let expected = crate::drive::JUMP_SPEED + hold - gravity - sticky;
+        assert!(
+            (press_tick - expected).abs() < 1.0,
+            "expected the press tick to read impulse + hold - gravity - sticky = {expected:.1} \
+             (the recording's 296), got {press_tick:.1}"
+        );
+        assert!(
+            press_tick < crate::drive::JUMP_SPEED + 8.0,
+            "expected no suspension push on the press tick (the old 303.8), got {press_tick:.1}"
+        );
     }
 
     #[test]
@@ -3591,13 +3648,15 @@ mod tests {
     }
 
     #[test]
-    fn standard_arena_has_thirty_curved_transitions() {
+    fn standard_arena_has_twenty_four_curved_transitions() {
         // 24 floor/ceiling-seam and vertical-edge fillets
-        // (RB-PHYSICS-001-FR-020/021/022) plus 6 goal-cutout-edge fillets
-        // (RB-PHYSICS-001-FR-024), all sharing the same `curves` list.
+        // (RB-PHYSICS-001-FR-020/021/022). The 6 goal-cutout-edge fillets
+        // RB-PHYSICS-001-FR-024 added here were withdrawn by
+        // RB-PHYSICS-001-FR-085 finding C: a real car drives through their
+        // footprint onto a flat wall.
         let ball = RigidBody::sphere(1.0, 1.0, Vec3::ZERO);
         let world = PhysicsWorld::standard_arena(ball);
-        assert_eq!(world.curves.len(), 30);
+        assert_eq!(world.curves.len(), 24);
     }
 
     #[test]
@@ -3821,9 +3880,10 @@ mod tests {
     #[test]
     fn a_ball_embedded_in_a_corner_walls_floor_arch_footprint_is_pushed_toward_the_axis() {
         // The real end-to-end proof of RB-PHYSICS-001-FR-025: a corner
-        // wall's own floor-seam arch now uses the larger
-        // `arena::CORNER_ARCH_RADIUS`, not the cardinal walls'
-        // `arena::FILLET_RADIUS` -- a ball embedded past *that* larger
+        // wall's own floor-seam arch uses its own
+        // `arena::CORNER_ARCH_RADIUS` (equal to the cardinal walls'
+        // `arena::FILLET_RADIUS` since RB-PHYSICS-001-FR-085 measured
+        // both from a real capture) -- a ball embedded past that
         // radius (deep enough that it would sit outside a plain
         // `FILLET_RADIUS` fillet's own footprint entirely) should still get
         // pushed back toward the axis, proving the bigger radius is live
@@ -3839,7 +3899,6 @@ mod tests {
         let wall = StaticPlane::new(wall_normal, -1000.0);
         let axis_direction = floor.normal.cross(&wall.normal);
         let radius = crate::arena::CORNER_ARCH_RADIUS;
-        assert!(radius > crate::arena::FILLET_RADIUS);
         let curve =
             crate::body::StaticQuarterPipe::between_planes(&floor, &wall, radius, axis_direction);
 
@@ -3853,7 +3912,6 @@ mod tests {
         // footprint would have ended, proving the larger radius is what's
         // actually governing this contact.
         let embedded_distance = radius - ball_radius + 10.0;
-        assert!(embedded_distance > crate::arena::FILLET_RADIUS);
         let embedded_position = curve.axis_point + bisector * embedded_distance;
         let mut ball = RigidBody::sphere(ball_radius, 1.0, embedded_position);
         ball.restitution = 0.0;
@@ -3953,12 +4011,13 @@ mod tests {
     }
 
     #[test]
-    fn standard_arena_has_twenty_compound_corner_fillets() {
-        // 16 arena corners (RB-PHYSICS-001-FR-023) plus 4 goal post-crossbar
-        // corners (RB-PHYSICS-001-FR-026, 2 posts times 2 goals).
+    fn standard_arena_has_sixteen_compound_corner_fillets() {
+        // 16 arena corners (RB-PHYSICS-001-FR-023). The 4 goal
+        // post-crossbar corners RB-PHYSICS-001-FR-026 added went with the
+        // goal edge fillets they blended (RB-PHYSICS-001-FR-085 finding C).
         let ball = RigidBody::sphere(1.0, 1.0, Vec3::ZERO);
         let world = PhysicsWorld::standard_arena(ball);
-        assert_eq!(world.corner_fillets.len(), 20);
+        assert_eq!(world.corner_fillets.len(), 16);
     }
 
     #[test]
@@ -4138,20 +4197,22 @@ mod tests {
         // keeps going past the back wall's own y position instead of being
         // stopped by it -- proof `box_vs_goal_wall`'s per-corner window
         // treatment is live physical geometry for a car, not just a
-        // detection hack. Same 1.8s flight-duration bound as the ball's own
-        // equivalent test, for the same reason (see that test's own doc
-        // comment) -- a car's own small half-extents relative to the goal's
-        // real dimensions (`GOAL_HALF_WIDTH`/`GOAL_HEIGHT`) mean it clears
-        // the window with room to spare either way.
+        // detection hack. The car is launched at exactly `MAX_CAR_SPEED`
+        // (since `RB-PHYSICS-001-FR-085` any faster is clamped back to it at
+        // the end of every step) and given 2.6s -- comfortably more than the
+        // ≈2.23s it needs to cover the ≈5121 uu to the back wall; a car's
+        // own small half-extents relative to the goal's real dimensions
+        // (`GOAL_HALF_WIDTH`/`GOAL_HEIGHT`) mean it clears the window with
+        // room to spare either way.
         let ball = RigidBody::sphere(1.0, 1.0, Vec3::new(0.0, -3000.0, 1000.0));
         let mut car = some_car(Vec3::new(0.0, 0.0, crate::arena::GOAL_HEIGHT * 0.5));
-        car.linear_velocity = Vec3::new(0.0, 3000.0, 0.0);
+        car.linear_velocity = Vec3::new(0.0, drive::MAX_CAR_SPEED, 0.0);
 
         let mut world = PhysicsWorld::standard_arena(ball).with_car(car);
         world.gravity = Vec3::ZERO;
 
         let dt = 1.0 / 120.0;
-        for _ in 0..(1.8 / dt) as u32 {
+        for _ in 0..(2.6 / dt) as u32 {
             world.step(dt);
         }
 
@@ -4173,7 +4234,7 @@ mod tests {
         let ball = RigidBody::sphere(1.0, 1.0, Vec3::new(0.0, -3000.0, 1000.0));
         let solid_x = crate::arena::GOAL_HALF_WIDTH + 500.0;
         let mut car = some_car(Vec3::new(solid_x, 0.0, 18.0));
-        car.linear_velocity = Vec3::new(0.0, 3000.0, 0.0);
+        car.linear_velocity = Vec3::new(0.0, drive::MAX_CAR_SPEED, 0.0);
 
         let mut world = PhysicsWorld::standard_arena(ball).with_car(car);
         world.gravity = Vec3::ZERO;
@@ -4403,118 +4464,6 @@ mod tests {
             caught_speed.abs() < free_flight_speed.abs() * 0.5,
             "expected the net to catch the car, losing at least half its speed compared to \
              free flight, caught vy={caught_speed}, free-flight vy={free_flight_speed}"
-        );
-    }
-
-    #[test]
-    fn a_ball_embedded_in_a_goal_posts_fillet_footprint_is_pushed_toward_the_axis() {
-        // The real end-to-end proof that a goal-cutout edge fillet
-        // (RB-PHYSICS-001-FR-024) is live physical geometry, not just a
-        // detection hack: a ball embedded past a post fillet's own radius
-        // (deep in what would otherwise be the sharp, unrounded corner
-        // between the flat back wall and the post's own inward-facing
-        // plane) gets pushed back toward the axis -- the same live-physics
-        // proof already given for every other fillet in this port. Checks
-        // the ball settles at (not past) the fillet's own resting distance,
-        // same reasoning as
-        // `a_ball_embedded_in_a_vertical_corner_edges_fillet_footprint_is_pushed_toward_the_axis`.
-        let wall = StaticPlane::new(Vec3::new(0.0, -1.0, 0.0), -1000.0);
-        let post = StaticPlane::new(Vec3::new(-1.0, 0.0, 0.0), -200.0);
-        let radius = 292.0;
-        let curve = crate::body::StaticQuarterPipe::between_planes(
-            &wall,
-            &post,
-            radius,
-            Vec3::new(0.0, 0.0, 1.0),
-        );
-
-        let ball_radius = 93.15;
-        let bisector = ((curve.sector_start + curve.sector_end) * 0.5)
-            .normalize()
-            .expect("sector_start and sector_end aren't exactly opposite, so their sum is nonzero");
-        // Overlapping the fillet's own material by 10 units (further from
-        // the axis than the resting distance, toward the sharp corner the
-        // fillet replaces).
-        let embedded_distance = curve.radius - ball_radius + 10.0;
-        let embedded_position = curve.axis_point + bisector * embedded_distance;
-        let mut ball = RigidBody::sphere(ball_radius, 1.0, embedded_position);
-        ball.restitution = 0.0;
-
-        let mut world = PhysicsWorld::new(ball, flat_ground())
-            .with_wall(wall)
-            .with_wall(post)
-            .with_curve(curve);
-        world.gravity = Vec3::ZERO;
-
-        let dt = 1.0 / 120.0;
-        for _ in 0..60 {
-            world.step(dt);
-        }
-
-        let final_horizontal_rel = Vec3::new(
-            world.ball.position.x - curve.axis_point.x,
-            world.ball.position.y - curve.axis_point.y,
-            0.0,
-        );
-        let final_dist = final_horizontal_rel.length();
-        let resting_distance = curve.radius - ball_radius;
-        assert!(
-            (final_dist - resting_distance).abs() < 1.0,
-            "expected the goal-post fillet to settle the ball at its resting distance \
-             ({resting_distance}), started {embedded_distance} units out, got {final_dist}"
-        );
-    }
-
-    #[test]
-    fn a_ball_embedded_in_a_goal_corner_fillets_footprint_is_pushed_toward_the_center() {
-        // The real end-to-end proof of RB-PHYSICS-001-FR-026: three planes
-        // meeting at a single vertex -- here a back wall, a post plane, and
-        // a crossbar plane, exactly like the compound corner where a goal
-        // post's own fillet meets the crossbar's -- a ball embedded past
-        // the fillet's own radius (deep in what would otherwise be the
-        // sharp, unrounded corner) should be pushed back toward the
-        // fillet's center, the same live-physics proof
-        // `a_ball_embedded_in_a_compound_corner_fillets_footprint_is_pushed_toward_the_center`
-        // already gives for the arena's own compound corners, now for a
-        // goal's. Checks the ball settles at (not past) the fillet's own
-        // resting distance, same reasoning as that test.
-        let wall = StaticPlane::new(Vec3::new(0.0, -1.0, 0.0), -1000.0);
-        let post = StaticPlane::new(Vec3::new(-1.0, 0.0, 0.0), -200.0);
-        let crossbar = StaticPlane::new(Vec3::new(0.0, 0.0, -1.0), -600.0);
-        let radius = 292.0;
-        let fillet =
-            crate::body::StaticCornerFillet::between_three_planes(&wall, &post, &crossbar, radius);
-
-        let ball_radius = 93.15;
-        let toward_corner = Vec3::new(1.0, 1.0, 1.0)
-            .normalize()
-            .expect("(1, 1, 1) is nonzero");
-        // Overlapping the fillet's own material by 10 units (further from
-        // the center than the resting distance, toward the sharp corner
-        // the fillet replaces).
-        let embedded_distance = fillet.radius - ball_radius + 10.0;
-        let embedded_position = fillet.center + toward_corner * embedded_distance;
-        let mut ball = RigidBody::sphere(ball_radius, 1.0, embedded_position);
-        ball.restitution = 0.0;
-
-        let mut world = PhysicsWorld::new(ball, flat_ground())
-            .with_wall(wall)
-            .with_wall(post)
-            .with_wall(crossbar)
-            .with_corner_fillet(fillet);
-        world.gravity = Vec3::ZERO;
-
-        let dt = 1.0 / 120.0;
-        for _ in 0..60 {
-            world.step(dt);
-        }
-
-        let final_dist = (world.ball.position - fillet.center).length();
-        let resting_distance = fillet.radius - ball_radius;
-        assert!(
-            (final_dist - resting_distance).abs() < 1.0,
-            "expected the goal corner fillet to settle the ball at its resting distance \
-             ({resting_distance}), started {embedded_distance} units out, got {final_dist}"
         );
     }
 }

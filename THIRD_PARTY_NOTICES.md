@@ -143,6 +143,7 @@ Full text: <https://github.com/ZealanL/RocketSim/blob/main/LICENSE>.
 | `PhysicsWorld::step`'s once-per-two-ticks hit cooldown | `src/Sim/Ball/Ball.cpp` | `Ball::_OnHit`'s `tickCount > lastHitTick + 1` guard |
 | `wheels::apply_auto_roll` and the `CAR_AUTOROLL_*` constants | `src/Sim/Car/Car.cpp`, `src/RLConst.h` | `Car::_UpdateAutoRoll`'s ground-up direction, the two misalignment factors and their signed torque directions, the downward force |
 | `wheels::WALL_CONTACT_MAX_NORMAL_Z` | `src/RLConst.h` | `CAR_AUTOFLIP_NORMZ_THRESH` (`1/√2`), used here as the wall-versus-floor test for a wheel contact |
+| `drive::clamp_linear_speed` | `src/Sim/Car/Car.cpp` | The linear half of `Car::_FinishPhysicsTick`'s "Limit velocities" block (`vel.normalized() * CAR_MAX_SPEED`), next to the angular half `drive::clamp_angular_speed` already carries |
 | `solver::PairMaterial` and the `CARBALL_*`/`CARCAR_*` constants | `src/Sim/Arena/Arena.cpp`, `src/Sim/Ball/Ball.cpp`, `src/RLConst.h` | the contact callback's per-pair `m_combinedFriction`/`m_combinedRestitution` overrides (`CARCAR` set in `Arena.cpp`, `CARBALL` returned by `Ball::_OnHit`) |
 
 The wheel rays' geometry against this port's own analytic arena shapes

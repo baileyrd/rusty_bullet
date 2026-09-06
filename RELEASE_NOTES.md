@@ -6,6 +6,35 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The second capture session
+**2026-09-06** · `RB-PHYSICS-001-FR-085`
+
+- Six new real clips, each divergence run to a mechanism. Four fixed:
+  the car's total speed is capped at `2300` uu/s whatever put it there
+  (`drive::clamp_linear_speed`, the linear half of RocketSim's
+  `_FinishPhysicsTick` limit — the recorded jump at the cap reads
+  `(−2281, 292)`, still `2300` long); the goal-side edge and corner
+  fillets are gone (each was a `292` uu gutter *in front of* the wall
+  beside the goal, and the real car drives straight through it onto a
+  flat wall); the corner arch radius is the cardinal fillet's `292`
+  (the real car's path over the arch fits `≈ 277–285`; `750` put a
+  `113` uu ramp under a car resting flat and popped the port's car off
+  the side fillet); and the jump press tick gets no suspension push
+  (`296` uu/s recorded vs the port's `304`, a `+11` uu/s error on every
+  jump).
+- The `dodge-derailment` fixture drops `114.17 → 73.76` uu (ratchet
+  `< 85`). Three new fixtures with ratchets: `throttle-jump` (`3.3` uu
+  over `4.6` s of throttle, two jumps and a landing), `boost-wall-entry`
+  (`3.9` uu, `64` max at the wall curve), `airborne-hit` (car `5.7` /
+  ball `4.8` uu through a real airborne hit).
+- Open, with their evidence: the floor-to-wall curve sheds `~380` uu/s
+  the port does not (the real suspension bottoms harder; the chassis
+  probably scrapes the mesh), the ball's goal entry, and two recorder
+  defects (analog axes zero in two clips; a dodge with no `jump`
+  recorded).
+
+---
+
 ## The wheels see the whole arena
 **2026-09-06** · `RB-PHYSICS-001-FR-082` step (c)
 

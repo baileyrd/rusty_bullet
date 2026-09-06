@@ -205,6 +205,27 @@ mod tests {
         )
     }
 
+    fn throttle_jump_fixture() -> &'static str {
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../rb_capture_ingest/fixtures/throttle-jump.capture.jsonl"
+        )
+    }
+
+    fn boost_wall_entry_fixture() -> &'static str {
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../rb_capture_ingest/fixtures/boost-wall-entry.capture.jsonl"
+        )
+    }
+
+    fn airborne_hit_fixture() -> &'static str {
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../rb_capture_ingest/fixtures/airborne-hit.capture.jsonl"
+        )
+    }
+
     #[test]
     fn scores_a_real_replay_against_the_synthetic_capture_fixture() {
         let score = score_replay_against_capture(
@@ -395,16 +416,80 @@ mod tests {
 
         assert_eq!(score.frames_compared, 347);
         assert_eq!(score.cars.pairs_compared, 347);
-        // Ratchet (2026-09-06): mean car position distance ~114 uu and
-        // mean ball distance ~42 uu after `FR-084` findings 1–3 (`~103` /
-        // `~79` after `FR-082` step (b), `~117` / `~75` after `FR-083`
-        // finding 5, `~140` / `~91` after findings 1–4, `~160` / `~80`
-        // after the wheels, `~240` / `~730` before them). The car bound
-        // is loosened `< 110 → < 120` here, once, for the reason the
-        // history above records; the ball bound tightens `< 85 → < 50`.
-        // Bounded loosely above to catch a regression, not to pin the
-        // exact figure.
-        assert!(score.cars.mean_position_distance < 120.0);
+        // Ratchet (2026-09-06): mean car position distance ~74 uu and
+        // mean ball distance ~42 uu after `FR-085` finding E — the jump
+        // press tick without its suspension push (`~114` / `~42` after
+        // `FR-084` findings 1–3, `~103` / `~79` after `FR-082` step (b),
+        // `~117` / `~75` after `FR-083` finding 5, `~140` / `~91` after
+        // findings 1–4, `~160` / `~80` after the wheels, `~240` / `~730`
+        // before them). The car bound tightens `< 120 → < 85`. Bounded
+        // loosely above to catch a regression, not to pin the exact
+        // figure.
+        assert!(score.cars.mean_position_distance < 85.0);
         assert!(score.mean_ball_distance < 50.0);
+    }
+
+    /// `RB-PHYSICS-001-FR-085` finding B: a real throttle-only drive with
+    /// two ground jumps (a `0.18` s tap and a `0.76` s hold) and their
+    /// landings tracks to a few uu over `4.6` s once the press tick lost
+    /// its suspension push (finding E). This is the flat-floor baseline
+    /// every other fixture's figure stands on.
+    #[test]
+    fn isolated_replay_of_a_real_throttle_drive_with_two_jumps_tracks_to_a_few_uu() {
+        let score = score_capture_against_candidate(
+            throttle_jump_fixture(),
+            DEFAULT_MAX_TIMESTAMP_DELTA_SECS,
+        )
+        .unwrap();
+
+        assert_eq!(score.frames_compared, 558);
+        assert_eq!(score.cars.pairs_compared, 558);
+        // Ratchet (2026-09-06): mean car position distance ~3.3 uu, max
+        // ~5.4 uu. Bounded loosely above to catch a regression.
+        assert!(score.cars.mean_position_distance < 6.0);
+        assert!(score.cars.max_position_distance < 12.0);
+    }
+
+    /// `RB-PHYSICS-001-FR-085` findings A and F: a real full-boost run at
+    /// the `2300` uu/s cap into the `+X` wall's floor curve. The straight
+    /// run tracks to a uu; the curve itself is the open finding F — the
+    /// recording sheds `~380` uu/s more than gravity explains through the
+    /// transition, the port `~100` — which is where the max sits.
+    #[test]
+    fn isolated_replay_of_a_real_boost_run_into_the_wall_curve_stays_under_its_recorded_divergence()
+    {
+        let score = score_capture_against_candidate(
+            boost_wall_entry_fixture(),
+            DEFAULT_MAX_TIMESTAMP_DELTA_SECS,
+        )
+        .unwrap();
+
+        assert_eq!(score.frames_compared, 271);
+        assert_eq!(score.cars.pairs_compared, 271);
+        // Ratchet (2026-09-06): mean car position distance ~3.9 uu, max
+        // ~64 uu (the curve, finding F). Bounded loosely above.
+        assert!(score.cars.mean_position_distance < 8.0);
+        assert!(score.cars.max_position_distance < 90.0);
+    }
+
+    /// `RB-PHYSICS-001-FR-085` finding G: a real boost-and-jump approach
+    /// that meets the ball in the air (the press `7` ticks before the
+    /// hit, wheels already off), the hit itself, and the ball's flight
+    /// toward the goal. Car and ball both track to a few uu; the ball's
+    /// later entry into the goal (finding K) lies past this excerpt.
+    #[test]
+    fn isolated_replay_of_a_real_airborne_hit_tracks_car_and_ball_to_a_few_uu() {
+        let score = score_capture_against_candidate(
+            airborne_hit_fixture(),
+            DEFAULT_MAX_TIMESTAMP_DELTA_SECS,
+        )
+        .unwrap();
+
+        assert_eq!(score.frames_compared, 517);
+        assert_eq!(score.cars.pairs_compared, 517);
+        // Ratchet (2026-09-06): mean car position distance ~5.7 uu, mean
+        // ball distance ~4.8 uu (max ~21 uu). Bounded loosely above.
+        assert!(score.cars.mean_position_distance < 10.0);
+        assert!(score.mean_ball_distance < 10.0);
     }
 }

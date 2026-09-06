@@ -2375,6 +2375,32 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-085` added and findings A, C, D and E implemented
+  — the second capture session (six clips), each divergence run to a
+  mechanism: (A) the `2300` uu/s cap is a whole-vector rescale of
+  whatever speed the car has (`drive::clamp_linear_speed`, RocketSim's
+  `_FinishPhysicsTick` limit; the recorded jump at the cap reads
+  `(−2281, 292)`, still `2300` long); (C) `FR-024`'s six goal-cutout
+  edge fillets and `FR-026`'s four corner fillets withdrawn — each was
+  a `292` uu gutter *in front of* the wall beside the goal, and the
+  real car drives straight through that footprint onto a flat wall;
+  (D) `CORNER_ARCH_RADIUS` measured at `FILLET_RADIUS` from the real
+  car's path over the corner arch (`≈ 277–285`; `750` put the floor
+  `113` uu high under a car resting flat, and popped the port's car off
+  the side fillet); (E) the jump press tick without its suspension push
+  (`296` uu/s recorded vs `304`; the `+8` grows to `+11` when the
+  wheels let go a tick early, and never decays) — `dodge-derailment`
+  `114.17 → 73.76` uu, ratchet `< 120 → < 85`. Three new fixtures with
+  ratchets: `throttle-jump` (`3.3` uu over `4.6` s of throttle, two
+  jumps and a landing), `boost-wall-entry` (`3.9` uu; `64` max at the
+  curve), `airborne-hit` (car `5.7` / ball `4.8` uu). Open: (F) the
+  floor-to-wall curve sheds `~380` uu/s the port does not (`~100`);
+  (K) the ball's goal entry (`~990` uu at `10.0–10.25` s); (I) two
+  capture defects for the recorder — analog axes recorded as zero in
+  `hittickjump01`/`01b`, a dodge with no `jump` press recorded in
+  `walldrive04`. Workspace tests `468 → 468` (`+2 +1 −6` in
+  `rb_physics_bullet`, `+3` in `rb_verify_cli`). Full workspace
+  `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-084` added and findings 1–3 implemented — the
   landing and jump-exit contact, diagnosed with a new
   one-tick-from-recorded-state instrument (seed from each recorded
@@ -2505,17 +2531,25 @@
    the ball on the recorded tick (ball `79.28 → 42.19` uu). `FR-082`
    step (c) completed the wheel model — rays over the whole arena, the
    wheel-based wall normal, the auto-roll — with nothing on this
-   flat-floor fixture to measure it against. Next step: a second
-   capture session. The open items all need footage the one fixture
-   cannot give: `FR-084` finding 4 (the post-hit suspension slam on a
-   hit-tick jump: the recording shows neither the damping push nor the
-   pushback, and afterwards neither the sticky force nor the expected
-   hold) wants a hit-tick jump or a clean jump right after a hit;
-   finding 5 (the `1.5×` single-wheel push) wants more one-wheel
-   landings; step (c) wants a car driving up a wall and landing on a
-   curve. Until then, the remaining wheel-model non-goals (rays against
-   other bodies, the world-contact fallback, the auto-flip) are the
-   only code left in `FR-082`'s scope. Nothing is to be tuned against
+   flat-floor fixture to measure it against. Next step:
+   `RB-PHYSICS-001-FR-085` then took the second capture session's six
+   clips through the port — the speed cap, the goal-side fillets, the
+   corner arch radius and the jump press tick are fixed
+   (`dodge-derailment` `114.17 → 73.76` uu; three new fixtures at `3–6`
+   uu) — and left finding F as the next mechanism: the real car sheds
+   `~380` uu/s more than gravity explains through the floor-to-wall
+   curve at `2300` (and `110` uu/s descending it), the port `~100` and
+   nothing; the real origin path fits the `292` curve only with the
+   suspension bottomed harder than the port's pushback allows, so the
+   candidate is the chassis scraping the mesh under
+   `CARWORLD_COLLISION_FRICTION`. Finding K (the ball's goal entry)
+   and the dodge residuals (`FR-083`) follow. `FR-084` finding 4 still
+   wants a wheels-down hit-tick jump (`hittickjump01b`'s press came
+   `7` ticks early with the wheels off), and finding 5 wants one-wheel
+   landings that don't follow a dodge. Until then, the remaining
+   wheel-model non-goals (rays against other bodies, the world-contact
+   fallback, the auto-flip) are the only code left in `FR-082`'s
+   scope. Nothing is to be tuned against
    the segment after
    `6.05` s, where the capture's own pitch input is missing (finding
    6). See `FR-083`'s and `FR-082`'s own spec entries.
@@ -2525,8 +2559,10 @@
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
 - `cargo test --workspace`: pass (468 tests: 27 in `rb_domain` (incl. 4
-  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 407 in
-  `rb_physics_bullet` (incl. 9 new tests for `RB-PHYSICS-001-FR-082`
+  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 404 in
+  `rb_physics_bullet` (incl. 2 speed-cap tests and 1 press-tick test
+  for `RB-PHYSICS-001-FR-085`, less the 6 goal-fillet tests it
+  withdrew, 9 new tests for `RB-PHYSICS-001-FR-082`
   step (c)'s rays, wall normal, and auto-roll, 2 new stick-gate tests for
   `RB-PHYSICS-001-FR-084` findings 2–3, 7 new `wheels.rs` curve tests for
   `RB-PHYSICS-001-FR-082` step (b), 5 new `hit.rs` tests and 1 new `world.rs`
@@ -2550,7 +2586,7 @@
   `body.rs`/`collision.rs`/`world.rs` tests for finding 5's hitbox
   offset), 14 in
   `rb_replay_ingest` (incl. real-fixture integration test), 10 in
-  `rb_capture_ingest` (incl. synthetic-fixture test), 10 in `rb_verify_cli`
+  `rb_capture_ingest` (incl. synthetic-fixture test), 13 in `rb_verify_cli` (incl. 3 fixture ratchets for `RB-PHYSICS-001-FR-085`)
   (incl. `score_capture_against_candidate`'s and `score_capture_growth`'s
   happy-path runs against the synthetic capture fixture, and
   `RB-PHYSICS-001-FR-079`'s isolated-dodge-replay ratchet against the real
@@ -2825,6 +2861,22 @@
   since removed): the auto-roll's ticks `5.642`/`5.650` (three wheels,
   throttle held) read `ω_x 4.55 / 4.09` vs the recorded `4.27 / 3.77`,
   as before to the second decimal.
+- `RB-PHYSICS-001-FR-085` fixture runs (2026-09-06, this sandbox,
+  `cargo run -q -p rb_verify_cli --bin rb-verify -- --self <fixture>`):
+  `dodge-derailment` — `frames compared: 347, mean ball distance: 41.80
+  uu, max ball distance: 185.23 uu, mean car position/rotation/velocity
+  distance: 73.76 uu / 0.34 rad / 155.24 uu/s, max 407.84 uu / 1.53
+  rad / 442.36 uu/s` (was `114.17 / 0.51 / 238.02`); `throttle-jump` —
+  `558` frames, car `3.33 uu / 0.00 rad / 4.49 uu/s`, max `5.39 uu`;
+  `boost-wall-entry` — `271` frames, car `3.91 uu / 0.01 rad / 28.94
+  uu/s`, max `63.56 uu / 0.12 rad / 311.11 uu/s`; `airborne-hit` —
+  `517` frames, ball `4.77 uu` (max `21.22`), car `5.74 uu / 0.04 rad /
+  8.65 uu/s`, max `28.78 uu`. Whole clips before the fixes, seeded at
+  their first grounded neutral frame (`t = 0`): `groundjumpthrottle03`
+  `709.55` uu mean (the phantom goal-side fillet at `9.725` s),
+  `walldrive04` `2118.43` (the curve, then the corner), `curverun05`
+  `3450.31` (the corner arch at `18.5` s), `onewheellanding06` `1645.53`
+  (the dodge at `4.575` s, then the car on its roof).
 
 ## Risks and decisions needed
 

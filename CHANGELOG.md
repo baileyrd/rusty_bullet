@@ -285,6 +285,16 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   push-off is the wheels' averaged contact normal, and RocketSim's
   auto-roll presses and levels a throttling car with one to three
   wheels down — unmeasurable on the flat-floor fixture (`114.17` uu).
+  `RB-PHYSICS-001-FR-085` takes the second capture session's six clips
+  through the port: the `2300` uu/s cap is a whole-vector rescale
+  (`drive::clamp_linear_speed`), the goal-side edge and corner fillets
+  are withdrawn (a real car drives through their footprint onto a flat
+  wall), the corner arch radius is `FILLET_RADIUS` (the real arch fits
+  `≈ 277–285`, not `750`), and the jump press tick loses its suspension
+  push (`296` recorded vs `304`) — the fixture `114.17 → 73.76` uu, and
+  three new fixtures at `3–6` uu (`throttle-jump`, `boost-wall-entry`,
+  `airborne-hit`). Open: the floor-to-wall curve's `~380` uu/s loss,
+  the ball's goal entry, two capture defects.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation
