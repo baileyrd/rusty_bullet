@@ -8,6 +8,7 @@ use crate::body::{
     StaticQuarterPipe,
 };
 use crate::collision;
+use crate::hit;
 use crate::net::NetMesh;
 use crate::solver::ContactCache;
 use crate::wheels;
@@ -167,6 +168,13 @@ pub struct PhysicsWorld {
     pub nets: Vec<NetMesh>,
     pub gravity: Vec3,
     elapsed_secs: f32,
+    /// Steps taken so far — the `tickCount` the car-ball extra impulse's
+    /// cooldown counts in (`RB-PHYSICS-001-FR-083` finding 5).
+    tick_count: u64,
+    /// Per car, the tick its last car-ball extra impulse was applied on
+    /// (RocketSim's `ballHitInfo.tickCountWhenExtraImpulseApplied`): at
+    /// most one every other tick.
+    car_extra_impulse_tick: Vec<Option<u64>>,
     /// Warm-starting's own persistent state (`RB-PHYSICS-001-FR-035`) for
     /// `solver::resolve_manifolds`'s own dynamic-manifold channel, keyed by
     /// (normalized) ball-vs-car/car-vs-car body-index pair — see
@@ -222,6 +230,8 @@ impl PhysicsWorld {
             gravity: Vec3::new(0.0, 0.0, -650.0),
             elapsed_secs: 0.0,
             dynamic_manifold_caches: HashMap::new(),
+            tick_count: 0,
+            car_extra_impulse_tick: Vec::new(),
         }
     }
 
@@ -470,6 +480,7 @@ impl PhysicsWorld {
         self.car_double_jump_available.push(true);
         self.car_jump_hold_time_remaining.push(0.0);
         self.car_dodge_flip.push(None);
+        self.car_extra_impulse_tick.push(None);
         self
     }
 
@@ -883,18 +894,52 @@ impl PhysicsWorld {
             }
         }
 
-        let mut dynamic_manifolds: Vec<(usize, usize, Vec<collision::Contact>)> = Vec::new();
+        // RB-PHYSICS-001-FR-083 finding 5 (closing FR-063): the ball-car
+        // and car-car pairs use RocketSim's per-pair-type materials, and a
+        // ball-car contact also earns the ball the `Ball::_OnHit` extra
+        // impulse — computed here from the pre-solve state, as RocketSim's
+        // contact callback does, and added to the ball at the end of the
+        // step, as its `_FinishPhysicsTick` does — at most once per car
+        // every other tick.
+        let mut dynamic_manifolds: Vec<(
+            usize,
+            usize,
+            Option<solver::PairMaterial>,
+            Vec<collision::Contact>,
+        )> = Vec::new();
+        let mut ball_extra_velocity = Vec3::ZERO;
         for (car_index, car) in self.cars.iter().enumerate() {
             let contacts = collision::contacts_between(&self.ball, car);
             if !contacts.is_empty() {
-                dynamic_manifolds.push((0, car_index + 1, contacts));
+                dynamic_manifolds.push((
+                    0,
+                    car_index + 1,
+                    Some(solver::PairMaterial {
+                        restitution: crate::body::CARBALL_COLLISION_RESTITUTION,
+                        friction: crate::body::CARBALL_COLLISION_FRICTION,
+                    }),
+                    contacts,
+                ));
+                let last = &mut self.car_extra_impulse_tick[car_index];
+                if last.is_none_or(|applied| self.tick_count > applied + 1) {
+                    *last = Some(self.tick_count);
+                    ball_extra_velocity += hit::ball_car_extra_impulse(car, &self.ball);
+                }
             }
         }
         for i in 0..self.cars.len() {
             for j in (i + 1)..self.cars.len() {
                 let contacts = collision::contacts_between(&self.cars[i], &self.cars[j]);
                 if !contacts.is_empty() {
-                    dynamic_manifolds.push((i + 1, j + 1, contacts));
+                    dynamic_manifolds.push((
+                        i + 1,
+                        j + 1,
+                        Some(solver::PairMaterial {
+                            restitution: crate::body::CARCAR_COLLISION_RESTITUTION,
+                            friction: crate::body::CARCAR_COLLISION_FRICTION,
+                        }),
+                        contacts,
+                    ));
                 }
             }
         }
@@ -932,6 +977,9 @@ impl PhysicsWorld {
         // applied right after this step's contact resolution (including
         // any net, just above), matching real RocketSim's own placement —
         // see `clamp_ball_velocity`'s own doc comment.
+        // The car-ball extra impulse lands after everything else this
+        // step and before the velocity limit, as in `Ball::_FinishPhysicsTick`.
+        self.ball.linear_velocity += ball_extra_velocity;
         clamp_ball_velocity(&mut self.ball);
 
         // Sleeping (RB-PHYSICS-001-FR-037): evaluated once every other
@@ -964,6 +1012,7 @@ impl PhysicsWorld {
         }
 
         self.elapsed_secs += dt;
+        self.tick_count += 1;
     }
 
     /// The scene's current state as a `PhysicsFrame`, for consumption by
@@ -1988,6 +2037,46 @@ mod tests {
     }
 
     #[test]
+    fn a_ball_dropped_on_a_still_car_pops_back_up_at_the_extra_impulses_fraction() {
+        // RB-PHYSICS-001-FR-083 finding 5: the car-ball pair has no
+        // restitution at all, so the pop is entirely `Ball::_OnHit`'s
+        // extra impulse — straight up for a ball straight above the car,
+        // at the factor curve's 0.65 of the relative speed. The plastic
+        // contact first leaves the ball moving with the car at the
+        // mass-weighted common velocity, `30 / (30 + 180)` of the
+        // approach, so the net pop is `0.65 - 0.14 ≈ 0.5` of it before
+        // the car's suspension and one tick of gravity take their share.
+        let mut ball = RigidBody::standard_ball(Vec3::new(0.0, 0.0, 300.0));
+        ball.linear_velocity = Vec3::new(0.0, 0.0, -400.0);
+        let mut world = PhysicsWorld::new(ball, flat_ground())
+            .with_car(RigidBody::standard_car(Vec3::new(0.0, 0.0, 17.0)));
+        let dt = 1.0 / 120.0;
+        let mut approach = 0.0;
+        let mut popped = None;
+        for _ in 0..120 {
+            let before = world.ball.linear_velocity.z;
+            world.step(dt);
+            if world.ball.linear_velocity.z > 0.0 {
+                approach = -before;
+                popped = Some(world.ball.linear_velocity.z);
+                break;
+            }
+        }
+        let popped = popped.expect("the ball hit the car and came back up");
+        assert!(approach > 400.0, "still falling when it hit: {approach}");
+        let ratio = popped / approach;
+        assert!(
+            (0.4..0.6).contains(&ratio),
+            "popped at {popped} from an approach of {approach}: ratio {ratio}, expected ≈0.5 (0.65 less the plastic contact's 30/210 share)"
+        );
+        assert!(
+            world.ball.linear_velocity.x.abs() < 30.0,
+            "{:?}",
+            world.ball.linear_velocity
+        );
+    }
+
+    #[test]
     fn a_standard_car_seeded_at_the_recorded_rest_height_stays_there_on_its_wheels() {
         // RB-PHYSICS-001-FR-082 step (a): the springs, their force scales,
         // and the half-g sticky force balance the car's weight with the
@@ -2625,19 +2714,32 @@ mod tests {
         // two-call sequence (measurably biased, same as the two-static-wall
         // test's own pre-fix failure) before `step` was changed to route
         // both channels through one `solver::resolve_manifolds` call.
-        let wall_x = StaticPlane::new(Vec3::new(1.0, 0.0, 0.0), 0.0);
+        // RB-PHYSICS-001-FR-083 finding 5: the car channel now uses the
+        // real car-ball pair material (restitution 0, friction 2) and
+        // adds the extra hit impulse, so the wall channel is given the
+        // same combined material and the impulse is subtracted back out
+        // — what is left is the solver's own symmetry.
+        let wall_x = StaticPlane {
+            restitution: 0.0,
+            friction: crate::body::CARBALL_COLLISION_FRICTION,
+            ..StaticPlane::new(Vec3::new(1.0, 0.0, 0.0), 0.0)
+        };
         let ball_radius = 93.15;
         let mut ball = RigidBody::sphere(
             ball_radius,
             1.0,
             Vec3::new(ball_radius, ball_radius, 1000.0),
         );
+        ball.restitution = 0.0;
+        ball.friction = crate::body::CARBALL_COLLISION_FRICTION;
         ball.linear_velocity = Vec3::new(-100.0, -100.0, 0.0);
         let heavy_car = RigidBody::car_box(
             Vec3::new(1000.0, 1000.0, 1000.0),
             1.0e9,
             Vec3::new(ball_radius, -1000.0, 1000.0),
         );
+        let extra = hit::ball_car_extra_impulse(&heavy_car, &ball);
+        assert!(extra.y > 0.0 && extra.x.abs() < 1e-3, "{extra:?}");
         let mut world = PhysicsWorld::new(ball, flat_ground())
             .with_wall(wall_x)
             .with_car(heavy_car);
@@ -2646,7 +2748,7 @@ mod tests {
         world.step(1.0 / 60.0);
 
         let vx = world.ball.linear_velocity.x;
-        let vy = world.ball.linear_velocity.y;
+        let vy = world.ball.linear_velocity.y - extra.y;
         assert!(
             (vx - vy).abs() < 5.0,
             "expected a squarely-symmetric wall-and-heavy-car corner impact to leave the \

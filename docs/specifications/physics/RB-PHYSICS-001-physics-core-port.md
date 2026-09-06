@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.100.0
+- Version: 0.101.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -4087,7 +4087,9 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     the crate to 309).
 - `RB-PHYSICS-001-FR-063` (real Rocket League uses per-contact-pair-type
   restitution/friction overrides, not a per-body combine — audit finding,
-  documentation only): `RB-PHYSICS-001-FR-043`'s own investigation had
+  documentation only; closed by `RB-PHYSICS-001-FR-083` finding 5, which
+  represents the override as `solver::PairMaterial`):
+  `RB-PHYSICS-001-FR-043`'s own investigation had
   already checked which *formula* Bullet's own generic
   `combine_restitution`/`combine_friction` should use (an unclamped
   product, not this port's kept average) and left open "which formula (if
@@ -4163,6 +4165,11 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `RB-PHYSICS-001-FR-044`/`FR-060`'s own precedent); all 309 of
     `rb_physics_bullet`'s pre-existing tests (as of `FR-062`) pass
     unchanged, confirming zero behavioral change.
+  - **Closed (2026-09-06).** `RB-PHYSICS-001-FR-083` finding 5 added the
+    "larger, separate change" this entry deferred: `solver::PairMaterial`
+    on each dynamic manifold, with `PhysicsWorld::step` naming the
+    `CARBALL` and `CARCAR` values recorded here, plus `Ball::_OnHit`'s
+    extra impulse. See that entry for the measurements.
 - `RB-PHYSICS-001-FR-064` (real mandatory minimum-hold window for a ground
   jump's variable-height acceleration; its `0.62` pre-minimum scale is
   contradicted by the real capture — see `FR-083` finding 2): `drive::JUMP_HOLD_MAX_DURATION`'s
@@ -6746,8 +6753,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     driving up a wall holds it with the sticky force; plus the
     re-measured `--self` / `--self-growth 0.05` numbers and the ratchet
     at every step.
-- `RB-PHYSICS-001-FR-083` (post-hit divergence — diagnosis; findings 1–4
-  implemented): `FR-082` step (a) left the isolated `dodge-derailment` fixture
+- `RB-PHYSICS-001-FR-083` (post-hit divergence — diagnosis; findings 1–5
+  implemented, closing `FR-063`): `FR-082` step (a) left the isolated `dodge-derailment` fixture
   matching the recording through the grounded ticks, the whole flight
   (`0.04` rad), and the landing, with the port's car hitting the ball at
   `t = 5.758` for the first time — and a car velocity error that steps to
@@ -6942,17 +6949,96 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
       `382 → 383`, the workspace `443 → 444`; the ratchet tightens
       `< 165 → < 145` uu on the car (the ball stays `< 100`). Full
       workspace `fmt`/`clippy`/`test` green.
-  - **Non-goals (this requirement).** Does not implement finding 5 (the
-    car-ball material and extra impulse), nor findings 6 and 7 (nothing
-    to implement). Does not touch
+  - **Finding 5, implemented.** Three pieces, each where RocketSim has
+    it. (i) `solver::PairMaterial { restitution, friction }` and
+    `resolve_manifolds`'s dynamic manifolds now carry an
+    `Option<PairMaterial>`: `Some` takes the pair's own values, `None`
+    keeps `combine_restitution`/`combine_friction`'s per-body average
+    (still Bullet's own path for every pair that has no override).
+    `PhysicsWorld::step` hands the ball-car manifold
+    `CARBALL_COLLISION_FRICTION = 2.0` / `CARBALL_COLLISION_RESTITUTION
+    = 0.0` and the car-car manifold `CARCAR_COLLISION_FRICTION = 0.09` /
+    `CARCAR_COLLISION_RESTITUTION = 0.1` (both from `RLConst.h`, both
+    already recorded by `FR-063`; RocketSim sets them in
+    `_BulletContactAddedCallback` and `Ball::_OnHit` before the solve
+    runs, which is the same point). (ii) `hit::ball_car_extra_impulse
+    (car, ball)`: `hitDir = normalize((ball.pos - car.pos) ⊙ (1, 1,
+    BALL_CAR_EXTRA_IMPULSE_Z_SCALE = 0.35))`, then `hitDir = normalize
+    (hitDir - forward · (hitDir · forward) · (1 -
+    BALL_CAR_EXTRA_IMPULSE_FORWARD_SCALE = 0.65))`, times `min(|v_ball -
+    v_car|, BALL_CAR_EXTRA_IMPULSE_MAXDELTAVEL = 4600)` times
+    `BALL_CAR_EXTRA_IMPULSE_FACTOR_CURVE {0: 0.65, 500: 0.65, 2300:
+    0.55, 4600: 0.30}` — computed from the pre-solve state on the tick
+    the manifold appears (RocketSim computes it inside the contact
+    callback, before the solver moves either body) and added to the
+    ball's linear velocity after the solve and the nets, immediately
+    before `clamp_ball_velocity` (RocketSim's `_velocityImpulseCache`,
+    applied in `_FinishPhysicsTick` and clamped there). (iii) The
+    cooldown: `PhysicsWorld` counts ticks (`tick_count`) and keeps, per
+    car, the tick the impulse last fired; a second contact fires only
+    when `tick_count > applied + 1`, RocketSim's `tickCount >
+    lastHitTick + 1` — at most once per two ticks per car, so a ball
+    resting on a roof gets one kick, not one every tick.
+    - **Measured.** The port's ball now leaves the hit at `(1566, 2407,
+      957)` uu/s, `3027` in magnitude, against the recorded `(1602,
+      2148, 790)`, `2794` — flatter than the `(1548, 1983, 1057)` the
+      default material gave (the `0.35` z-scale's shape), `8%` fast in
+      magnitude and still `y`-heavy. The hit is still one tick late
+      (`t = 5.775`, finding 7's residual): the port's car is one tick
+      further into its jump and one tick faster when it meets the ball,
+      and both `hitDir` and the relative speed read from that later
+      state, which is where the overshoot lives. The car's post-hit path
+      moves with the ball's: isolated fixture `139.52 uu / 0.47 rad /
+      253.03 uu/s → 117.41 uu / 0.46 rad / 228.81 uu/s` (max `714.05 /
+      1.95 / 692.89 → 615.60 / 1.91 / 636.01`); `mean_ball_distance`
+      `91.16 → 75.22` uu (max `405.66 → 361.25`) — the ball figure is
+      back below the wheels' `79.55` for the first time since findings
+      1–4 moved the hit earlier. The growth diagnostic: the flight and
+      landing unchanged (`0.5`–`3.4` uu and `24` uu), the hit window at
+      `t = 5.77` reads `31` uu ball / `20` uu, `0.06` rad car (from `24`
+      uu / `0.05` rad), and the post-`6.05` velocity step is still
+      finding 6's `636` uu/s (`t = 6.07`).
+    - **Tests.** Five in `hit.rs`: `a_ball_straight_above_a_still_car_
+      is_popped_straight_up_at_the_curves_fraction` (`0.65` of the
+      relative speed, straight up, no forward bias when `hitDir ⊥
+      forward`); `the_kick_is_flattened_and_biased_away_from_the_cars_
+      forward` (a ball ahead and above at `45°` leaves flatter than
+      `45°`, its forward component scaled `0.65` before renormalizing);
+      `the_relative_speed_is_capped_and_the_curve_falls_to_a_third_at_
+      the_cap` (`9000` uu/s reads as `4600 · 0.30`); `no_relative_
+      motion_means_no_kick`; `the_factor_curve_matches_rocketsims_
+      breakpoints`. One in `world.rs`: `a_ball_dropped_on_a_still_car_
+      pops_back_up_at_the_extra_impulses_fraction` — with zero
+      restitution the pop is the extra impulse alone, `0.65` less the
+      plastic contact's `30 / (30 + 180)` share, so the ratio sits at
+      `≈0.45`–`0.5` and is bounded `0.4`–`0.6`. The wall-wedge symmetry
+      test rewritten to give the wall the same zero-restitution /
+      `2.0`-friction material as the pair and to subtract the extra
+      impulse before comparing the two sides. `rb_physics_bullet` `383 →
+      389`, the workspace `444 → 450`; the ratchet tightens `< 145 →
+      < 125` uu on the car and `< 100 → < 85` uu on the ball. Full
+      workspace `fmt`/`clippy`/`test` green. `THIRD_PARTY_NOTICES.md`'s
+      RocketSim table gains rows for `hit.rs` and `PairMaterial`.
+    - **Closes `FR-063`.** The per-pair-type override that requirement
+      found and could not represent is now represented: the solver takes
+      the pair's material when the world names one. `combine_restitution`
+      /`combine_friction` are unchanged and still own every pair without
+      an override.
+  - **Non-goals (this requirement).** Does not implement findings 6 and
+    7 (nothing to implement). Does not port RocketSim's car-car
+    `_OnHit` bumps/demos (the `CARCAR` material is applied; the bump
+    impulse is a separate mechanic with no fixture to measure it
+    against). Does not touch
     `RB-PHYSICS-001-FR-005`'s real-data calibration, no longer blocked on
     `PHASE-0-EXIT` (now closed), but not itself started.
   - **Acceptance criteria.** This entry records the seven findings with
     their tick-level evidence, what each is worth, and the sequencing;
-    `PROJECT-STATUS.md`'s Next item points at findings 1–4.
-  - **Verification plan.** No new tests (documentation-only, matching
-    `FR-081`'s diagnosis precedent); the full workspace stays green (443
-    tests).
+    findings 1–5 are implemented, each measured on its own tick or on
+    the hit, with `FR-063` closed; `PROJECT-STATUS.md`'s Next item
+    points at `FR-082` step (b).
+  - **Verification plan.** The diagnosis itself added no tests (443);
+    findings 1–4 brought the workspace to 444 and finding 5 to 450, with
+    the fixture ratchet at `< 125` uu car / `< 85` uu ball.
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -8398,7 +8484,10 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
   material values in, one combined value out, with no notion of *which
   kind* of pair produced them — can't represent a per-pair-type override
   without a substantially larger change (see that requirement's own
-  Non-goals); this remains open, now for the right reason.
+  Non-goals) — and `RB-PHYSICS-001-FR-083` finding 5 has since made that
+  change: `solver::PairMaterial`, carried per dynamic manifold, lets the
+  world name the pair's own values while every other pair keeps the
+  per-body combine. Closed.
 - Sleeping is no longer an open item — `RB-PHYSICS-001-FR-037` implemented
   it, and with it the actual fix for the *bouncy* (restitution > 0) resting
   contact that used to never settle (`RB-PHYSICS-001-FR-034`'s split
@@ -8439,6 +8528,15 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.101.0 (2026-09-06): `RB-PHYSICS-001-FR-083` finding 5 implemented,
+  closing `RB-PHYSICS-001-FR-063`: `solver::PairMaterial` per dynamic
+  manifold (`CARBALL` friction `2.0` / restitution `0`, `CARCAR` `0.09`
+  / `0.1`), `hit::ball_car_extra_impulse` (RocketSim's `Ball::_OnHit`
+  kick: flattened `0.35`, forward-biased `0.65`, `min(Δv, 4600)` times
+  the `{0.65, 0.65, 0.55, 0.30}` curve) applied after the solve with
+  the once-per-two-ticks cooldown. Ball exit `(1548, 1983, 1057) →
+  (1566, 2407, 957)` against the recorded `(1602, 2148, 790)`; fixture
+  `139.52 → 117.41` uu, ball `91.16 → 75.22` uu.
 - 0.100.0 (2026-09-05): `RB-PHYSICS-001-FR-083` findings 1–4 implemented:
   `THROTTLE_AIR_ACCEL` (`200/3` forward while airborne with throttle),
   the full `JUMP_ACCEL` hold from the press tick (`JUMP_PRE_MIN_ACCEL_

@@ -155,6 +155,21 @@ pub const CAR_HALF_EXTENTS: Vec3 = Vec3::new(60.2535, 43.3497, 19.32955);
 /// which contacts honour it.
 pub const CAR_HITBOX_OFFSET: Vec3 = Vec3::new(13.8757, 0.0, 20.755);
 
+/// RocketSim's `CARBALL_COLLISION_FRICTION` — the friction a car-ball
+/// contact uses, overriding any per-body combine (`Ball::_OnHit` sets the
+/// manifold's combined values directly). `RB-PHYSICS-001-FR-063`'s
+/// finding, adopted by `RB-PHYSICS-001-FR-083` finding 5.
+pub const CARBALL_COLLISION_FRICTION: f32 = 2.0;
+/// RocketSim's `CARBALL_COLLISION_RESTITUTION` — a car hitting the ball
+/// has no restitution bounce at all; the ball's "pop" is the extra
+/// impulse (`hit::ball_car_extra_impulse`), not restitution.
+pub const CARBALL_COLLISION_RESTITUTION: f32 = 0.0;
+/// RocketSim's `CARCAR_COLLISION_FRICTION` (`_BtCallback_OnCarCarCollision`
+/// overrides the manifold with it).
+pub const CARCAR_COLLISION_FRICTION: f32 = 0.09;
+/// RocketSim's `CARCAR_COLLISION_RESTITUTION`.
+pub const CARCAR_COLLISION_RESTITUTION: f32 = 0.1;
+
 /// A dynamic rigid body: either a sphere (the ball) or a box (a car).
 /// Mirrors the subset of `bullet3/src/BulletDynamics/Dynamics/btRigidBody.h`'s
 /// fields this crate's integration and solver code actually needs.

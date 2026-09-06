@@ -169,6 +169,17 @@ const RELAXATION: f32 = 1.0;
 const SOLVER_ITERATIONS: u32 = 10;
 const UPPER_LIMIT: f32 = 1e10;
 
+/// A contact pair's material when a pair-type override applies
+/// (RocketSim overrides the manifold's combined friction/restitution for
+/// car-ball and car-car contacts in its contact callbacks instead of
+/// combining the two bodies' own values — `RB-PHYSICS-001-FR-063`,
+/// adopted by `RB-PHYSICS-001-FR-083` finding 5).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PairMaterial {
+    pub restitution: f32,
+    pub friction: f32,
+}
+
 /// This port's own combine mode (average) rather than Bullet's real default
 /// (an unclamped product) — see the module doc comment's
 /// "Restitution/friction combine mode" bullet (`RB-PHYSICS-001-FR-043`) for
@@ -188,9 +199,11 @@ const UPPER_LIMIT: f32 = 1e10;
 /// `combine_restitution(ball.restitution, car.restitution)` (currently
 /// averaging `RB-PHYSICS-001-FR-062`'s confirmed real `0.6` against the
 /// car's still-generic `0.5`, a real `~0.55` bounce this specific pairing
-/// shouldn't have at all per the reference). Not adopted here — see that
-/// requirement's own Non-goals for why a per-pair override doesn't fit
-/// this function's own per-body-argument signature.
+/// shouldn't have at all per the reference). Since `RB-PHYSICS-001-FR-083`
+/// finding 5, `resolve_manifolds` takes an optional `PairMaterial` per
+/// dynamic manifold that replaces this combine outright — the world hands
+/// it `CARBALL_*` for ball-car and `CARCAR_*` for car-car pairs — so this
+/// function now governs only pairs with no override.
 fn combine_restitution(a: f32, b: f32) -> f32 {
     (a + b) * 0.5
 }
@@ -1445,7 +1458,7 @@ pub fn resolve_dynamic_manifolds(
 pub fn resolve_manifolds(
     bodies: &mut [RigidBody],
     static_manifolds: &[(usize, f32, f32, Vec<Contact>)],
-    dynamic_manifolds: &[(usize, usize, Vec<Contact>)],
+    dynamic_manifolds: &[(usize, usize, Option<PairMaterial>, Vec<Contact>)],
     dt: f32,
     caches: &mut HashMap<(usize, usize), ContactCache>,
 ) {
@@ -1475,7 +1488,7 @@ pub fn resolve_manifolds(
     // behaves bit-for-bit like `resolve_dynamic_manifolds` with an empty
     // manifold list, same as before this requirement.
     let mut dynamic_manifold_count = vec![0u32; bodies.len()];
-    for (a, b, _) in dynamic_manifolds {
+    for (a, b, _, _) in dynamic_manifolds {
         dynamic_manifold_count[*a] += 1;
         dynamic_manifold_count[*b] += 1;
     }
@@ -1505,10 +1518,17 @@ pub fn resolve_manifolds(
 
     let mut solved_dynamic: Vec<DynamicManifold> = dynamic_manifolds
         .iter()
-        .map(|(a, b, contacts)| {
-            let combined_restitution =
-                combine_restitution(bodies[*a].restitution, bodies[*b].restitution);
-            let combined_friction = combine_friction(bodies[*a].friction, bodies[*b].friction);
+        .map(|(a, b, material, contacts)| {
+            // A pair-type override (RocketSim's car-ball and car-car
+            // contact callbacks, RB-PHYSICS-001-FR-063 / FR-083 finding
+            // 5) replaces the per-body combine outright.
+            let (combined_restitution, combined_friction) = match material {
+                Some(material) => (material.restitution, material.friction),
+                None => (
+                    combine_restitution(bodies[*a].restitution, bodies[*b].restitution),
+                    combine_friction(bodies[*a].friction, bodies[*b].friction),
+                ),
+            };
             let rows = contacts
                 .iter()
                 .map(|c| setup_two_body_rows(&bodies[*a], &bodies[*b], c, combined_restitution, dt))
@@ -1846,7 +1866,7 @@ mod tests {
         resolve_manifolds(
             &mut bodies_c,
             &[(0, plane_x_c.restitution, plane_x_c.friction, cxc)],
-            &[(0, 1, cyc)],
+            &[(0, 1, None, cyc)],
             dt,
             &mut HashMap::new(),
         );

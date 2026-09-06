@@ -107,6 +107,7 @@ pub mod arena;
 pub mod body;
 pub mod collision;
 pub mod drive;
+pub mod hit;
 pub mod integrate;
 pub mod mat3;
 pub mod net;

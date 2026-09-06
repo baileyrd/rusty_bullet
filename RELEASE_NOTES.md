@@ -6,6 +6,30 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The hit takes its real material and its extra kick
+**2026-09-06** · `RB-PHYSICS-001-FR-083` finding 5, closing `FR-063`
+
+- The ball-car contact now solves with Rocket League's own pair
+  values — friction `2.0`, restitution `0` — and car-car with `0.09` /
+  `0.1`, through a `solver::PairMaterial` the world hands each dynamic
+  manifold. Every pair without an override keeps the per-body combine.
+  This is the "larger, separate change" `FR-063` recorded and deferred.
+- **RocketSim's `Ball::_OnHit` kick, ported.** On the tick a car touches
+  the ball, the ball gains `min(Δv, 4600)` times a `0.65 → 0.30` curve
+  along a direction flattened by `0.35` and biased `0.65` away from the
+  car's forward, applied after the solve and the nets and at most once
+  per two ticks per car.
+- **Measured on the fixture's hit.** The ball leaves at `(1566, 2407,
+  957)` uu/s against the recorded `(1602, 2148, 790)` — flatter than the
+  `(1548, 1983, 1057)` the default material gave, `8%` fast, the hit
+  itself still one tick late. The isolated fixture goes `139.52 →
+  117.41` uu and the ball `91.16 → 75.22` uu, back below where the
+  wheels left it.
+- `rb_physics_bullet` 383 → 389 tests, the workspace 444 → 450; the
+  ratchet tightens to `< 125` uu on the car and `< 85` uu on the ball.
+
+---
+
 ## Four one-liners from the diagnosis, each landing on its tick
 **2026-09-05** · `RB-PHYSICS-001-FR-083` findings 1–4
 

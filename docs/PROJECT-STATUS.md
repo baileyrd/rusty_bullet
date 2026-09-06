@@ -2341,6 +2341,22 @@
   `+8` uu/s high) and the recording keeps its ground effect a tick
   longer. `rb_physics_bullet` 382 → 383, workspace 443 → 444; ratchet
   `< 145` uu. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-083` finding 5 implemented, closing
+  `RB-PHYSICS-001-FR-063`: `solver::PairMaterial` per dynamic manifold
+  (the ball-car pair at `CARBALL` friction `2.0` / restitution `0`, the
+  car-car pair at `CARCAR` `0.09` / `0.1`, every other pair on the
+  per-body combine as before) and `hit::ball_car_extra_impulse`,
+  RocketSim's `Ball::_OnHit` kick (direction flattened by `0.35` and
+  biased `0.65` away from the car's forward, magnitude `min(Δv, 4600)`
+  times the `{0: 0.65, 500: 0.65, 2300: 0.55, 4600: 0.30}` curve),
+  computed pre-solve and added after the nets with the once-per-two-
+  ticks cooldown. The ball's exit from the fixture's hit goes `(1548,
+  1983, 1057) → (1566, 2407, 957)` uu/s against the recorded `(1602,
+  2148, 790)` — flatter, `8%` fast, the hit still one tick late.
+  Isolated fixture `139.52 → 117.41` uu; `mean_ball_distance` `91.16 →
+  75.22` uu. `rb_physics_bullet` 383 → 389, workspace 444 → 450;
+  ratchet `< 125` uu car / `< 85` uu ball. Full workspace
+  `fmt`/`clippy`/`test` green.
 
 ## In progress
 
@@ -2418,11 +2434,11 @@
    throttle), so it hit three ticks late and mid-jump. Findings 1–4 are
    done and each lands on its tick (`160.19 → 139.52` uu; the hit is
    now one tick late, the last tick being a RocketSim-vs-RL residual
-   around the jump). Next step: finding 5, the car-ball hit's per-pair
-   material (`CARBALL` friction `2.0` / restitution `0.0`) and
-   `Ball::_OnHit`'s extra impulse (closing `FR-063`) — the recorded ball
-   leaves at `2795` uu/s with `vz = 790`, the port's now at `vz = 1057`
-   — as its own pass; then `FR-082` step (b) —
+   around the jump). Finding 5 is done too: the car-ball hit takes its
+   real per-pair material and `Ball::_OnHit`'s extra impulse (closing
+   `FR-063`) — the ball leaves flatter (`vz` `1057 → 957` against the
+   recorded `790`), the fixture `139.52 → 117.41` uu, the ball `91.16
+   → 75.22` uu. Next step: `FR-082` step (b) —
    the analog handbrake with its two factor curves, the slip-driven
    lateral friction curve, and the non-sticky curve — and step (c), the
    rest of the arena. Nothing is to be tuned against the segment after
@@ -2433,9 +2449,10 @@
 
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
-- `cargo test --workspace`: pass (444 tests: 27 in `rb_domain` (incl. 4
-  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 383 in
-  `rb_physics_bullet` (incl. `19` new `wheels.rs` tests and 4 new `world.rs`
+- `cargo test --workspace`: pass (450 tests: 27 in `rb_domain` (incl. 4
+  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 389 in
+  `rb_physics_bullet` (incl. 5 new `hit.rs` tests and 1 new `world.rs`
+  pop test for `RB-PHYSICS-001-FR-083` finding 5, `19` new `wheels.rs` tests and 4 new `world.rs`
   acceptance tests for `RB-PHYSICS-001-FR-082` step (a), with 12
   `drive.rs` throttle/steer/handbrake tests moved onto the wheel
   pipeline and the handbrake and recorded-input `world.rs` tests
@@ -2675,6 +2692,17 @@
   312.0`; dodge tick `ω_y` `4.75` vs `4.75`; the hit at `t=5.775` (was
   `5.783`, recorded `5.758`), ball `(1548, 1983, 1057)` vs `(1602, 2148,
   790)`.
+- `RB-PHYSICS-001-FR-083` finding 5 re-run against the same fixture
+  (2026-09-06, this sandbox): `frames compared: 347, mean ball distance:
+  75.22 uu, max ball distance: 361.25 uu, car pairs compared: 347, mean
+  car position/rotation/velocity distance: 117.41 uu / 0.46 rad / 228.81
+  uu/s, max car position/rotation/velocity distance: 615.60 uu / 1.91 rad
+  / 636.01 uu/s` (from `139.52 / 0.47 / 253.03`, ball `91.16`).
+  `--self-growth ... 0.05`: the flight and landing unchanged, the hit
+  window at `t=5.77s` `30.98` uu ball / `20.40` uu, `0.06` rad car; the
+  post-`6.05` velocity step `635.61` uu/s at `t=6.07s` (finding 6). The
+  per-tick trace (a temporary example, since removed): the hit still at
+  `t=5.775`, ball `(1566, 2407, 957)` vs `(1602, 2148, 790)`.
 
 ## Risks and decisions needed
 

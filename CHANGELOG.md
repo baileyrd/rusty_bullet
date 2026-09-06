@@ -260,7 +260,13 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   press tick with `JUMP_PRE_MIN_ACCEL_SCALE` gone, the flip torque on
   the press tick, and `from_frame` priming a seeded car's wheel drive
   fields — each landing on its tick, the fixture `160.19 → 139.52` uu,
-  the hit one tick late instead of three.
+  the hit one tick late instead of three. Finding 5 closes
+  `RB-PHYSICS-001-FR-063`: `solver::PairMaterial` carries the real
+  car-ball (`2.0` / `0`) and car-car (`0.09` / `0.1`) friction and
+  restitution per manifold, and `hit::ball_car_extra_impulse` adds
+  RocketSim's `Ball::_OnHit` kick after the solve, once per two ticks
+  per car — the fixture `139.52 → 117.41` uu, the ball `91.16 → 75.22`
+  uu.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation
