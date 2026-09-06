@@ -6,6 +6,33 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The wheels see the whole arena
+**2026-09-06** · `RB-PHYSICS-001-FR-082` step (c)
+
+- The wheel rays now meet every static shape: the ground and the walls
+  as before, plus the curved wall-to-floor fillets, the corner fillets,
+  the windowed goal walls, and the goal boxes. A car over the side
+  wall's floor fillet rests its wheels on the curve, its contact
+  normal leaning toward the fillet's axis.
+- **The wall jump comes from the wheels.** A car with three or more
+  wheels on a wall is on the ground there and jumps along its own up,
+  which is the wall's normal — the real mechanism found earlier. The
+  composite push-off survives only for a one- or two-wheel touch, its
+  direction the wheels' averaged normal, with RocketSim's `1/√2`
+  threshold telling a wall from the floor. A car pressed sideways
+  against a wall in mid-air double jumps, as it should.
+- **Auto-roll, ported.** With the throttle held and one to three wheels
+  down, RocketSim's `_UpdateAutoRoll` presses the car into the surface
+  at `100` uu/s² and levels it onto it at up to `80` rad/s².
+- **Nothing to measure it against yet.** The isolated fixture never
+  leaves the flat floor (`114.38 → 114.17` uu). Wall driving and curve
+  landings need a capture of their own; that session is the next step.
+- `rb_physics_bullet` 398 → 407 tests, the workspace 459 → 468; the
+  wheel model (`FR-082`) is complete but for rays against other bodies,
+  the world-contact fallback, and the auto-flip.
+
+---
+
 ## The car meets the ball on the recorded tick
 **2026-09-06** · `RB-PHYSICS-001-FR-084` findings 1–3
 

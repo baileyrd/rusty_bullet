@@ -19,9 +19,15 @@
 //! in step (a): the real capture's grounded ticks yaw faster and faster
 //! under full steer, and unsteered tires fight any torque that tries to
 //! imitate that, so steering had to become the real mechanism the moment
-//! the tires did. Raycasts see the flat planes of the scene (the ground
-//! and the walls); the curved fillets, goal walls, and bounded walls and
-//! the auto-roll are step (c). The `extraPushback` hard stop is here in
+//! the tires did. Since step (c) the rays see the whole static scene
+//! (`collision::raycast_static`: the ground, the walls, the curved and
+//! corner fillets, the windowed goal walls and the goal boxes), the
+//! composite wall jump's push-off direction is the wheels' averaged
+//! contact normal (`wall_contact_normal`), and `_UpdateAutoRoll` presses
+//! and levels a throttling car with one to three wheels down
+//! (`apply_auto_roll`). Not ported: rays against other bodies, the
+//! chassis's own world contact as auto-roll's fallback, and the auto-flip.
+//! The `extraPushback` hard stop is here in
 //! step (a): read with `SUSPENSION_SUBTRACTION` in its real units it is
 //! what stops a hard landing, not a rest-height term.
 //!
@@ -58,8 +64,8 @@
 //! (`THROTTLE_TORQUE_AMOUNT`, `BRAKE_TORQUE_AMOUNT`) are likewise used as
 //! declared.
 
-use crate::body::{RigidBody, StaticPlane, CAR_MASS};
-use crate::collision;
+use crate::body::{RigidBody, CAR_MASS};
+use crate::collision::{self, StaticScene};
 use crate::drive;
 use rb_domain::Vec3;
 
@@ -260,6 +266,19 @@ pub const NON_STICKY_FRICTION_FACTOR_CURVE: [(f32, f32); 3] =
 /// The sticky force's base scale: half a g into the surface whenever any
 /// wheel touches the world (`_UpdateWheels`, `stickyForceScale = 0.5`).
 pub const STICKY_FORCE_BASE_SCALE: f32 = 0.5;
+/// `RLConst::CAR_AUTOROLL_FORCE`: with the throttle held and one to three
+/// wheels touching, `_UpdateAutoRoll` presses the car into the surface at
+/// this acceleration (uu/s²) along the averaged contact normal.
+pub const CAR_AUTOROLL_FORCE: f32 = 100.0;
+/// `RLConst::CAR_AUTOROLL_TORQUE`: and turns it toward that normal with
+/// this angular acceleration (rad/s²) per unit of misalignment.
+pub const CAR_AUTOROLL_TORQUE: f32 = 80.0;
+/// A wheel contact whose averaged normal has a `z` below this is on a
+/// wall (or a steep curve) rather than the floor — RocketSim's own
+/// `CAR_AUTOFLIP_NORMZ_THRESH = 1/√2`, the threshold it uses to tell a
+/// floor-like world contact from a wall-like one, read the other way
+/// round (`RB-PHYSICS-001-FR-082` step (c)).
+pub const WALL_CONTACT_MAX_NORMAL_Z: f32 = std::f32::consts::FRAC_1_SQRT_2;
 /// RocketSim rounds tiny forward contact velocities to zero in the brake
 /// below this tick rate, to hide stuttering; at this port's `120` Hz the
 /// branch is never taken, but it is ported for fidelity at other rates.
@@ -386,26 +405,13 @@ pub fn ray_length(mount: &WheelMount) -> f32 {
 /// when the trace is shorter than `rest + radius - SUSPENSION_SUBTRACTION`
 /// (`dt` is the step the pushback's positional term is scaled by, Bullet's
 /// `solverInfo.m_timeStep`). The drive fields are left alone.
-pub fn raycast_wheels(
-    car: &RigidBody,
-    wheels: &mut [WheelState; 4],
-    planes: &[&StaticPlane],
-    dt: f32,
-) {
+pub fn raycast_wheels(car: &RigidBody, wheels: &mut [WheelState; 4], scene: &StaticScene, dt: f32) {
     let up = drive::up_axis(car);
     let down = -up;
     for (mount, wheel) in WHEELS.iter().zip(wheels.iter_mut()) {
         let origin = car.position + car.orientation.rotate(&mount.mount);
         let length = ray_length(mount);
-        let mut nearest: Option<collision::RayHit> = None;
-        for plane in planes {
-            if let Some(hit) = collision::ray_vs_plane(origin, down, length, plane) {
-                if nearest.is_none_or(|best| hit.distance < best.distance) {
-                    nearest = Some(hit);
-                }
-            }
-        }
-        match nearest {
+        match collision::raycast_static(origin, down, length, scene) {
             Some(hit) => {
                 wheel.in_contact = true;
                 wheel.contact_point = hit.point;
@@ -735,6 +741,68 @@ pub fn upwards_dir_from_contacts(car: &RigidBody, wheels: &[WheelState; 4]) -> V
     sum.normalize().unwrap_or_else(|| drive::up_axis(car))
 }
 
+/// The wall a partially landed car is touching, from its wheels
+/// (`RB-PHYSICS-001-FR-082` step (c)): the averaged contact normal when
+/// one or two wheels touch (three or more is `is_on_ground`, where the
+/// jump is along the car's own up and needs no wall) and that normal is
+/// wall-like (`z < WALL_CONTACT_MAX_NORMAL_Z`); `None` otherwise. This is
+/// the push-off direction of `drive`'s composite wall jump, which used to
+/// read the chassis touching a wall plane.
+pub fn wall_contact_normal(car: &RigidBody, wheels: &[WheelState; 4]) -> Option<Vec3> {
+    let touching = wheels_in_contact(wheels);
+    if touching == 0 || touching >= WHEELS_FOR_GROUNDED {
+        return None;
+    }
+    let normal = upwards_dir_from_contacts(car, wheels);
+    (normal.z < WALL_CONTACT_MAX_NORMAL_Z).then_some(normal)
+}
+
+/// `Car::_UpdateAutoRoll` (`RB-PHYSICS-001-FR-082` step (c)): with the
+/// throttle held and one to three wheels touching, a central force of
+/// `CAR_AUTOROLL_FORCE · mass` along the averaged contact normal *into*
+/// the surface, and an angular acceleration of `CAR_AUTOROLL_TORQUE`
+/// times two misalignment factors — `1 - clamp(right · (groundUp ×
+/// forward))` about the forward axis (roll) and `1 - clamp(forward ·
+/// (groundDown × (groundUp × forward)))` about the right axis (pitch),
+/// each signed toward the surface — that levels the car onto it. The
+/// chassis's own world contact, RocketSim's fallback when no wheel
+/// touches, is not tracked (`FR-082`'s Non-goals). `throttle` is the raw
+/// stick, not boost's forced throttle.
+pub fn apply_auto_roll(car: &mut RigidBody, wheels: &[WheelState; 4], throttle: f32) {
+    if throttle == 0.0 {
+        return;
+    }
+    let touching = wheels_in_contact(wheels);
+    if touching == 0 || touching >= WHEELS.len() {
+        return;
+    }
+    let ground_up = upwards_dir_from_contacts(car, wheels);
+    let ground_down = -ground_up;
+    let forward = drive::forward_axis(car);
+    let right = drive::right_axis(car);
+    let cross_right = ground_up.cross(&forward);
+    let cross_forward = ground_down.cross(&cross_right);
+    let right_factor = 1.0 - right.dot(&cross_right).clamp(0.0, 1.0);
+    let forward_factor = 1.0 - forward.dot(&cross_forward).clamp(0.0, 1.0);
+    let torque_dir_right = forward
+        * if right.dot(&ground_up) >= 0.0 {
+            -1.0
+        } else {
+            1.0
+        };
+    let torque_dir_forward = right
+        * if forward.dot(&ground_up) >= 0.0 {
+            1.0
+        } else {
+            -1.0
+        };
+    car.apply_central_force(ground_down * (CAR_AUTOROLL_FORCE * car.mass()));
+    car.apply_angular_acceleration(
+        (torque_dir_forward * forward_factor + torque_dir_right * right_factor)
+            * CAR_AUTOROLL_TORQUE,
+    );
+}
+
 /// RocketSim's `LinearPieceCurve::GetOutput`: linear between the points,
 /// clamped to the first and last values outside them.
 pub fn piecewise_linear(points: &[(f32, f32)], x: f32) -> f32 {
@@ -772,12 +840,23 @@ fn rotate_about(v: &Vec3, axis: &Vec3, angle: f32) -> Vec3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::body::StaticPlane;
     use crate::body::CAR_HITBOX_OFFSET;
 
     const DT: f32 = 1.0 / 120.0;
 
     fn ground() -> StaticPlane {
         StaticPlane::new(Vec3::new(0.0, 0.0, 1.0), 0.0)
+    }
+
+    fn ground_scene() -> StaticScene<'static> {
+        static GROUND: StaticPlane = StaticPlane {
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            offset: 0.0,
+            restitution: 0.5,
+            friction: 0.5,
+        };
+        StaticScene::planes_only(&GROUND, &[])
     }
 
     fn car_at(z: f32) -> RigidBody {
@@ -808,7 +887,7 @@ mod tests {
     fn a_car_at_the_recorded_rest_height_has_all_four_wheels_touching_slightly_compressed() {
         let car = car_at(17.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         assert_eq!(wheels_in_contact(&wheels), 4);
         assert!(is_on_ground(&wheels));
         // Mount at z = 37.755; trace 37.755; front spring 25.255 against a
@@ -828,17 +907,17 @@ mod tests {
         // (RB-PHYSICS-001-FR-084 finding 1: the recorded wheels still
         // drive from 29.7 and let go by 32.3).
         let mut wheels = initial_wheels();
-        raycast_wheels(&car_at(29.7), &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car_at(29.7), &mut wheels, &ground_scene(), DT);
         assert!(wheels[0].in_contact);
         // Mount at 50.455, trace 50.455, spring 37.955: extended past
         // rest but inside the travel (clamped at rest + 12 = 38.755).
         assert!((wheels[0].suspension_length - 37.955).abs() < 1e-3);
         assert!(wheels[0].suspension_length > WHEELS[0].rest_length);
         assert_eq!(wheels[0].extra_pushback, 0.0);
-        raycast_wheels(&car_at(31.0), &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car_at(31.0), &mut wheels, &ground_scene(), DT);
         assert!(!wheels[0].in_contact);
         assert!(wheels[2].in_contact, "the back ray is 0.8 uu longer");
-        raycast_wheels(&car_at(32.3), &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car_at(32.3), &mut wheels, &ground_scene(), DT);
         assert_eq!(wheels_in_contact(&wheels), 0);
     }
 
@@ -847,14 +926,14 @@ mod tests {
         // At the recorded rest height the springs sit 1.5 / 2.3 uu
         // compressed, inside the 2.5 uu margin: no pushback.
         let mut wheels = initial_wheels();
-        raycast_wheels(&car_at(17.0), &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car_at(17.0), &mut wheels, &ground_scene(), DT);
         assert!(wheels.iter().all(|wheel| wheel.extra_pushback == 0.0));
         // 5 uu lower the front springs are 6.5 uu compressed: the
         // positional term alone (no approach velocity) pushes back by
         // erp * (6.5 - 2.5) / dt through the contact's effective mass,
         // shared over four wheels.
         let car = car_at(12.0);
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         let rel_pos = wheels[0].contact_point - car.position;
         let (_, _, denominator) =
             crate::solver::effective_mass_denom(&car, &rel_pos, &Vec3::new(0.0, 0.0, 1.0));
@@ -867,12 +946,12 @@ mod tests {
         // A separating contact (moving up) is subtracted, never below zero.
         let mut rising = car_at(12.0);
         rising.linear_velocity = Vec3::new(0.0, 0.0, 1000.0);
-        raycast_wheels(&rising, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&rising, &mut wheels, &ground_scene(), DT);
         assert_eq!(wheels[0].extra_pushback, 0.0);
         // An approaching contact adds its whole approach velocity.
         let mut falling = car_at(12.0);
         falling.linear_velocity = Vec3::new(0.0, 0.0, -300.0);
-        raycast_wheels(&falling, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&falling, &mut wheels, &ground_scene(), DT);
         let expected_falling = (PUSHBACK_ERP * 4.0 / DT + 300.0) / denominator / 4.0;
         assert!((wheels[0].extra_pushback - expected_falling).abs() < 1e-2);
     }
@@ -881,7 +960,7 @@ mod tests {
     fn suspension_length_clamps_to_the_travel_on_both_sides() {
         let mut wheels = initial_wheels();
         // Mount 5 uu above the floor: trace 5, far below rest - travel.
-        raycast_wheels(&car_at(5.0 - 20.755), &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car_at(5.0 - 20.755), &mut wheels, &ground_scene(), DT);
         assert!((wheels[0].suspension_length - (26.755 - 12.0)).abs() < 1e-3);
     }
 
@@ -890,7 +969,7 @@ mod tests {
         let mut car = car_at(17.0);
         car.linear_velocity = Vec3::new(0.0, 0.0, -100.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         assert!((wheels[0].relative_velocity + 100.0).abs() < 1e-3);
     }
 
@@ -899,7 +978,7 @@ mod tests {
         let mut car = car_at(17.0);
         car.linear_velocity = Vec3::new(0.0, 0.0, -100.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         let before = car.linear_velocity;
         apply_suspension_impulses(&mut car, &wheels, DT);
         // Front: (26.755 - 25.255) * 500 + 25 * 100 = 3250, * 35.75;
@@ -919,7 +998,7 @@ mod tests {
     fn extended_springs_never_pull_the_car_down() {
         let mut car = car_at(28.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         assert_eq!(wheels_in_contact(&wheels), 4);
         assert!(wheels[0].suspension_length > WHEELS[0].rest_length);
         apply_suspension_impulses(&mut car, &wheels, DT);
@@ -930,7 +1009,7 @@ mod tests {
     fn full_throttle_over_four_wheels_is_sixteen_hundred_per_second_squared() {
         let mut car = car_at(17.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         update_wheels(
             &mut car,
             &mut wheels,
@@ -958,7 +1037,7 @@ mod tests {
         let mut car = car_at(17.0);
         car.linear_velocity = Vec3::new(1000.0, 0.0, 0.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         // Throttle against the direction of travel at speed: full brake,
         // engine cut.
         update_wheels(
@@ -986,7 +1065,7 @@ mod tests {
         let mut car = car_at(17.0);
         car.linear_velocity = Vec3::new(500.0, 0.0, 0.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         update_wheels(
             &mut car,
             &mut wheels,
@@ -1031,7 +1110,7 @@ mod tests {
     fn boost_drives_the_wheels_at_full_throttle_and_handbrake_keeps_the_input_throttle() {
         let mut car = car_at(17.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         update_wheels(
             &mut car,
             &mut wheels,
@@ -1085,7 +1164,7 @@ mod tests {
         let mut car = car_at(17.0);
         car.linear_velocity = Vec3::new(0.0, 300.0, 0.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         update_wheels(
             &mut car,
             &mut wheels,
@@ -1112,7 +1191,7 @@ mod tests {
         let mut sliding = car_at(17.0);
         sliding.linear_velocity = Vec3::new(0.0, 300.0, 0.0);
         let mut handbrake_wheels = initial_wheels();
-        raycast_wheels(&sliding, &mut handbrake_wheels, &[&ground()], DT);
+        raycast_wheels(&sliding, &mut handbrake_wheels, &ground_scene(), DT);
         update_wheels(
             &mut sliding,
             &mut handbrake_wheels,
@@ -1136,7 +1215,7 @@ mod tests {
     fn the_sticky_force_is_half_a_g_on_the_floor_and_a_full_g_more_on_a_wall_when_driving() {
         let mut car = car_at(17.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         car.clear_forces();
         update_wheels(
             &mut car,
@@ -1244,7 +1323,7 @@ mod tests {
     fn the_steer_angle_follows_the_real_curve_on_the_front_wheels_only() {
         let mut car = car_at(17.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         update_wheels(
             &mut car,
             &mut wheels,
@@ -1316,7 +1395,7 @@ mod tests {
         let mut car = car_at(17.0);
         car.linear_velocity = Vec3::new(1000.0, 0.0, 0.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         update_wheels(
             &mut car,
             &mut wheels,
@@ -1354,7 +1433,12 @@ mod tests {
         car.orientation = rb_domain::Quat::new(0.0, half.sin(), 0.0, half.cos()).normalize();
         car.update_inertia_tensor();
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground(), &wall], DT);
+        raycast_wheels(
+            &car,
+            &mut wheels,
+            &StaticScene::planes_only(&ground(), std::slice::from_ref(&wall)),
+            DT,
+        );
         assert_eq!(wheels_in_contact(&wheels), 4, "{wheels:?}");
         assert_eq!(wheels[0].contact_normal, Vec3::new(-1.0, 0.0, 0.0));
     }
@@ -1379,7 +1463,7 @@ mod tests {
     fn the_analog_handbrake_ramps_up_in_a_fifth_of_a_second_and_down_in_half_a_second() {
         let mut car = car_at(17.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         let mut value = 0.0;
         update_wheels(
             &mut car,
@@ -1473,7 +1557,7 @@ mod tests {
         let mut car = car_at(17.0);
         car.linear_velocity = Vec3::new(1250.0, 0.0, 0.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         // Held with the value at `0.5 - rise`, so it reads `0.5` this tick.
         let mut value = 0.5 - POWERSLIDE_RISE_RATE * DT;
         update_wheels(
@@ -1513,7 +1597,7 @@ mod tests {
         let mut factors = |velocity: Vec3| {
             let mut car = car_at(17.0);
             car.linear_velocity = velocity;
-            raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+            raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
             update_wheels(
                 &mut car,
                 &mut wheels,
@@ -1555,7 +1639,7 @@ mod tests {
         let mut car = car_at(17.0);
         car.linear_velocity = Vec3::new(0.0, 300.0, 0.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         update_wheels(
             &mut car,
             &mut wheels,
@@ -1667,7 +1751,7 @@ mod tests {
         let mut car = car_at(17.0);
         car.linear_velocity = Vec3::new(0.0, 300.0, 0.0);
         let mut wheels = initial_wheels();
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         update_wheels(
             &mut car,
             &mut wheels,
@@ -1683,7 +1767,7 @@ mod tests {
         let sliding = wheels[0].lat_friction;
         assert!((sliding - 0.2).abs() < 1e-6);
         car.position.z = 200.0;
-        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         assert_eq!(wheels_in_contact(&wheels), 0);
         car.linear_velocity = Vec3::new(1000.0, 0.0, 0.0);
         update_wheels(
@@ -1699,5 +1783,77 @@ mod tests {
             DT,
         );
         assert_eq!(wheels[0].lat_friction, sliding, "untouched while airborne");
+    }
+
+    // RB-PHYSICS-001-FR-082 step (c).
+
+    #[test]
+    fn the_wall_contact_normal_is_the_wheels_average_for_a_partial_wall_touch_only() {
+        let car = car_at(17.0);
+        let mut wheels = initial_wheels();
+        assert!(wall_contact_normal(&car, &wheels).is_none(), "no wheel");
+        // One wheel on the floor: not a wall.
+        wheels[0].in_contact = true;
+        wheels[0].contact_normal = Vec3::new(0.0, 0.0, 1.0);
+        assert!(wall_contact_normal(&car, &wheels).is_none());
+        // One wheel on each of two perpendicular walls: the blended
+        // diagonal (`RB-PHYSICS-001-FR-039`'s corner).
+        wheels[0].contact_normal = Vec3::new(1.0, 0.0, 0.0);
+        wheels[1].in_contact = true;
+        wheels[1].contact_normal = Vec3::new(0.0, 1.0, 0.0);
+        let normal = wall_contact_normal(&car, &wheels).expect("a wall");
+        assert!(
+            (normal - Vec3::new(1.0, 1.0, 0.0) * std::f32::consts::FRAC_1_SQRT_2).length() < 1e-5
+        );
+        // Three wheels on a wall is on the ground there: the jump is the
+        // car's own up, no composite push-off.
+        wheels[2].in_contact = true;
+        wheels[2].contact_normal = Vec3::new(1.0, 0.0, 0.0);
+        assert!(wall_contact_normal(&car, &wheels).is_none());
+    }
+
+    #[test]
+    fn auto_roll_presses_a_partially_landed_throttling_car_into_the_surface_and_levels_it() {
+        // A car rolled +20° about its forward with its left wheels down.
+        let mut car = car_at(60.0);
+        let half = 10f32.to_radians();
+        car.orientation = rb_domain::Quat::new(half.sin(), 0.0, 0.0, half.cos()).normalize();
+        car.update_inertia_tensor();
+        let mut wheels = initial_wheels();
+        for index in [0, 2] {
+            wheels[index].in_contact = true;
+            wheels[index].contact_normal = Vec3::new(0.0, 0.0, 1.0);
+        }
+        car.clear_forces();
+        apply_auto_roll(&mut car, &wheels, 1.0);
+        let force = car.total_force();
+        assert!(
+            (force - Vec3::new(0.0, 0.0, -CAR_AUTOROLL_FORCE * CAR_MASS)).length() < 1e-2,
+            "pressed into the floor: {force:?}"
+        );
+        crate::integrate::integrate_velocities(&mut car, DT);
+        assert!(
+            car.angular_velocity.x < 0.0,
+            "rolling back toward level: {:?}",
+            car.angular_velocity
+        );
+        assert!(car.angular_velocity.y.abs() < 1e-4 && car.angular_velocity.z.abs() < 1e-4);
+
+        // No throttle, or all four wheels, or none: nothing.
+        let mut idle = car_at(60.0);
+        idle.orientation = car.orientation;
+        idle.update_inertia_tensor();
+        idle.clear_forces();
+        apply_auto_roll(&mut idle, &wheels, 0.0);
+        assert_eq!(idle.total_force(), Vec3::ZERO);
+        let mut all = initial_wheels();
+        for wheel in all.iter_mut() {
+            wheel.in_contact = true;
+            wheel.contact_normal = Vec3::new(0.0, 0.0, 1.0);
+        }
+        apply_auto_roll(&mut idle, &all, 1.0);
+        assert_eq!(idle.total_force(), Vec3::ZERO);
+        apply_auto_roll(&mut idle, &initial_wheels(), 1.0);
+        assert_eq!(idle.total_force(), Vec3::ZERO);
     }
 }

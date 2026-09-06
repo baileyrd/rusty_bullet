@@ -141,8 +141,14 @@ Full text: <https://github.com/ZealanL/RocketSim/blob/main/LICENSE>.
 | `PhysicsWorld::step`'s wheel ordering | `src/Sim/Car/Car.cpp` | `Car::_PreTickUpdate`'s `updateVehicleFirst` → `_UpdateWheels` → jump/air → `updateVehicleSecond` order |
 | `hit::ball_car_extra_impulse` and the `BALL_CAR_EXTRA_IMPULSE_*` constants | `src/Sim/Ball/Ball.cpp`, `src/RLConst.h` | `Ball::_OnHit`'s `hitDir` flattening, forward bias, `relSpeed` cap, and `BALL_CAR_EXTRA_IMPULSE_FACTOR_CURVE`; `_velocityImpulseCache` applied in `_FinishPhysicsTick` |
 | `PhysicsWorld::step`'s once-per-two-ticks hit cooldown | `src/Sim/Ball/Ball.cpp` | `Ball::_OnHit`'s `tickCount > lastHitTick + 1` guard |
+| `wheels::apply_auto_roll` and the `CAR_AUTOROLL_*` constants | `src/Sim/Car/Car.cpp`, `src/RLConst.h` | `Car::_UpdateAutoRoll`'s ground-up direction, the two misalignment factors and their signed torque directions, the downward force |
+| `wheels::WALL_CONTACT_MAX_NORMAL_Z` | `src/RLConst.h` | `CAR_AUTOFLIP_NORMZ_THRESH` (`1/√2`), used here as the wall-versus-floor test for a wheel contact |
 | `solver::PairMaterial` and the `CARBALL_*`/`CARCAR_*` constants | `src/Sim/Arena/Arena.cpp`, `src/Sim/Ball/Ball.cpp`, `src/RLConst.h` | the contact callback's per-pair `m_combinedFriction`/`m_combinedRestitution` overrides (`CARCAR` set in `Arena.cpp`, `CARBALL` returned by `Ball::_OnHit`) |
 
-Deliberate, documented deviations (rays against the scene's flat planes
-only, the auto-roll not yet ported) are noted in `wheels.rs`'s module doc
-comment and in `RB-PHYSICS-001-FR-082`'s own step sequencing.
+The wheel rays' geometry against this port's own analytic arena shapes
+(`collision::raycast_static` and the `ray_vs_*` routines) is this port's
+own, standing in for the Bullet mesh raycast RocketSim runs against its
+arena collision mesh. Deliberate, documented deviations (no rays against
+other bodies, no chassis world contact as the auto-roll's fallback, no
+auto-flip) are noted in `wheels.rs`'s module doc comment and in
+`RB-PHYSICS-001-FR-082`'s own step sequencing.

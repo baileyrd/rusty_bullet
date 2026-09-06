@@ -279,6 +279,12 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   gate reading last tick's count — the car meets the ball on the
   recorded tick, the ball `79.28 → 42.19` uu; the open post-hit
   suspension slam (finding 4) lifts the car figure `102.64 → 114.38`.
+  `FR-082` step (c) completes the wheel model: the wheel rays see the
+  whole arena (`collision::raycast_static` over the curved and corner
+  fillets, the goal walls and the goal boxes), the composite wall jump's
+  push-off is the wheels' averaged contact normal, and RocketSim's
+  auto-roll presses and levels a throttling car with one to three
+  wheels down — unmeasurable on the flat-floor fixture (`114.17` uu).
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

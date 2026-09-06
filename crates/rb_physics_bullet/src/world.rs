@@ -7,7 +7,7 @@ use crate::body::{
     RigidBody, StaticBoundedWall, StaticCornerFillet, StaticGoalWall, StaticPlane,
     StaticQuarterPipe,
 };
-use crate::collision;
+use crate::collision::{self, StaticScene};
 use crate::hit;
 use crate::net::NetMesh;
 use crate::solver::ContactCache;
@@ -193,21 +193,6 @@ pub struct PhysicsWorld {
     dynamic_manifold_caches: HashMap<(usize, usize), ContactCache>,
 }
 
-/// Borrowed references to every static-shape collection in a `PhysicsWorld`
-/// (`RB-PHYSICS-001-FR-051`) — exists purely so `static_contact_manifolds`
-/// takes one bundled parameter instead of six separate slice/reference
-/// arguments (clippy's `too_many_arguments` threshold), not as a genuine
-/// new abstraction; every field here is still borrowed directly from the
-/// same `PhysicsWorld` fields it always was.
-struct StaticScene<'a> {
-    ground: &'a StaticPlane,
-    walls: &'a [StaticPlane],
-    curves: &'a [StaticQuarterPipe],
-    corner_fillets: &'a [StaticCornerFillet],
-    goal_walls: &'a [StaticGoalWall],
-    bounded_walls: &'a [StaticBoundedWall],
-}
-
 impl PhysicsWorld {
     /// `gravity` defaults to -650 Unreal units/s^2 on Z, a commonly-cited
     /// community-measured approximation of Rocket League's ball gravity —
@@ -384,12 +369,17 @@ impl PhysicsWorld {
     /// wheels), runs `wheels::update_wheels`, and discards the sticky force
     /// it accumulated: only the fields are wanted.
     fn prime_car_wheels(&mut self, index: usize, input: ControllerInput) {
-        let planes: Vec<&StaticPlane> = std::iter::once(&self.ground)
-            .chain(self.walls.iter())
-            .collect();
+        let scene = StaticScene {
+            ground: &self.ground,
+            walls: &self.walls,
+            curves: &self.curves,
+            corner_fillets: &self.corner_fillets,
+            goal_walls: &self.goal_walls,
+            bounded_walls: &self.bounded_walls,
+        };
         let car = &mut self.cars[index];
         let car_wheels = &mut self.car_wheels[index];
-        wheels::raycast_wheels(car, car_wheels, &planes, 1.0 / 120.0);
+        wheels::raycast_wheels(car, car_wheels, &scene, 1.0 / 120.0);
         wheels::update_wheels(
             car,
             car_wheels,
@@ -628,6 +618,10 @@ impl PhysicsWorld {
             dodge_flip,
             dt,
         );
+        // `_UpdateAutoRoll` (RB-PHYSICS-001-FR-082 step (c)): throttle held
+        // with one to three wheels down presses and levels the car onto
+        // the surface.
+        wheels::apply_auto_roll(car, car_wheels, input.throttle.clamp(-1.0, 1.0));
         wheels::apply_suspension_impulses(car, car_wheels, dt);
         wheels::apply_friction_impulses(car, car_wheels, dt);
         integrate::apply_damping(car, dt);
@@ -800,56 +794,37 @@ impl PhysicsWorld {
         // duplicated `contacts_vs_plane` call is simpler than threading
         // the manifold through, and cheap (a handful of corner checks).
         // RB-PHYSICS-001-FR-082: each car's four wheel rays, from its
-        // start-of-step transform, against the scene's flat planes (the
-        // ground and the walls; the curved and bounded shapes are step
-        // (c)) — `btVehicleRL::updateVehicleFirst`'s raycast half. Three
-        // or more wheels touching is the grounded state
-        // `drive_and_integrate_velocities` derives below.
+        // start-of-step transform, against the whole static scene (the
+        // ground, the walls, the curved and corner fillets, the goal walls
+        // and the goal boxes — step (c)) — `btVehicleRL::updateVehicleFirst`'s
+        // raycast half. Three or more wheels touching is the grounded
+        // state `drive_and_integrate_velocities` derives below.
         {
-            let planes: Vec<&StaticPlane> = std::iter::once(&self.ground)
-                .chain(self.walls.iter())
-                .collect();
+            let scene = StaticScene {
+                ground: &self.ground,
+                walls: &self.walls,
+                curves: &self.curves,
+                corner_fillets: &self.corner_fillets,
+                goal_walls: &self.goal_walls,
+                bounded_walls: &self.bounded_walls,
+            };
             for (car, car_wheels) in self.cars.iter().zip(self.car_wheels.iter_mut()) {
-                wheels::raycast_wheels(car, car_wheels, &planes, dt);
+                wheels::raycast_wheels(car, car_wheels, &scene, dt);
             }
         }
-        // The wall-jump push-off direction, from the chassis touching a wall
-        // (the wheels' contact normals take this over in step (c)): the outward push-off
-        // direction for a wall jump. Since `RB-PHYSICS-001-FR-039`, a car
-        // touching two walls at once (a corner — reachable at a diagonal
-        // corner wall's own two seams, where it meets a side or back wall)
-        // sums every touched wall's normal and normalizes the result,
-        // instead of the old "whichever wall comes first in `self.walls`"
-        // simplification (RB-PHYSICS-001-FR-013's original Non-goal) — so a
-        // corner wall jump pushes diagonally away from the corner, blending
-        // both walls, rather than firing along only one of them depending
-        // on iteration order. A car touching exactly one wall gets that
-        // wall's own normal back unchanged (summing a single unit vector
-        // and normalizing is a no-op), so the common single-wall case is
-        // unaffected. The only case `normalize` can fail is two touched
-        // walls with exactly opposite normals (summing to zero) —
-        // geometrically impossible for a convex arena interior, but falls
-        // back to the first touched wall's normal rather than panicking if
-        // it ever happened.
+        // The wall-jump push-off direction, from the wheels (RB-PHYSICS-001-
+        // FR-082 step (c)): the averaged contact normal of one or two
+        // wheels on a wall-like surface (`wheels::wall_contact_normal`).
+        // A car with three or more wheels on a wall is `on_ground` there
+        // and jumps along its own up, which *is* the wall's normal — the
+        // real mechanism `FR-067` found; the composite push-off below is
+        // what remains for a partial touch. Two walls at a corner blend
+        // through the averaged normal (`FR-039`), as before.
         let car_wall_normal: Vec<Option<Vec3>> = self
             .cars
             .iter()
-            .map(|car| {
-                let probe = Self::static_probe(car);
-                let touched_normals: Vec<Vec3> = self
-                    .walls
-                    .iter()
-                    .filter(|wall| !collision::contacts_vs_plane(&probe, wall).is_empty())
-                    .map(|wall| wall.normal)
-                    .collect();
-                let mut summed_normal = Vec3::ZERO;
-                for normal in &touched_normals {
-                    summed_normal += *normal;
-                }
-                summed_normal
-                    .normalize()
-                    .or_else(|| touched_normals.first().copied())
-            })
+            .zip(self.car_wheels.iter())
+            .map(|(car, car_wheels)| wheels::wall_contact_normal(car, car_wheels))
             .collect();
 
         Self::apply_forces_and_integrate_velocities(&mut self.ball, self.gravity, dt);
@@ -2273,6 +2248,36 @@ mod tests {
     }
 
     #[test]
+    fn the_wheels_see_the_standard_arenas_floor_fillet_with_its_tilted_normal() {
+        // RB-PHYSICS-001-FR-082 step (c): a car hovering over the side
+        // wall's floor fillet (axis at `x = 4096 - 292`, `z = 292`) has
+        // its rays meet the curve, not the flat floor 80 uu further down,
+        // and the contact normal leans back toward the fillet's axis.
+        let ball = RigidBody::standard_ball(Vec3::new(0.0, 0.0, 93.15));
+        let axis_x = crate::arena::SIDE_WALL_X - crate::arena::FILLET_RADIUS;
+        let angle = 30f32.to_radians();
+        let surface_x = axis_x + crate::arena::FILLET_RADIUS * angle.sin();
+        let surface_z = crate::arena::FILLET_RADIUS * (1.0 - angle.cos());
+        let mut world = PhysicsWorld::standard_arena(ball).with_car(RigidBody::standard_car(
+            Vec3::new(surface_x, 0.0, surface_z + 45.0 - 20.755),
+        ));
+        world.gravity = Vec3::ZERO;
+        world.step(1.0 / 120.0);
+        let wheels = world.car_wheels(0);
+        assert!(wheels::wheels_in_contact(wheels) >= 2, "{wheels:?}");
+        for wheel in wheels.iter().filter(|wheel| wheel.in_contact) {
+            assert!(
+                wheel.contact_point.z > 20.0,
+                "on the curve, not the floor: {wheel:?}"
+            );
+            assert!(
+                wheel.contact_normal.x < -0.3 && wheel.contact_normal.z > 0.7,
+                "leaning toward the axis: {wheel:?}"
+            );
+        }
+    }
+
+    #[test]
     fn the_wheels_keep_touching_for_several_ticks_after_a_ground_jump() {
         // RB-PHYSICS-001-FR-081 finding 1: the real car's wheels stay in
         // contact for the ticks it takes the body to rise past the rays'
@@ -2677,20 +2682,34 @@ mod tests {
         );
     }
 
+    /// A car standing on the wall at `x = 100`: its up along `+x`, its
+    /// forward along `+y` (the `120°` rotation about `(1, 1, 1)` that
+    /// cycles `x → y → z → x`), its wheels' rays running along `-x` into
+    /// the wall.
+    fn car_on_the_x_wall(origin_x: f32) -> RigidBody {
+        let mut car = RigidBody::standard_car(Vec3::new(origin_x, 0.0, 1000.0));
+        car.orientation = rb_domain::Quat::new(0.5, 0.5, 0.5, 0.5).normalize();
+        car.update_inertia_tensor();
+        car
+    }
+
     #[test]
-    fn a_car_touching_a_wall_wall_jumps_outward_and_upward() {
-        // Wall at x=100, normal (1,0,0): the same convention flat_ground()
-        // uses (normal points away from the solid side, into where dynamic
-        // bodies live) — free space is x>100, solid x<100.
+    fn a_car_with_all_four_wheels_on_a_wall_jumps_along_its_own_up_which_is_the_walls_normal() {
+        // RB-PHYSICS-001-FR-082 step (c) / FR-067: the real "wall jump" is
+        // the ordinary grounded jump along the car's up, which the wheels
+        // have tipped onto the wall — no composite push-off.
         let ball = RigidBody::sphere(1.0, 1.0, Vec3::new(-1000.0, 0.0, 1000.0));
         let wall = StaticPlane::new(Vec3::new(1.0, 0.0, 0.0), 100.0);
-        // 60-unit half-extent touching the wall with zero gap: car center
-        // at x=160 puts its -x face exactly on the wall's x=100 plane.
-        let car = some_car(Vec3::new(160.0, 0.0, 1000.0));
+        // Mounts 20.755 above the origin along the car's up, rays 51.255 /
+        // 52.055 long: mounts 45 uu from the wall have every wheel touching.
+        let car = car_on_the_x_wall(100.0 - 20.755 + 45.0);
         let mut world = PhysicsWorld::new(ball, flat_ground())
             .with_car(car)
             .with_wall(wall);
-        world.gravity = Vec3::ZERO; // isolate the wall jump from falling
+        world.gravity = Vec3::ZERO;
+        world.step(1.0 / 120.0);
+        assert!(wheels::is_on_ground(world.car_wheels(0)));
+        assert_eq!(wheels::wheels_in_contact(world.car_wheels(0)), 4);
 
         world.set_car_input(
             0,
@@ -2699,42 +2718,35 @@ mod tests {
                 ..Default::default()
             },
         );
-        world.step(1.0 / 60.0);
-
+        world.step(1.0 / 120.0);
+        let v = world.cars[0].linear_velocity;
         assert!(
-            world.cars[0].linear_velocity.x > 0.0,
-            "expected the wall jump to push the car away from the wall (positive x), got {:?}",
-            world.cars[0].linear_velocity
+            v.x > crate::drive::JUMP_SPEED - 1.0 && v.x < crate::drive::JUMP_SPEED + 20.0,
+            "JUMP_SPEED (plus the press tick's hold) along the wall's normal: {v:?}"
         );
         assert!(
-            (world.cars[0].linear_velocity.z - crate::drive::JUMP_SPEED).abs() < 1.0,
-            "expected roughly JUMP_SPEED upward velocity from the wall jump, got {}",
-            world.cars[0].linear_velocity.z
+            v.z.abs() < 1.0 && v.y.abs() < 1.0,
+            "nothing along the world's up or the car's forward: {v:?}"
         );
     }
 
     #[test]
-    fn a_car_touching_two_walls_at_a_corner_wall_jumps_diagonally_outward() {
-        // RB-PHYSICS-001-FR-039: a car wedged into a corner (touching both
-        // walls at once) should push off diagonally, blending both walls'
-        // normals, not fire along only one of them depending on which wall
-        // happens to come first in `self.walls`. Two perpendicular walls,
-        // normals (1,0,0) and (0,1,0): the old "first wall wins" picker
-        // would give a wall jump with zero y-velocity (or zero x-velocity,
-        // depending on push order); the fix should give roughly equal,
-        // both-positive x and y components instead.
+    fn a_car_with_two_wheels_on_a_wall_pushes_off_along_the_wheels_averaged_normal() {
+        // The composite push-off (RB-PHYSICS-001-FR-013) survives for a
+        // partial touch, its direction now the wheels' averaged contact
+        // normal (FR-082 step (c)) instead of the chassis touching a wall
+        // plane. The back rays are 0.8 uu longer than the front ones:
+        // mounts 51.6 uu from the wall have only the back wheels touching.
         let ball = RigidBody::sphere(1.0, 1.0, Vec3::new(-1000.0, 0.0, 1000.0));
-        let wall_x = StaticPlane::new(Vec3::new(1.0, 0.0, 0.0), 100.0);
-        let wall_y = StaticPlane::new(Vec3::new(0.0, 1.0, 0.0), 100.0);
-        // Same zero-gap-contact convention as the single-wall test above:
-        // 60-unit x half-extent and 30-unit y half-extent, so a car
-        // centered at (160, 130, ...) touches both walls exactly.
-        let car = some_car(Vec3::new(160.0, 130.0, 1000.0));
+        let wall = StaticPlane::new(Vec3::new(1.0, 0.0, 0.0), 100.0);
+        let car = car_on_the_x_wall(100.0 - 20.755 + 51.6);
         let mut world = PhysicsWorld::new(ball, flat_ground())
             .with_car(car)
-            .with_wall(wall_x)
-            .with_wall(wall_y);
-        world.gravity = Vec3::ZERO; // isolate the wall jump from falling
+            .with_wall(wall);
+        world.gravity = Vec3::ZERO;
+        world.step(1.0 / 120.0);
+        assert_eq!(wheels::wheels_in_contact(world.car_wheels(0)), 2);
+        assert!(!wheels::is_on_ground(world.car_wheels(0)));
 
         world.set_car_input(
             0,
@@ -2743,25 +2755,15 @@ mod tests {
                 ..Default::default()
             },
         );
-        world.step(1.0 / 60.0);
-
-        let vx = world.cars[0].linear_velocity.x;
-        let vy = world.cars[0].linear_velocity.y;
+        world.step(1.0 / 120.0);
+        let v = world.cars[0].linear_velocity;
         assert!(
-            vx > 0.0 && vy > 0.0,
-            "expected the corner wall jump to push the car away from both walls \
-             (positive x and y), got {:?}",
-            world.cars[0].linear_velocity
+            (v.x - crate::drive::WALL_JUMP_HORIZONTAL_SPEED).abs() < 5.0,
+            "the push-off along the wall's normal: {v:?}"
         );
         assert!(
-            (vx - vy).abs() < 1.0,
-            "expected a symmetric corner (equal-normal walls) to push off with roughly \
-             equal x and y components, got vx={vx}, vy={vy}"
-        );
-        assert!(
-            (world.cars[0].linear_velocity.z - crate::drive::JUMP_SPEED).abs() < 1.0,
-            "expected roughly JUMP_SPEED upward velocity from the wall jump, got {}",
-            world.cars[0].linear_velocity.z
+            (v.z - crate::drive::JUMP_SPEED).abs() < 1.0,
+            "plus JUMP_SPEED along the world's up: {v:?}"
         );
     }
 
@@ -3031,11 +3033,15 @@ mod tests {
         // loop, not just in `drive.rs` isolation.
         let ball = RigidBody::sphere(1.0, 1.0, Vec3::new(-1000.0, 0.0, 1000.0));
         let wall = StaticPlane::new(Vec3::new(1.0, 0.0, 0.0), 100.0);
-        let car = some_car(Vec3::new(160.0, 0.0, 1000.0));
+        // Two wheels on the wall (RB-PHYSICS-001-FR-082 step (c)): the
+        // car's forward is `+y`, so the forward dodge lands along `+y`.
+        let car = car_on_the_x_wall(100.0 - 20.755 + 51.6);
         let mut world = PhysicsWorld::new(ball, flat_ground())
             .with_car(car)
             .with_wall(wall);
         world.gravity = Vec3::ZERO;
+        world.step(1.0 / 120.0);
+        assert_eq!(wheels::wheels_in_contact(world.car_wheels(0)), 2);
 
         world.set_car_input(
             0,
@@ -3047,18 +3053,18 @@ mod tests {
         );
         world.step(1.0 / 60.0);
 
+        let v = world.cars[0].linear_velocity;
         assert!(
-            (world.cars[0].linear_velocity.x
-                - (crate::drive::WALL_JUMP_HORIZONTAL_SPEED + crate::drive::DODGE_SPEED))
-                .abs()
-                < 1.0,
-            "expected the wall push-off plus the forward dodge component, got {}",
-            world.cars[0].linear_velocity.x
+            (v.x - crate::drive::WALL_JUMP_HORIZONTAL_SPEED).abs() < 5.0,
+            "expected the wall push-off along the wheels' normal, got {v:?}"
         );
         assert!(
-            (world.cars[0].linear_velocity.z - crate::drive::JUMP_SPEED).abs() < 1.0,
-            "expected the wall jump's upward component, got {}",
-            world.cars[0].linear_velocity.z
+            (v.y - crate::drive::DODGE_SPEED).abs() < 5.0,
+            "expected the forward dodge component along the car's forward, got {v:?}"
+        );
+        assert!(
+            (v.z - crate::drive::JUMP_SPEED).abs() < 1.0,
+            "expected the wall jump's upward component, got {v:?}"
         );
         // The flip torque starts on the next step (RB-PHYSICS-001-FR-080).
         world.step(1.0 / 60.0);
@@ -3367,12 +3373,16 @@ mod tests {
     fn a_wall_jump_dodges_flip_can_be_cancelled_by_holding_pitch_in_a_live_world() {
         let ball = RigidBody::sphere(1.0, 1.0, Vec3::new(-1000.0, 0.0, 1000.0));
         let wall = StaticPlane::new(Vec3::new(1.0, 0.0, 0.0), 100.0);
-        let car = some_car(Vec3::new(160.0, 0.0, 1000.0));
+        // Two wheels on the wall (RB-PHYSICS-001-FR-082 step (c)); the
+        // car's right is the world's `+z`, so the backflip reads on `z`.
+        let car = car_on_the_x_wall(100.0 - 20.755 + 51.6);
         let mut world = PhysicsWorld::new(ball, flat_ground())
             .with_car(car)
             .with_wall(wall);
         world.gravity = Vec3::ZERO;
         let dt = 1.0 / 120.0;
+        world.step(dt);
+        assert_eq!(wheels::wheels_in_contact(world.car_wheels(0)), 2);
 
         // Backward wall-jump dodge (`pitch = +1`), then move off the wall
         // for one neutral step (the flip torque's first).
@@ -3390,8 +3400,8 @@ mod tests {
         world.step(dt);
         let spin_after_one_tick = world.cars[0].angular_velocity;
         assert!(
-            spin_after_one_tick.y < -1.0,
-            "expected the wall-jump dodge to be back-flipping, got {spin_after_one_tick:?}"
+            spin_after_one_tick.z < -1.0,
+            "expected the wall-jump dodge to be back-flipping about the car's right, got {spin_after_one_tick:?}"
         );
 
         // Push forward against it: cancelled.
@@ -3407,11 +3417,11 @@ mod tests {
         }
         let pitch_decay_per_tick =
             1.0 - crate::drive::AIR_CONTROL_PITCH_DAMPING * crate::drive::CAR_TORQUE_SCALE * dt;
-        let expected_y = spin_after_one_tick.y * pitch_decay_per_tick.powi(10);
+        let expected_z = spin_after_one_tick.z * pitch_decay_per_tick.powi(10);
         assert!(
-            (world.cars[0].angular_velocity.y - expected_y).abs() < 1e-3,
+            (world.cars[0].angular_velocity.z - expected_z).abs() < 1e-3,
             "expected a held push-forward to cancel the wall-jump dodge's flip (damping only), \
-             got {:?}, expected y={expected_y}",
+             got {:?}, expected z={expected_z}",
             world.cars[0].angular_velocity
         );
     }

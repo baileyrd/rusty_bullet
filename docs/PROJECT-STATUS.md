@@ -2397,6 +2397,23 @@
   `rb_physics_bullet` 396 → 398, workspace 457 → 459; ratchet car `<
   120` (loosened once, for finding 4), ball `< 50`. Full workspace
   `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-082` step (c) implemented, completing the wheel
+  model: the wheel rays see the whole arena (`collision::raycast_static`
+  across the ground, the walls, the curved and corner fillets, the
+  windowed goal walls and the goal boxes — a car over the side wall's
+  floor fillet rests its wheels on the curve), the composite wall jump's
+  push-off is the wheels' averaged contact normal for a one- or
+  two-wheel wall touch (a car with three or more wheels on a wall jumps
+  along its own up, the real mechanism `FR-067` found; RocketSim's `1/√2`
+  normal threshold tells a wall from the floor), and `Car::_UpdateAutoRoll`
+  presses (`100` uu/s²) and levels (`80` rad/s²) a throttling car with
+  one to three wheels down. The isolated fixture never leaves the flat
+  floor: `114.38 → 114.17` uu, the auto-roll's two landing ticks worth
+  `0.2` uu; the step is measurable on wall and curve captures no
+  fixture yet holds. Not ported: rays against other bodies, the chassis
+  world contact as auto-roll's fallback, the auto-flip.
+  `rb_physics_bullet` 398 → 407, workspace 459 → 468. Full workspace
+  `fmt`/`clippy`/`test` green.
 
 ## In progress
 
@@ -2485,13 +2502,21 @@
    ticks and implemented three findings — the rays' real reach, the
    stick dead while any wheel touches, the stick gate reading last
    tick's count — so the approach matches to `4.4` uu and the car meets
-   the ball on the recorded tick (ball `79.28 → 42.19` uu). Next step:
-   `FR-082` step (c), the rest of the arena, with `FR-084` finding 4
-   (the post-hit suspension slam on a hit-tick jump: the recording shows
-   neither the damping push nor the pushback, and afterwards neither
-   the sticky force nor the expected hold) waiting on a second fixture
-   that has a hit-tick jump or a clean one — a candidate for the next
-   capture session. Nothing is to be tuned against the segment after
+   the ball on the recorded tick (ball `79.28 → 42.19` uu). `FR-082`
+   step (c) completed the wheel model — rays over the whole arena, the
+   wheel-based wall normal, the auto-roll — with nothing on this
+   flat-floor fixture to measure it against. Next step: a second
+   capture session. The open items all need footage the one fixture
+   cannot give: `FR-084` finding 4 (the post-hit suspension slam on a
+   hit-tick jump: the recording shows neither the damping push nor the
+   pushback, and afterwards neither the sticky force nor the expected
+   hold) wants a hit-tick jump or a clean jump right after a hit;
+   finding 5 (the `1.5×` single-wheel push) wants more one-wheel
+   landings; step (c) wants a car driving up a wall and landing on a
+   curve. Until then, the remaining wheel-model non-goals (rays against
+   other bodies, the world-contact fallback, the auto-flip) are the
+   only code left in `FR-082`'s scope. Nothing is to be tuned against
+   the segment after
    `6.05` s, where the capture's own pitch input is missing (finding
    6). See `FR-083`'s and `FR-082`'s own spec entries.
 
@@ -2499,9 +2524,10 @@
 
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
-- `cargo test --workspace`: pass (459 tests: 27 in `rb_domain` (incl. 4
-  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 398 in
-  `rb_physics_bullet` (incl. 2 new stick-gate tests for
+- `cargo test --workspace`: pass (468 tests: 27 in `rb_domain` (incl. 4
+  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 407 in
+  `rb_physics_bullet` (incl. 9 new tests for `RB-PHYSICS-001-FR-082`
+  step (c)'s rays, wall normal, and auto-roll, 2 new stick-gate tests for
   `RB-PHYSICS-001-FR-084` findings 2–3, 7 new `wheels.rs` curve tests for
   `RB-PHYSICS-001-FR-082` step (b), 5 new `hit.rs` tests and 1 new `world.rs`
   pop test for `RB-PHYSICS-001-FR-083` finding 5, `19` new `wheels.rs` tests and 4 new `world.rs`
@@ -2789,6 +2815,16 @@
   (finding 4). One-tick-from-recorded-state rows at the landing: one
   wheel `Δω_z` rec `-0.152` / port `-0.119` (was `-0.041`), lateral push
   rec `5.3` / port `3.5` uu/s.
+- `RB-PHYSICS-001-FR-082` step (c) re-run against the same fixture
+  (2026-09-06, this sandbox): `frames compared: 347, mean ball distance:
+  42.19 uu, max ball distance: 184.49 uu, car pairs compared: 347, mean
+  car position/rotation/velocity distance: 114.17 uu / 0.51 rad / 238.02
+  uu/s` (from `114.38 / 0.51 / 238.41`); `--self-growth ... 0.05`
+  unchanged to the second decimal outside the landing (`5.62s`: `4.75`
+  uu / `0.04` rad / `13.05` uu/s). Per-tick trace (a temporary example,
+  since removed): the auto-roll's ticks `5.642`/`5.650` (three wheels,
+  throttle held) read `ω_x 4.55 / 4.09` vs the recorded `4.27 / 3.77`,
+  as before to the second decimal.
 
 ## Risks and decisions needed
 

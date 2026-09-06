@@ -81,6 +81,194 @@ use crate::body::{
     StaticBoundedWall, StaticCornerFillet, StaticGoalWall, StaticPlane, StaticQuarterPipe,
 };
 
+/// Borrowed references to every static-shape collection in a
+/// `PhysicsWorld` (`RB-PHYSICS-001-FR-051`) — one bundled parameter for
+/// `static_contact_manifolds` and, since `RB-PHYSICS-001-FR-082` step (c),
+/// for the wheel rays (`raycast_static`), instead of six separate slice
+/// arguments. Not a new abstraction: every field is still borrowed
+/// directly from the same `PhysicsWorld` fields it always was.
+pub struct StaticScene<'a> {
+    pub ground: &'a StaticPlane,
+    pub walls: &'a [StaticPlane],
+    pub curves: &'a [StaticQuarterPipe],
+    pub corner_fillets: &'a [StaticCornerFillet],
+    pub goal_walls: &'a [StaticGoalWall],
+    pub bounded_walls: &'a [StaticBoundedWall],
+}
+
+impl<'a> StaticScene<'a> {
+    /// A scene of flat planes only — the ground and `walls` — with no
+    /// curved, windowed, or bounded shapes.
+    pub fn planes_only(ground: &'a StaticPlane, walls: &'a [StaticPlane]) -> StaticScene<'a> {
+        StaticScene {
+            ground,
+            walls,
+            curves: &[],
+            corner_fillets: &[],
+            goal_walls: &[],
+            bounded_walls: &[],
+        }
+    }
+}
+
+/// Casts a ray against a quarter-pipe fillet from *inside* its partial
+/// cylinder (`RB-PHYSICS-001-FR-082` step (c)): the far root of the
+/// ray-cylinder intersection, accepted only when the hit direction from
+/// the axis lies within the fillet's own sector (the same signed-cross
+/// test `sphere_vs_quarter_pipe` uses), with the normal pointing back
+/// toward the axis. An origin outside the cylinder, or a ray parallel to
+/// the axis, misses — outside the sector the flat planes the fillet
+/// bridges govern instead, and they are cast separately.
+pub fn ray_vs_quarter_pipe(
+    origin: Vec3,
+    direction: Vec3,
+    max_distance: f32,
+    pipe: &StaticQuarterPipe,
+) -> Option<RayHit> {
+    let axis = pipe.axis_direction;
+    let rel = origin - pipe.axis_point;
+    let perp = rel - axis * rel.dot(&axis);
+    let d_perp = direction - axis * direction.dot(&axis);
+    let a = d_perp.dot(&d_perp);
+    if a < 1e-12 {
+        return None;
+    }
+    let b = perp.dot(&d_perp);
+    let c = perp.dot(&perp) - pipe.radius * pipe.radius;
+    if c >= 0.0 {
+        return None;
+    }
+    let distance = (-b + (b * b - a * c).sqrt()) / a;
+    if distance < 0.0 || distance > max_distance {
+        return None;
+    }
+    let point = origin + direction * distance;
+    let hit_rel = point - pipe.axis_point;
+    let hit_perp = hit_rel - axis * hit_rel.dot(&axis);
+    let dir = hit_perp.normalize()?;
+    if pipe.sector_start.cross(&dir).dot(&axis) < 0.0
+        || dir.cross(&pipe.sector_end).dot(&axis) < 0.0
+    {
+        return None;
+    }
+    Some(RayHit {
+        point,
+        normal: -dir,
+        distance,
+    })
+}
+
+/// Casts a ray against a corner fillet from *inside* its sphere
+/// (`RB-PHYSICS-001-FR-082` step (c)): the far root of the ray-sphere
+/// intersection, accepted only when the hit direction from the center
+/// lies within the fillet's own spherical triangle (`bounds`, as
+/// `sphere_vs_corner_fillet` tests them), with the normal pointing back
+/// toward the center.
+pub fn ray_vs_corner_fillet(
+    origin: Vec3,
+    direction: Vec3,
+    max_distance: f32,
+    fillet: &StaticCornerFillet,
+) -> Option<RayHit> {
+    let rel = origin - fillet.center;
+    let b = rel.dot(&direction);
+    let c = rel.dot(&rel) - fillet.radius * fillet.radius;
+    if c >= 0.0 {
+        return None;
+    }
+    let distance = -b + (b * b - c).sqrt();
+    if distance < 0.0 || distance > max_distance {
+        return None;
+    }
+    let point = origin + direction * distance;
+    let dir = (point - fillet.center).normalize()?;
+    if fillet.bounds.iter().any(|bound| dir.dot(bound) < 0.0) {
+        return None;
+    }
+    Some(RayHit {
+        point,
+        normal: -dir,
+        distance,
+    })
+}
+
+/// `ray_vs_plane` against a goal wall's plane, except that a hit inside
+/// the goal-mouth window is no hit at all — the ray passes through the
+/// opening (`RB-PHYSICS-001-FR-082` step (c)).
+pub fn ray_vs_goal_wall(
+    origin: Vec3,
+    direction: Vec3,
+    max_distance: f32,
+    wall: &StaticGoalWall,
+) -> Option<RayHit> {
+    let hit = ray_vs_plane(origin, direction, max_distance, &wall.plane)?;
+    if wall.contains_in_window(&hit.point) {
+        return None;
+    }
+    Some(hit)
+}
+
+/// `ray_vs_plane` against a bounded wall's plane, accepted only when the
+/// hit lands inside the wall's own bound (`RB-PHYSICS-001-FR-082` step
+/// (c)) — the opposite gate from `ray_vs_goal_wall`.
+pub fn ray_vs_bounded_wall(
+    origin: Vec3,
+    direction: Vec3,
+    max_distance: f32,
+    wall: &StaticBoundedWall,
+) -> Option<RayHit> {
+    let hit = ray_vs_plane(origin, direction, max_distance, &wall.plane)?;
+    if wall.contains_in_bound(&hit.point) {
+        Some(hit)
+    } else {
+        None
+    }
+}
+
+/// The nearest hit of a ray against every static shape in `scene`
+/// (`RB-PHYSICS-001-FR-082` step (c)) — the wheel raycast of
+/// `btVehicleRL::rayCast` against the whole arena: the ground, the walls,
+/// the curved fillets, the corner fillets, the windowed goal walls, and
+/// the bounded goal-box walls. Other bodies are not cast against
+/// (`FR-082`'s Non-goals).
+pub fn raycast_static(
+    origin: Vec3,
+    direction: Vec3,
+    max_distance: f32,
+    scene: &StaticScene,
+) -> Option<RayHit> {
+    let mut nearest: Option<RayHit> = None;
+    let mut consider = |hit: Option<RayHit>| {
+        if let Some(hit) = hit {
+            if nearest.is_none_or(|best| hit.distance < best.distance) {
+                nearest = Some(hit);
+            }
+        }
+    };
+    consider(ray_vs_plane(origin, direction, max_distance, scene.ground));
+    for wall in scene.walls {
+        consider(ray_vs_plane(origin, direction, max_distance, wall));
+    }
+    for pipe in scene.curves {
+        consider(ray_vs_quarter_pipe(origin, direction, max_distance, pipe));
+    }
+    for fillet in scene.corner_fillets {
+        consider(ray_vs_corner_fillet(
+            origin,
+            direction,
+            max_distance,
+            fillet,
+        ));
+    }
+    for wall in scene.goal_walls {
+        consider(ray_vs_goal_wall(origin, direction, max_distance, wall));
+    }
+    for wall in scene.bounded_walls {
+        consider(ray_vs_bounded_wall(origin, direction, max_distance, wall));
+    }
+    nearest
+}
+
 /// Analytic sphere-vs-plane contact: the sphere's closest point to the
 /// plane is always `position - normal * radius`, so the general
 /// closest-point search Bullet's narrow phase would otherwise run reduces
@@ -2150,5 +2338,194 @@ mod tests {
             Vec3::new(19.5, 110.0, 30.0),
         );
         assert!(contacts_vs_bounded_wall(&car, &wall).is_empty());
+    }
+
+    // RB-PHYSICS-001-FR-082 step (c): the wheel rays against the rest of
+    // the static scene.
+
+    fn floor_wall_fillet() -> StaticQuarterPipe {
+        // Floor `z = 0`, wall `x = 1000` (normal `-x`), radius 100: the
+        // axis at `(900, *, 100)`, the concave face toward it.
+        let floor = StaticPlane::new(Vec3::new(0.0, 0.0, 1.0), 0.0);
+        let wall = StaticPlane::new(Vec3::new(-1.0, 0.0, 0.0), -1000.0);
+        StaticQuarterPipe::between_planes(&floor, &wall, 100.0, Vec3::new(0.0, 1.0, 0.0))
+    }
+
+    #[test]
+    fn a_ray_from_inside_a_fillet_hits_its_concave_face_with_the_normal_toward_the_axis() {
+        let pipe = floor_wall_fillet();
+        // Straight down from above the fillet's 45° point: the face is at
+        // `(900 + 70.71, *, 100 - 70.71)`.
+        let x = 900.0 + 100.0 * std::f32::consts::FRAC_1_SQRT_2;
+        let hit = ray_vs_quarter_pipe(
+            Vec3::new(x, 5.0, 80.0),
+            Vec3::new(0.0, 0.0, -1.0),
+            60.0,
+            &pipe,
+        )
+        .unwrap();
+        let expected_z = 100.0 - 100.0 * std::f32::consts::FRAC_1_SQRT_2;
+        assert!((hit.point.z - expected_z).abs() < 1e-3, "{hit:?}");
+        assert!((hit.distance - (80.0 - expected_z)).abs() < 1e-3);
+        assert!(
+            hit.normal.x < -0.7 && hit.normal.z > 0.7,
+            "toward the axis: {hit:?}"
+        );
+        assert!((hit.normal.length() - 1.0).abs() < 1e-5);
+        // Too short a ray misses.
+        assert!(ray_vs_quarter_pipe(
+            Vec3::new(x, 5.0, 80.0),
+            Vec3::new(0.0, 0.0, -1.0),
+            40.0,
+            &pipe
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn a_ray_leaving_the_fillets_sector_or_starting_outside_its_cylinder_misses() {
+        let pipe = floor_wall_fillet();
+        // Straight down well before the fillet (x = 700): the exit point
+        // from the cylinder... is not even inside it — the origin is
+        // outside the cylinder, so the flat floor governs.
+        assert!(ray_vs_quarter_pipe(
+            Vec3::new(700.0, 0.0, 50.0),
+            Vec3::new(0.0, 0.0, -1.0),
+            200.0,
+            &pipe
+        )
+        .is_none());
+        // From inside the cylinder but aimed up out of the sector (the
+        // exit direction points above the axis, where no fillet is).
+        assert!(ray_vs_quarter_pipe(
+            Vec3::new(900.0, 0.0, 50.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            200.0,
+            &pipe
+        )
+        .is_none());
+        // Parallel to the axis: no intersection at all.
+        assert!(ray_vs_quarter_pipe(
+            Vec3::new(950.0, 0.0, 50.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            200.0,
+            &pipe
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn a_ray_from_inside_a_corner_fillet_hits_its_face_within_its_triangle_only() {
+        // A fillet of radius 100 centered at the origin whose triangle is
+        // the `-x, -y, -z` octant (bounds pointing that way).
+        let fillet = StaticCornerFillet::new(
+            Vec3::ZERO,
+            100.0,
+            [
+                Vec3::new(-1.0, 0.0, 0.0),
+                Vec3::new(0.0, -1.0, 0.0),
+                Vec3::new(0.0, 0.0, -1.0),
+            ],
+        );
+        let dir = Vec3::new(-1.0, -1.0, -1.0).normalize().unwrap();
+        let hit =
+            ray_vs_corner_fillet(Vec3::new(-10.0, -10.0, -10.0), dir, 200.0, &fillet).unwrap();
+        assert!((hit.point.length() - 100.0).abs() < 1e-3, "{hit:?}");
+        assert!(
+            (hit.normal + dir).length() < 1e-5,
+            "back toward the center: {hit:?}"
+        );
+        assert!((hit.distance - (100.0 - 10.0 * 3f32.sqrt())).abs() < 1e-3);
+        // Aimed into a different octant: outside the triangle.
+        assert!(ray_vs_corner_fillet(
+            Vec3::new(-10.0, -10.0, -10.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            200.0,
+            &fillet
+        )
+        .is_none());
+        // From outside the sphere: not governed.
+        assert!(
+            ray_vs_corner_fillet(Vec3::new(-150.0, -150.0, -150.0), dir, 500.0, &fillet).is_none()
+        );
+    }
+
+    #[test]
+    fn a_ray_through_the_goal_window_misses_the_goal_wall_and_a_ray_beside_it_hits() {
+        let plane = StaticPlane::new(Vec3::new(0.0, -1.0, 0.0), -5120.0);
+        let wall = StaticGoalWall::new(
+            plane,
+            Vec3::new(0.0, 5120.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            800.0,
+            600.0,
+        );
+        let toward = Vec3::new(0.0, 1.0, 0.0);
+        assert!(ray_vs_goal_wall(Vec3::new(0.0, 5100.0, 100.0), toward, 50.0, &wall).is_none());
+        let hit = ray_vs_goal_wall(Vec3::new(1500.0, 5100.0, 100.0), toward, 50.0, &wall).unwrap();
+        assert!((hit.point.y - 5120.0).abs() < 1e-3 && (hit.distance - 20.0).abs() < 1e-3);
+        assert_eq!(hit.normal, plane.normal);
+    }
+
+    #[test]
+    fn a_ray_hits_a_bounded_wall_inside_its_bound_only() {
+        let plane = StaticPlane::new(Vec3::new(0.0, -1.0, 0.0), -6000.0);
+        let wall = StaticBoundedWall::new(
+            plane,
+            Vec3::new(0.0, 6000.0, 300.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            800.0,
+            300.0,
+        );
+        let toward = Vec3::new(0.0, 1.0, 0.0);
+        assert!(ray_vs_bounded_wall(Vec3::new(0.0, 5980.0, 100.0), toward, 50.0, &wall).is_some());
+        assert!(
+            ray_vs_bounded_wall(Vec3::new(2000.0, 5980.0, 100.0), toward, 50.0, &wall).is_none()
+        );
+    }
+
+    #[test]
+    fn raycast_static_returns_the_nearest_hit_across_shapes() {
+        let ground = StaticPlane::new(Vec3::new(0.0, 0.0, 1.0), 0.0);
+        let pipe = floor_wall_fillet();
+        let curves = [pipe];
+        let scene = StaticScene {
+            ground: &ground,
+            walls: &[],
+            curves: &curves,
+            corner_fillets: &[],
+            goal_walls: &[],
+            bounded_walls: &[],
+        };
+        // Over the fillet's 45° point the curve is nearer than the floor.
+        let x = 900.0 + 100.0 * std::f32::consts::FRAC_1_SQRT_2;
+        let hit = raycast_static(
+            Vec3::new(x, 0.0, 80.0),
+            Vec3::new(0.0, 0.0, -1.0),
+            100.0,
+            &scene,
+        )
+        .unwrap();
+        assert!(hit.normal.x < -0.7, "the curve, not the floor: {hit:?}");
+        // Well before the fillet, the floor.
+        let hit = raycast_static(
+            Vec3::new(500.0, 0.0, 80.0),
+            Vec3::new(0.0, 0.0, -1.0),
+            100.0,
+            &scene,
+        )
+        .unwrap();
+        assert_eq!(hit.normal, Vec3::new(0.0, 0.0, 1.0));
+        assert!((hit.distance - 80.0).abs() < 1e-4);
+        // Out of reach of everything.
+        assert!(raycast_static(
+            Vec3::new(500.0, 0.0, 80.0),
+            Vec3::new(0.0, 0.0, -1.0),
+            50.0,
+            &scene
+        )
+        .is_none());
     }
 }

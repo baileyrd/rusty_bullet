@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.103.0
+- Version: 0.104.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -6298,7 +6298,7 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `PROJECT-STATUS.md`, and the ratchet; the full workspace stays green
     (420 tests).
 - `RB-PHYSICS-001-FR-082` (wheel/suspension/tire model — scoped; steps
-  (a) and (b) implemented, step (c) open): `FR-065`/`FR-066` established that real steering
+  (a), (b) and (c) implemented): `FR-065`/`FR-066` established that real steering
   and real handbrake friction live in a wheeled-vehicle model this port's
   single rigid box cannot express, and `FR-081` traced everything left in
   the isolated `dodge-derailment` fixture after the airborne phase
@@ -6805,6 +6805,71 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
       bullet` `389 → 396`, the workspace `450 → 457`; the ratchet
       tightens `< 125 → < 110` uu on the car (the ball stays `< 85`).
       Full workspace `fmt`/`clippy`/`test` green.
+  - **Step (c), implemented.** (1) **The rest of the arena.**
+    `collision::StaticScene` (moved out of `world.rs`, now `pub`) and
+    `collision::raycast_static(origin, direction, max, &scene)` — the
+    nearest hit across `ray_vs_plane` (the ground and the walls),
+    `ray_vs_quarter_pipe` (the far root of the ray-cylinder
+    intersection from inside the fillet, accepted within its sector,
+    normal toward the axis), `ray_vs_corner_fillet` (the same for the
+    sphere, within its `bounds`), `ray_vs_goal_wall` (the plane, a hit
+    inside the window discarded) and `ray_vs_bounded_wall` (the plane,
+    a hit outside the bound discarded); `raycast_wheels` takes the
+    scene, and `PhysicsWorld` builds it for the rays and the priming
+    from the same six fields `static_contact_manifolds` reads. A car
+    over the standard arena's side-wall floor fillet now rests its
+    wheels on the curve with the normal leaning toward the axis. (2)
+    **The wall jump's normal from the wheels.**
+    `wheels::wall_contact_normal`: the averaged contact normal when one
+    or two wheels touch a wall-like surface (`z <
+    WALL_CONTACT_MAX_NORMAL_Z = 1/√2`, RocketSim's own
+    `CAR_AUTOFLIP_NORMZ_THRESH` read the other way round), `None`
+    otherwise; it replaces the chassis-against-a-wall-plane probe as
+    `drive`'s `wall_normal`. A car with three or more wheels on a wall
+    is `on_ground` there and jumps along its own up — which *is* the
+    wall's normal, the real mechanism `FR-067` found — so the composite
+    push-off (`FR-013`/`FR-017`) is now what remains for a partial
+    touch, and `FR-039`'s corner blend is the averaged normal. A car
+    pressed sideways against a wall in mid-air, wheels in the air, gets
+    a double jump, as RocketSim's would. (3) **Auto-roll.**
+    `wheels::apply_auto_roll` (`Car::_UpdateAutoRoll`): with the raw
+    throttle held and one to three wheels touching, a central force of
+    `CAR_AUTOROLL_FORCE = 100 · mass` along the averaged contact normal
+    into the surface and an angular acceleration of `CAR_AUTOROLL_TORQUE
+    = 80` times the two misalignment factors (`1 - clamp(right ·
+    (groundUp × forward))` about the forward axis, `1 - clamp(forward ·
+    (groundDown × (groundUp × forward)))` about the right axis, each
+    signed toward the surface), run after the driven forces and before
+    the suspension impulses. The chassis's own world contact,
+    RocketSim's fallback when no wheel touches, is not tracked (the
+    Non-goals below stand); the auto-flip is not ported.
+    - **Measured.** The isolated fixture never leaves the flat floor:
+      `114.38 uu / 0.51 rad / 238.41 uu/s → 114.17 / 0.51 / 238.02`,
+      ball `42.19` unchanged. The auto-roll acts on its two three-wheel
+      landing ticks (`5.642`, `5.650`, throttle held) with the small
+      factors RocketSim's formula gives at a `6°` roll — worth `0.2`
+      uu. The step is measurable on wall-driving and curve-landing
+      scenarios, which no capture yet holds.
+    - **Tests.** `collision.rs`: `a_ray_from_inside_a_fillet_hits_its_
+      concave_face_with_the_normal_toward_the_axis`, `a_ray_leaving_the_
+      fillets_sector_or_starting_outside_its_cylinder_misses`, `a_ray_
+      from_inside_a_corner_fillet_hits_its_face_within_its_triangle_
+      only`, `a_ray_through_the_goal_window_misses_the_goal_wall_and_a_
+      ray_beside_it_hits`, `a_ray_hits_a_bounded_wall_inside_its_bound_
+      only`, `raycast_static_returns_the_nearest_hit_across_shapes`;
+      `wheels.rs`: `the_wall_contact_normal_is_the_wheels_average_for_a_
+      partial_wall_touch_only`, `auto_roll_presses_a_partially_landed_
+      throttling_car_into_the_surface_and_levels_it`; `world.rs`: `the_
+      wheels_see_the_standard_arenas_floor_fillet_with_its_tilted_
+      normal`, and the wall-jump tests rewritten onto the wheels — `a_
+      car_with_all_four_wheels_on_a_wall_jumps_along_its_own_up_which_
+      is_the_walls_normal`, `a_car_with_two_wheels_on_a_wall_pushes_off_
+      along_the_wheels_averaged_normal`, the wall-jump dodge and its
+      flip-cancel re-posed on two wheels (the corner test's blend now
+      the `wheels.rs` unit test). `rb_physics_bullet` `398 → 407`, the
+      workspace `459 → 468`. Full workspace `fmt`/`clippy`/`test` green.
+      `THIRD_PARTY_NOTICES.md`'s RocketSim table gains the auto-roll and
+      the wall threshold; the ray tests are this port's own geometry.
   - **Non-goals (this requirement).** The
     implementation steps do not model three-wheel or non-Octane presets
     (descriptors are Octane-only; other presets are a data change later),
@@ -8745,6 +8810,15 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.104.0 (2026-09-06): `RB-PHYSICS-001-FR-082` step (c) implemented,
+  completing the wheel model: `collision::raycast_static` over the whole
+  arena (`ray_vs_quarter_pipe`, `ray_vs_corner_fillet`,
+  `ray_vs_goal_wall`, `ray_vs_bounded_wall`; `StaticScene` now public),
+  the composite wall jump's normal from the wheels
+  (`wall_contact_normal`, RocketSim's `1/√2` wall threshold), and
+  `Car::_UpdateAutoRoll` (`apply_auto_roll`: `100` uu/s² into the
+  surface, `80` rad/s² of levelling). Fixture unchanged (`114.17` uu);
+  measurable on wall and curve scenarios no capture yet holds.
 - 0.103.0 (2026-09-06): `RB-PHYSICS-001-FR-084` added — the landing and
   jump-exit contact diagnosed with a one-tick-from-recorded-state
   instrument; findings 1–3 implemented: the rays' real reach (`rest +

@@ -380,7 +380,11 @@ mod tests {
     /// with the recorded geometry (the ball figure fell `79 → 42` uu, the
     /// whole approach matches to `4.4` uu), and the open post-hit
     /// suspension slam (`FR-084` finding 4) then throws a correctly
-    /// placed car further than it threw a late one.
+    /// placed car further than it threw a late one. `FR-082` step (c)
+    /// (rays against the whole arena, the wheel-based wall normal, the
+    /// auto-roll) left it at `~114`: this fixture never leaves the flat
+    /// floor, and the auto-roll's two three-wheel landing ticks are worth
+    /// `0.2` uu.
     #[test]
     fn isolated_replay_of_the_real_dodge_stays_under_its_last_recorded_divergence() {
         let score = score_capture_against_candidate(
