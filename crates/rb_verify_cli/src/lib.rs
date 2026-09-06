@@ -372,7 +372,15 @@ mod tests {
     /// factor curves, the slip-driven lateral friction curve, the
     /// non-sticky curve): the landing and the ticks into the hit tighten
     /// (rotation `0.46 → 0.40` rad, velocity `229 → 200` uu/s); the ball
-    /// figure edged up `75 → 79` uu, its exit still fast.
+    /// figure edged up `75 → 79` uu, its exit still fast. Then `~114` uu
+    /// after `RB-PHYSICS-001-FR-084` findings 1–3 (the rays' real reach,
+    /// the stick dead while any wheel touches, the stick gate reading
+    /// last tick's count): the first *rise* in this history, and a
+    /// deliberate one — the car now reaches the ball on the recorded tick
+    /// with the recorded geometry (the ball figure fell `79 → 42` uu, the
+    /// whole approach matches to `4.4` uu), and the open post-hit
+    /// suspension slam (`FR-084` finding 4) then throws a correctly
+    /// placed car further than it threw a late one.
     #[test]
     fn isolated_replay_of_the_real_dodge_stays_under_its_last_recorded_divergence() {
         let score = score_capture_against_candidate(
@@ -383,13 +391,16 @@ mod tests {
 
         assert_eq!(score.frames_compared, 347);
         assert_eq!(score.cars.pairs_compared, 347);
-        // Ratchet (2026-09-06): mean car position distance ~103 uu and
-        // mean ball distance ~79 uu after `FR-082` step (b) (`~117` /
-        // `~75` after `FR-083` finding 5, `~140` / `~91` after findings
-        // 1–4, `~160` / `~80` after the wheels, `~240` / `~730` before
-        // them). Bounded loosely above to catch a regression, not to pin
-        // the exact figure.
-        assert!(score.cars.mean_position_distance < 110.0);
-        assert!(score.mean_ball_distance < 85.0);
+        // Ratchet (2026-09-06): mean car position distance ~114 uu and
+        // mean ball distance ~42 uu after `FR-084` findings 1–3 (`~103` /
+        // `~79` after `FR-082` step (b), `~117` / `~75` after `FR-083`
+        // finding 5, `~140` / `~91` after findings 1–4, `~160` / `~80`
+        // after the wheels, `~240` / `~730` before them). The car bound
+        // is loosened `< 110 → < 120` here, once, for the reason the
+        // history above records; the ball bound tightens `< 85 → < 50`.
+        // Bounded loosely above to catch a regression, not to pin the
+        // exact figure.
+        assert!(score.cars.mean_position_distance < 120.0);
+        assert!(score.mean_ball_distance < 50.0);
     }
 }

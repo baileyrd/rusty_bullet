@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.102.0
+- Version: 0.103.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7118,6 +7118,144 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   - **Verification plan.** The diagnosis itself added no tests (443);
     findings 1–4 brought the workspace to 444 and finding 5 to 450, with
     the fixture ratchet at `< 125` uu car / `< 85` uu ball.
+- `RB-PHYSICS-001-FR-084` (landing and jump-exit contact — diagnosis;
+  findings 1–3 implemented): `FR-082` step (b) left the isolated
+  `dodge-derailment` fixture with two residuals around wheel contact: the
+  recording's wheels touch at the landing one tick before the port's
+  rays and let go one tick after them at the jump exit (`FR-083` finding
+  7), and through the landing the recording's yaw rate falls where the
+  port's holds. This pass added a second instrument to the tick trace:
+  a *one-tick-from-recorded-state* comparison, which seeds the port from
+  each recorded frame in turn (`PhysicsWorld::from_frame`), steps it
+  once on that frame's input, and compares the step's `Δv`/`Δω` with the
+  recording's — so a mechanism difference shows on its own tick, free
+  of the pose the full run has accumulated. (It is blind inside a held
+  jump, where re-seeding re-fires the press; the full run covers those
+  ticks.) Six findings.
+  1. **The rays reach `2.5` uu further than RocketSim's.** From the
+     recorded pose at `t = 5.567` (origin `z = 43.5`, nose `13°` down,
+     rolled `16°`) the recorded car's front-left wheel touches during the
+     next tick (`Δω_x = +0.22`); the port's `48.755` uu ray misses that
+     pose by `0.68` uu and the pose one tick earlier by `3.60`. At the
+     jump exit the recorded tires still drive the car through the tick
+     that starts at `z = 29.7` (mounts `50.5` uu up) and not the one at
+     `32.3`. Together: the real reach is in `50.5..52.4` uu. RocketSim's
+     `rayCast` subtracts `SUSPENSION_SUBTRACTION` (`2.5` uu) from the ray
+     as well as from the pushback threshold; `rest + travel + radius`
+     without it — `51.255` front, `52.055` back — sits inside the bound
+     and the subtracted length does not. Cheap: `wheels::ray_length`.
+  2. **The stick needs no wheel touching, not fewer than three.**
+     RocketSim's `_PreTickUpdate` calls `_UpdateAirTorque(...,
+     updateAirControl = numWheelsInContact == 0)`: with one or two wheels
+     down the flip torque and the air throttle still apply, but
+     `doAirControl &= updateAirControl` kills the stick torque *and* its
+     damping. The port gated both on `!on_ground` (fewer than three).
+     Through the six one- and two-wheel landing ticks (`5.583`–`5.633`)
+     the port kept adding the held yaw's `+0.078` rad/s per tick: its
+     single-wheel yaw change read `-0.04` where the recording's read
+     `-0.15`, and `-0.12` once the stick is removed. Cheap: a
+     `stick_control` argument to `apply_driven_forces`.
+  3. **The stick gate reads last tick's wheel count.** Two ticks the
+     fresh count cannot explain: at `t = 4.192`, the first tick after the
+     jump exit with no wheel in reach, the recording holds `ω_z = -2.02`
+     and `vx = 385` exactly — no tire, and no stick either, though the
+     yaw stick is held and the port applies `+0.08`; and at `5.575`, the
+     first tick with a wheel down, the recording's `Δω_z = -0.074` is the
+     wheel's `-0.15` *plus* the stick's `+0.078`, which finding 2 alone
+     would remove. Both fit one rule: the gate reads the previous tick's
+     count — the stick stops one tick after the last wheel leaves and
+     starts one tick after the first wheel lands. The candidate mechanism
+     is the game's car logic reading the last physics tick's contact
+     flags; RocketSim reads the fresh raycast. Implemented for the stick
+     gate only (`PhysicsWorld::car_prev_wheels_in_contact`), not for
+     `isOnGround`, the engine's quarter under three wheels, or the sticky
+     force, none of which this fixture measures.
+  4. **Open — the post-hit suspension slam.** The recorded car jumps on
+     the hit tick (`5.758`, `j` pressed as the ball pushes it to `z =
+     15.4`, `vz = -66`, nose lifting at `ω_y = -3.2`). In the next tick
+     the recording gains `+295` uu/s of `vz` (the jump's `292` plus a
+     spring-sized `≈7`) and keeps `ω_y = -3.22`. The port's back wheels,
+     still within reach and driven down at `≈170` uu/s by the lift, fire
+     the compression damping and the pushback: `+362` and `ω_y -3.35 →
+     -1.64` (`+334` / `-2.46` with the pushback's velocity term dropped).
+     RocketSim would do what the port does (its `updateSuspension` and
+     `resolveSingleCollision` are the port's). The recording then loses
+     `≈1.1` uu/s of `vz` per tick through the held jump, which neither
+     `hold - g` (`+6.7`) nor `hold - g - sticky` (`+4.0`) predicts — as
+     if its wheels were off *and* the hold were not applying. A variant
+     with the pushback's velocity term removed measured `97.50 uu / 0.42
+     rad / 205 uu/s` on the fixture but sinks the landing to `15.2`
+     against the recorded `15.54` (`15.46` with it); not adopted. This
+     needs a second fixture with a hit-tick jump, or one without.
+  5. **Open — the single-wheel tire.** From the identical recorded pose
+     one front wheel pushes the recorded car `5.3`–`5.6` uu/s per tick
+     sideways and `1.0` uu/s backward; the port's `3.5` sideways, `0.3`
+     forward. Two wheels: `9`–`10` vs `7`, with `2.7` of forward loss the
+     port lacks; three: `19` vs `17`; four: `25.7` vs `25.5` and the yaw
+     `+0.24` vs `+0.22` — the model matches once the car is down. The
+     recorded single-wheel push points `11°` clockwise of the car's right
+     where the port's points `4°` counter-clockwise (the steer). No
+     RocketSim mechanism produces it (the friction circle Bullet's own
+     vehicle applies would *reduce* a lightly loaded wheel's grip). Left
+     as read.
+  6. **A residual, recorded.** The press tick's spring push (`FR-083`
+     finding 2) still leaves the port `+8` uu/s high in `vz` through the
+     flight (`+11` at `4.242`, with finding 1's extra contact tick).
+  - **Findings 1–3, implemented.** (1) `wheels::ray_length` is `rest +
+    travel + radius`; the subtraction stays in the pushback threshold.
+    (2) `drive::apply_driven_forces` takes `stick_control`; the stick's
+    torque and damping run only when it is true. The wheel-less test
+    helpers pass `!on_ground`; `step_on_wheels` and the world pass the
+    contact count's zero test. (3) `PhysicsWorld` keeps each car's
+    previous tick's count, primed at the seed, and passes `prev == 0`.
+    - **Measured.** After findings 1 and 2: `102.64 uu / 0.40 rad /
+      200.35 uu/s → 100.11 / 0.45 / 200.12`, ball `79.28 → 91.98` uu —
+      the landing's contacts now arrive tick for tick (first wheel
+      `5.575`, second `5.600`, third `5.633`, fourth `5.650`), the jump
+      exit gains through `29.7` and reads `385`, but the first-touch tick
+      lost its stick and the `4.192` tick gained one. After finding 3:
+      `114.38 uu / 0.51 rad / 238.41 uu/s` (max `627.60 / 2.04 /
+      682.23`), ball `42.19` uu (max `184.46`). The whole approach now
+      matches to `4.4`–`4.8` uu and `0.05` rad (from `11.5`–`12.6`), the
+      `4.192` tick reads `-2.02` / `386` exactly, the first landing touch
+      `0.66` vs `0.64` rad/s (was `0.77`), and the car meets the ball *on
+      the recorded tick* with the recorded geometry: at `5.758` the car
+      reads `(1471, 1411, -72)` uu/s and `ω_z 4.33` against `(1488,
+      1403, -66)` and `4.44`, and the ball leaves at `(1628, 2287, 815)`
+      against `(1602, 2148, 790)` — `4.5%` fast, `3°` off (from `(1788,
+      2347, 954)`, `11%` and `7°`, a tick late). The car figure *rose*,
+      the first rise in the ratchet's history: finding 4's slam now
+      lands on a car placed where the recording's is, and throws its
+      rotation (`0.07` rad at the hit window, `0.24` by `5.87`) further
+      than it threw the late, misplaced car of step (b); `FR-083`
+      finding 6's missing pitch input then carries the larger angle
+      through the rest of the run. The ratchet is loosened `< 110 → <
+      120` uu on the car, once and for this reason, and tightened `< 85
+      → < 50` on the ball.
+    - **Tests.** `the_stick_does_nothing_while_any_wheel_touches`
+      (`drive.rs`: the same one-wheel spinning car with the yaw stick
+      held and neutral ends at the same yaw rate; with no wheel the stick
+      yaws it); `the_stick_gate_reads_last_ticks_wheel_count`
+      (`world.rs`: a car falling rolled `20°` keeps one tick of stick
+      yaw on its first touching tick and none on the next); the reach
+      tests re-pinned (`51.255` / `52.055`; contact at `29.7`, the front
+      gone by `31.0`, both by `32.3`). `rb_physics_bullet` `396 → 398`,
+      the workspace `457 → 459`. Full workspace `fmt`/`clippy`/`test`
+      green.
+  - **Non-goals (this requirement).** Does not change the pushback or
+    the suspension (finding 4 is open), the tire model (finding 5), or
+    any other reader of the wheel count (finding 3 is the stick gate
+    only). Does not touch `RB-PHYSICS-001-FR-005`'s real-data
+    calibration, no longer blocked on `PHASE-0-EXIT` (now closed), but
+    not itself started.
+  - **Acceptance criteria.** This entry records the six findings with
+    their tick-level evidence, the one-tick instrument, and what was
+    adopted; findings 1–3 are implemented and measured; findings 4 and 5
+    name what a second fixture must show; `PROJECT-STATUS.md`'s Next
+    item points at `FR-082` step (c) with finding 4 as the open item.
+  - **Verification plan.** The two new tests and the re-pinned reach
+    tests (459 in the workspace); the fixture ratchet at `< 120` uu car
+    / `< 50` uu ball.
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -8607,6 +8745,15 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.103.0 (2026-09-06): `RB-PHYSICS-001-FR-084` added — the landing and
+  jump-exit contact diagnosed with a one-tick-from-recorded-state
+  instrument; findings 1–3 implemented: the rays' real reach (`rest +
+  travel + radius`, no `2.5` uu subtraction), the stick dead while any
+  wheel touches (RocketSim's `numWheelsInContact == 0` gate), and the
+  stick gate reading last tick's count. The car meets the ball on the
+  recorded tick (`(1628, 2287, 815)` vs `(1602, 2148, 790)`); ball
+  `79.28 → 42.19` uu, car `102.64 → 114.38` uu (the open post-hit
+  suspension slam, finding 4, now lands on a correctly placed car).
 - 0.102.0 (2026-09-06): `RB-PHYSICS-001-FR-082` step (b) implemented:
   the analog `handbrakeVal` (`5`/s up, `2`/s down) blending the steer
   angle and the handbrake's lateral (`0.1`) and longitudinal (`0.5 →

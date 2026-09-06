@@ -2375,6 +2375,28 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-084` added and findings 1–3 implemented — the
+  landing and jump-exit contact, diagnosed with a new
+  one-tick-from-recorded-state instrument (seed from each recorded
+  frame, step once, compare `Δv`/`Δω`): (1) the rays reach `rest +
+  travel + radius` (`51.255` / `52.055` uu; RocketSim subtracts `2.5`,
+  the recording's wheels bound the real reach to `50.5..52.4`); (2) the
+  stick's torque and damping need *no* wheel touching, RocketSim's
+  `numWheelsInContact == 0` gate, not fewer than three; (3) the stick
+  gate reads last tick's count — the recording's stick stops one tick
+  after the last wheel leaves and starts one tick after the first lands.
+  The whole approach now matches to `4.4` uu / `0.05` rad, the jump-exit
+  tick reads `385` / `-2.02` exactly, and the car meets the ball on the
+  recorded tick with the recorded geometry: ball exit `(1628, 2287,
+  815)` vs `(1602, 2148, 790)`, `mean_ball_distance` `79.28 → 42.19` uu.
+  The car figure *rose* `102.64 → 114.38` uu (`0.40 → 0.51` rad): the
+  open finding 4 — the port's back suspension and pushback slam the
+  hit-tick jump (`ω_y -3.35 → -1.64`, `+61` uu/s of lift the recording
+  lacks) — now lands on a correctly placed car. Finding 5 (one front
+  wheel pushes the recorded car `1.5×` harder sideways) also open.
+  `rb_physics_bullet` 396 → 398, workspace 457 → 459; ratchet car `<
+  120` (loosened once, for finding 4), ball `< 50`. Full workspace
+  `fmt`/`clippy`/`test` green.
 
 ## In progress
 
@@ -2458,13 +2480,18 @@
    recorded `790`), the fixture `139.52 → 117.41` uu, the ball `91.16
    → 75.22` uu. `FR-082` step (b) is done: the analog handbrake with
    its two factor curves, the slip-driven lateral friction curve, and
-   the non-sticky curve (`117.41 → 102.64` uu, `0.46 → 0.40` rad). Next
-   step: diagnose the landing ticks (`t = 5.575`–`5.65`), where the
-   recording's wheels touch a tick before the port's rays and its yaw
-   rate turns negative under a held right steer while the port's stays
-   positive — the last `0.05` rad and the ticks that set up the hit —
-   then `FR-082` step (c), the rest of the arena. Nothing is to be
-   tuned against the segment after
+   the non-sticky curve (`117.41 → 102.64` uu, `0.46 → 0.40` rad).
+   `RB-PHYSICS-001-FR-084` then diagnosed the landing and jump-exit
+   ticks and implemented three findings — the rays' real reach, the
+   stick dead while any wheel touches, the stick gate reading last
+   tick's count — so the approach matches to `4.4` uu and the car meets
+   the ball on the recorded tick (ball `79.28 → 42.19` uu). Next step:
+   `FR-082` step (c), the rest of the arena, with `FR-084` finding 4
+   (the post-hit suspension slam on a hit-tick jump: the recording shows
+   neither the damping push nor the pushback, and afterwards neither
+   the sticky force nor the expected hold) waiting on a second fixture
+   that has a hit-tick jump or a clean one — a candidate for the next
+   capture session. Nothing is to be tuned against the segment after
    `6.05` s, where the capture's own pitch input is missing (finding
    6). See `FR-083`'s and `FR-082`'s own spec entries.
 
@@ -2472,9 +2499,10 @@
 
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
-- `cargo test --workspace`: pass (457 tests: 27 in `rb_domain` (incl. 4
-  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 396 in
-  `rb_physics_bullet` (incl. 7 new `wheels.rs` curve tests for
+- `cargo test --workspace`: pass (459 tests: 27 in `rb_domain` (incl. 4
+  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 398 in
+  `rb_physics_bullet` (incl. 2 new stick-gate tests for
+  `RB-PHYSICS-001-FR-084` findings 2–3, 7 new `wheels.rs` curve tests for
   `RB-PHYSICS-001-FR-082` step (b), 5 new `hit.rs` tests and 1 new `world.rs`
   pop test for `RB-PHYSICS-001-FR-083` finding 5, `19` new `wheels.rs` tests and 4 new `world.rs`
   acceptance tests for `RB-PHYSICS-001-FR-082` step (a), with 12
@@ -2742,6 +2770,25 @@
   385` through `t=4.192` where the port is already in the air; landing
   `ω_x` starts at `5.575` recorded vs `5.583`; the hit on the tick after
   `5.758`, ball `(1788, 2347, 954)` vs `(1602, 2148, 790)`.
+- `RB-PHYSICS-001-FR-084` findings 1–3 re-run against the same fixture
+  (2026-09-06, this sandbox): `frames compared: 347, mean ball distance:
+  42.19 uu, max ball distance: 184.46 uu, car pairs compared: 347, mean
+  car position/rotation/velocity distance: 114.38 uu / 0.51 rad / 238.41
+  uu/s, max car position/rotation/velocity distance: 627.60 uu / 2.04 rad
+  / 682.23 uu/s` (from `102.64 / 0.40 / 200.35`, ball `79.28`; after
+  findings 1–2 alone `100.11 / 0.45 / 200.12`, ball `91.98`).
+  `--self-growth ... 0.05`: the flight and landing `4.4`–`4.8` uu /
+  `0.05` rad (from `11.5`–`12.6`), the hit window at `t=5.77s` `14.51`
+  uu ball / `5.62` uu, `0.07` rad, `75.82` uu/s car; the post-`6.05`
+  step `682.08` uu/s at `t=6.07s` (finding 6). Per-tick traces (two
+  temporary examples, since removed): the jump exit `385` / `ω_z -2.02`
+  at `t=4.192` exactly; the landing's first touch `ω_z 0.66` vs `0.64`;
+  the hit on `t=5.758` with the car at `(1471, 1411, -72)` vs `(1488,
+  1403, -66)` and the ball leaving `(1628, 2287, 815)` vs `(1602, 2148,
+  790)`; the tick after, `ω_y -1.64` vs `-3.22` and `vz 290` vs `229`
+  (finding 4). One-tick-from-recorded-state rows at the landing: one
+  wheel `Δω_z` rec `-0.152` / port `-0.119` (was `-0.041`), lateral push
+  rec `5.3` / port `3.5` uu/s.
 
 ## Risks and decisions needed
 

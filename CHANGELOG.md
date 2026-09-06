@@ -271,6 +271,14 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   and longitudinal factor curves, the slip-driven lateral friction
   curve from each mount's velocity, and the non-sticky curve of the
   contact normal — the fixture `117.41 → 102.64` uu.
+  `RB-PHYSICS-001-FR-084` diagnoses the landing and jump-exit contact
+  with a one-tick-from-recorded-state instrument and implements three
+  findings: the rays' real reach (`rest + travel + radius`, no `2.5` uu
+  subtraction), the stick's torque and damping dead while any wheel
+  touches (RocketSim's `numWheelsInContact == 0` gate), and the stick
+  gate reading last tick's count — the car meets the ball on the
+  recorded tick, the ball `79.28 → 42.19` uu; the open post-hit
+  suspension slam (finding 4) lifts the car figure `102.64 → 114.38`.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

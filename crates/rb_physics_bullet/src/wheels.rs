@@ -359,11 +359,22 @@ pub fn is_on_ground(wheels: &[WheelState; 4]) -> bool {
     wheels_in_contact(wheels) >= WHEELS_FOR_GROUNDED
 }
 
-/// The length of a wheel's ray: `rest + travel + radius -
-/// SUSPENSION_SUBTRACTION` (`btVehicleRL::rayCast`'s `realRayLength`) —
-/// `48.755` uu for a front wheel, `49.555` for a back wheel.
+/// The length of a wheel's ray: `rest + travel + radius` — `51.255` uu
+/// for a front wheel, `52.055` for a back wheel.
+///
+/// RocketSim's `btVehicleRL::rayCast` subtracts `SUSPENSION_SUBTRACTION`
+/// (`2.5` uu) here as well as in the pushback threshold (`realRayLength`
+/// `48.755`); the real capture does not (`RB-PHYSICS-001-FR-084` finding
+/// 1): after the fixture's jump the recorded wheels still drive the car
+/// from an origin `29.7` uu up (mounts `50.5` uu above the floor) and
+/// let go at `32.3`, and at the landing they touch from a pose the
+/// `48.755` ray misses by `0.7` uu and miss from the pose `2.9` uu before
+/// it — bounding the real reach to `50.5..52.4` uu, which the
+/// unsubtracted length sits inside and the subtracted one does not. The
+/// subtraction stays in the pushback threshold, where it is measured on
+/// the rest height.
 pub fn ray_length(mount: &WheelMount) -> f32 {
-    mount.rest_length + MAX_SUSPENSION_TRAVEL + mount.radius - SUSPENSION_SUBTRACTION
+    mount.rest_length + MAX_SUSPENSION_TRAVEL + mount.radius
 }
 
 /// Casts each wheel's ray from its mount along the car's down axis against
@@ -778,8 +789,8 @@ mod tests {
         assert!((WHEELS[0].rest_length - 26.755).abs() < 1e-4);
         assert!((WHEELS[2].rest_length - 25.055).abs() < 1e-4);
         assert!((SUSPENSION_SUBTRACTION - 2.5).abs() < 1e-6);
-        assert!((ray_length(&WHEELS[0]) - 48.755).abs() < 1e-3);
-        assert!((ray_length(&WHEELS[2]) - 49.555).abs() < 1e-3);
+        assert!((ray_length(&WHEELS[0]) - 51.255).abs() < 1e-3);
+        assert!((ray_length(&WHEELS[2]) - 52.055).abs() < 1e-3);
     }
 
     #[test]
@@ -812,20 +823,22 @@ mod tests {
 
     #[test]
     fn the_ray_keeps_contact_until_the_car_has_risen_past_its_length() {
-        // Front ray 48.755 from a mount 20.755 above the origin: contact
-        // ends once the origin is above 28.0 — 11 uu of rise from rest.
+        // Front ray 51.255 from a mount 20.755 above the origin: contact
+        // ends once the origin is above 30.5 — 13.5 uu of rise from rest
+        // (RB-PHYSICS-001-FR-084 finding 1: the recorded wheels still
+        // drive from 29.7 and let go by 32.3).
         let mut wheels = initial_wheels();
-        raycast_wheels(&car_at(27.0), &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car_at(29.7), &mut wheels, &[&ground()], DT);
         assert!(wheels[0].in_contact);
-        // Mount at 47.755, trace 47.755, spring 35.255: extended past rest
-        // but inside the travel.
-        assert!((wheels[0].suspension_length - 35.255).abs() < 1e-3);
+        // Mount at 50.455, trace 50.455, spring 37.955: extended past
+        // rest but inside the travel (clamped at rest + 12 = 38.755).
+        assert!((wheels[0].suspension_length - 37.955).abs() < 1e-3);
         assert!(wheels[0].suspension_length > WHEELS[0].rest_length);
         assert_eq!(wheels[0].extra_pushback, 0.0);
-        raycast_wheels(&car_at(28.5), &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car_at(31.0), &mut wheels, &[&ground()], DT);
         assert!(!wheels[0].in_contact);
         assert!(wheels[2].in_contact, "the back ray is 0.8 uu longer");
-        raycast_wheels(&car_at(29.0), &mut wheels, &[&ground()], DT);
+        raycast_wheels(&car_at(32.3), &mut wheels, &[&ground()], DT);
         assert_eq!(wheels_in_contact(&wheels), 0);
     }
 

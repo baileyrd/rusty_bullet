@@ -122,6 +122,12 @@ pub struct PhysicsWorld {
     /// Each car's analog handbrake value (RocketSim's `handbrakeVal`,
     /// `RB-PHYSICS-001-FR-082` step (b)), ramped by `wheels::update_wheels`.
     car_handbrake_val: Vec<f32>,
+    /// Each car's wheel-contact count from the *previous* tick's raycast,
+    /// which gates the stick's air control (`RB-PHYSICS-001-FR-084`
+    /// finding 3: the recording's stick torque stops one tick after the
+    /// last wheel leaves and starts one tick after the first wheel
+    /// lands).
+    car_prev_wheels_in_contact: Vec<usize>,
     car_jump_held: Vec<bool>,
     car_double_jump_available: Vec<bool>,
     car_jump_hold_time_remaining: Vec<f32>,
@@ -220,6 +226,7 @@ impl PhysicsWorld {
             car_boost: Vec::new(),
             car_wheels: Vec::new(),
             car_handbrake_val: Vec::new(),
+            car_prev_wheels_in_contact: Vec::new(),
             car_jump_held: Vec::new(),
             car_double_jump_available: Vec::new(),
             car_jump_hold_time_remaining: Vec::new(),
@@ -396,6 +403,7 @@ impl PhysicsWorld {
             1.0 / 120.0,
         );
         car.clear_forces();
+        self.car_prev_wheels_in_contact[index] = wheels::wheels_in_contact(car_wheels);
     }
 
     /// Adds one arena wall to the scene — a flat `StaticPlane`, typically
@@ -480,6 +488,7 @@ impl PhysicsWorld {
     pub fn with_car(mut self, car: RigidBody) -> PhysicsWorld {
         self.car_wheels.push(wheels::initial_wheels());
         self.car_handbrake_val.push(0.0);
+        self.car_prev_wheels_in_contact.push(0);
         self.cars.push(car);
         self.car_inputs.push(ControllerInput::default());
         self.car_boost.push(drive::MAX_BOOST);
@@ -569,6 +578,7 @@ impl PhysicsWorld {
         car: &mut RigidBody,
         car_wheels: &mut [wheels::WheelState; 4],
         handbrake_val: &mut f32,
+        prev_wheels_in_contact: &mut usize,
         input: &ControllerInput,
         wall_normal: Option<Vec3>,
         boost_amount: &mut f32,
@@ -601,10 +611,15 @@ impl PhysicsWorld {
             gravity.z,
             dt,
         );
+        // RB-PHYSICS-001-FR-084 finding 3: the stick gate reads last
+        // tick's contact count, not this tick's raycast.
+        let stick_control = *prev_wheels_in_contact == 0;
+        *prev_wheels_in_contact = wheels::wheels_in_contact(car_wheels);
         drive::apply_driven_forces(
             car,
             input,
             on_ground,
+            stick_control,
             wall_normal,
             boost_amount,
             jump_held,
@@ -842,7 +857,13 @@ impl PhysicsWorld {
             (
                 (
                     (
-                        (((((car, car_wheels), handbrake_val), input), wall_normal), boost),
+                        (
+                            (
+                                ((((car, car_wheels), handbrake_val), prev_contacts), input),
+                                wall_normal,
+                            ),
+                            boost,
+                        ),
                         jump_held,
                     ),
                     double_jump_available,
@@ -855,6 +876,7 @@ impl PhysicsWorld {
             .iter_mut()
             .zip(self.car_wheels.iter_mut())
             .zip(self.car_handbrake_val.iter_mut())
+            .zip(self.car_prev_wheels_in_contact.iter_mut())
             .zip(self.car_inputs.iter())
             .zip(car_wall_normal.iter())
             .zip(self.car_boost.iter_mut())
@@ -867,6 +889,7 @@ impl PhysicsWorld {
                 car,
                 car_wheels,
                 handbrake_val,
+                prev_contacts,
                 input,
                 *wall_normal,
                 boost,
@@ -2189,6 +2212,64 @@ mod tests {
         let z = world.cars[0].position.z;
         assert!((z - 17.0).abs() < 0.5, "settled at rest height: {z}");
         assert!(wheels::is_on_ground(world.car_wheels(0)));
+    }
+
+    #[test]
+    fn the_stick_gate_reads_last_ticks_wheel_count() {
+        // RB-PHYSICS-001-FR-084 finding 3: the tick in which a falling
+        // car's wheels first touch still carries the stick's yaw torque
+        // (the gate read last tick's count of zero); the tick after does
+        // not. The recording's landing keeps its `+0.078` rad/s of yaw on
+        // the first touching tick and loses it on the next, and its
+        // jump exit holds a frozen tick with neither tires nor stick.
+        // Rolled 20° so one wheel lands first (a flat fall puts all four
+        // down in one tick and goes straight to the grounded branch).
+        let mut car = RigidBody::standard_car(Vec3::new(0.0, 0.0, 60.0));
+        let half = 10.0_f32.to_radians();
+        car.orientation = rb_domain::Quat::new(half.sin(), 0.0, 0.0, half.cos()).normalize();
+        car.update_inertia_tensor();
+        car.linear_velocity = Vec3::new(0.0, 0.0, -300.0);
+        let mut world = wheeled_car_world(car);
+        world.set_car_input(
+            0,
+            rb_domain::ControllerInput {
+                yaw: Some(1.0),
+                ..Default::default()
+            },
+        );
+        let dt = 1.0 / 120.0;
+        // The first, fully airborne tick measures one tick of stick yaw.
+        let before = world.cars[0].angular_velocity.z;
+        world.step(dt);
+        let stick_gain = world.cars[0].angular_velocity.z - before;
+        assert!(stick_gain > 0.05, "one airborne tick of yaw: {stick_gain}");
+        assert_eq!(wheels::wheels_in_contact(world.car_wheels(0)), 0);
+
+        let mut first_touch_gain = None;
+        let mut next_tick_gain = None;
+        for _ in 0..60 {
+            let before = world.cars[0].angular_velocity.z;
+            world.step(dt);
+            let gain = world.cars[0].angular_velocity.z - before;
+            if wheels::wheels_in_contact(world.car_wheels(0)) > 0 {
+                if first_touch_gain.is_none() {
+                    first_touch_gain = Some(gain);
+                } else {
+                    next_tick_gain = Some(gain);
+                    break;
+                }
+            }
+        }
+        let first = first_touch_gain.expect("the wheels touch");
+        let next = next_tick_gain.expect("and keep touching");
+        assert!(
+            (first - stick_gain).abs() < 0.02,
+            "the first touching tick still yaws: {first} vs {stick_gain}"
+        );
+        assert!(
+            next < stick_gain / 3.0,
+            "the tick after does not (the tire alone): {next} vs {stick_gain}"
+        );
     }
 
     #[test]

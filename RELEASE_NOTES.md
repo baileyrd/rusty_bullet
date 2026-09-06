@@ -6,6 +6,38 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The car meets the ball on the recorded tick
+**2026-09-06** · `RB-PHYSICS-001-FR-084` findings 1–3
+
+- A new instrument for the tick trace: seed the port from *each*
+  recorded frame, step once, and compare that step's velocity and
+  angular-velocity changes with the recording's. It separates a
+  mechanism difference from the pose the full run has accumulated, and
+  it found three.
+- **The rays reach `2.5` uu further.** From the same recorded pose the
+  real wheel touches where RocketSim's subtracted ray misses by `0.7`
+  uu, and it keeps driving the car one tick longer out of a jump: the
+  real reach is `rest + travel + radius`. **The stick is dead while any
+  wheel touches**, RocketSim's own `numWheelsInContact == 0` gate, not
+  the port's "fewer than three". **And the gate reads last tick's
+  count**: the recording's stick stops one tick after the last wheel
+  leaves and starts one tick after the first lands.
+- **Measured.** The approach matches to `4.4` uu and `0.05` rad; the
+  jump-exit tick reads `385` uu/s and `-2.02` rad/s exactly; the car
+  reaches the ball on the recorded tick with the recorded velocity, and
+  the ball leaves at `(1628, 2287, 815)` against `(1602, 2148, 790)`.
+  The ball figure falls `79.28 → 42.19` uu. The car figure rises `102.64
+  → 114.38` uu, the first rise in the ratchet's history and a deliberate
+  one: the open finding 4 — the port's back suspension and pushback slam
+  a hit-tick jump the recording shrugs off — now lands on a correctly
+  placed car. That, and a `1.5×` single-wheel push (finding 5), wait on
+  a second fixture.
+- `rb_physics_bullet` 396 → 398 tests, the workspace 457 → 459; the
+  ratchet loosens once to `< 120` uu on the car and tightens to `< 50`
+  uu on the ball.
+
+---
+
 ## The tires get their curves: analog handbrake, slip, and stick
 **2026-09-06** · `RB-PHYSICS-001-FR-082` step (b)
 

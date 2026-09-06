@@ -1218,6 +1218,7 @@ pub fn apply_driven_forces(
     car: &mut RigidBody,
     input: &ControllerInput,
     on_ground: bool,
+    stick_control: bool,
     wall_normal: Option<Vec3>,
     boost_amount: &mut f32,
     jump_held: &mut bool,
@@ -1370,7 +1371,15 @@ pub fn apply_driven_forces(
         // dodge-derailment fixture to the recording's own rounding only
         // with yaw/roll air control (and the real damping, FR-071) active
         // mid-flip — see the requirement's entry.
-        {
+        //
+        // RB-PHYSICS-001-FR-084 finding 2: the stick torque and its damping
+        // need *no* wheel touching — RocketSim's `_UpdateAirTorque(...,
+        // updateAirControl = numWheelsInContact == 0)`. With one or two
+        // wheels down (the ticks into a landing, or out of a jump) the
+        // flip torque and the air throttle above still apply, but the
+        // stick does nothing: the recorded landing's yaw rate falls at the
+        // single touching wheel's rate alone.
+        if stick_control {
             let effective_pitch = if pitch_locked { 0.0 } else { pitch };
             if effective_pitch != 0.0 {
                 car.apply_angular_acceleration(
@@ -1803,10 +1812,12 @@ mod tests {
         dt: f32,
     ) {
         car.clear_forces();
+        // The wheel-less helpers treat "airborne" as no wheel touching.
         apply_driven_forces(
             car,
             input,
             on_ground,
+            !on_ground,
             wall_normal,
             boost_amount,
             jump_held,
@@ -1878,6 +1889,7 @@ mod tests {
             car,
             input,
             crate::wheels::is_on_ground(wheels),
+            crate::wheels::wheels_in_contact(wheels) == 0,
             None,
             boost_amount,
             &mut jump_held,
@@ -3119,6 +3131,46 @@ mod tests {
             (c.angular_velocity.z - (1.0 - AIR_CONTROL_PITCH_DAMPING * k)).abs() < 1e-5,
             "expected the pitch coefficient on a body-right spin, got {:?}",
             c.angular_velocity
+        );
+    }
+
+    #[test]
+    fn the_stick_does_nothing_while_any_wheel_touches() {
+        // RB-PHYSICS-001-FR-084 finding 2: RocketSim's `_UpdateAirTorque`
+        // runs its stick torque and damping only with
+        // `numWheelsInContact == 0`; one wheel down and the stick is
+        // dead, though the car is not `on_ground` (that needs three).
+        let dt = 1.0 / 120.0;
+        let mut boost = MAX_BOOST;
+        // The same one-wheel car twice: the stick held, and neutral. The
+        // touching tire damps the spin either way; the stick adds nothing.
+        let one_wheel = |input: &ControllerInput| {
+            let mut c = car();
+            c.angular_velocity = Vec3::new(0.0, 0.0, 1.0);
+            let mut wheels = resting_wheels(&c);
+            for wheel in wheels.iter_mut().skip(1) {
+                wheel.in_contact = false;
+            }
+            assert_eq!(crate::wheels::wheels_in_contact(&wheels), 1);
+            let mut boost = MAX_BOOST;
+            step_on_wheels(&mut c, input, &mut wheels, &mut boost, dt);
+            c.angular_velocity.z
+        };
+        let with_stick = one_wheel(&full_yaw());
+        let neutral = one_wheel(&ControllerInput::default());
+        assert!(
+            (with_stick - neutral).abs() < 1e-6,
+            "neither yaw torque nor yaw damping with a wheel down: {with_stick} vs {neutral}"
+        );
+
+        let mut airborne = car();
+        airborne.angular_velocity = Vec3::new(0.0, 0.0, 1.0);
+        let mut none = crate::wheels::initial_wheels();
+        step_on_wheels(&mut airborne, &full_yaw(), &mut none, &mut boost, dt);
+        assert!(
+            airborne.angular_velocity.z > 1.0 + 0.05,
+            "with no wheel down the stick yaws: {}",
+            airborne.angular_velocity.z
         );
     }
 
