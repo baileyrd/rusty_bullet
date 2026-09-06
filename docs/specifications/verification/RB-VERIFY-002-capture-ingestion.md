@@ -75,7 +75,8 @@ at high frequency alongside ball/car physics state to a capture file, and
   car's own `SetVehicleInput` has already run that tick. Two of six clips
   recorded every analog axis as `0` while the car turned and flipped, one
   missed a dodge's `jump` press outright, and a pitch input landed one
-  tick after its flip — all on the same controller. Plugin 1.1 records
+  tick after its flip — all on the same keyboard and mouse, whose digital
+  axes are exactly the `±1` the other clips carry. Plugin 1.1 records
   the `ControllerInput` the hook hands over in `params`, per car, and
   writes each tick's line once the next tick begins (`beginFrame` /
   `flushPending`); a car whose hook did not fire keeps its last input.

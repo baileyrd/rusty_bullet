@@ -7437,7 +7437,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     false` on every frame from `29.825` to `31.5`, its `pitch = 1`
     appearing one tick *after* the flip begins; `jumpbeforehit02` is a
     byte-identical upload of `hittickjump01`. The other three clips
-    carry full analog data. The owner confirmed one controller for all
+    carry full analog data. The owner plays on keyboard and mouse, one
+    device for all
     six (`jumpbeforehit02` was a rename of the first take), which
     points at the recorder: plugin 1.0 wrote each tick's line at the
     *first* `SetVehicleInput` firing and read every car's input back

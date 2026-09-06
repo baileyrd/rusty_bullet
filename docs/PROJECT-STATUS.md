@@ -2377,7 +2377,7 @@
   superseded. Full workspace `fmt`/`clippy`/`test` green.
 - `RB-VERIFY-002` plugin 1.1 (spec 0.5.0): `RB-PHYSICS-001-FR-085`
   finding I's capture defects traced to the recorder, not the
-  controller (one device for all six clips): plugin 1.0 wrote each
+  input device (keyboard and mouse for all six clips): plugin 1.0 wrote each
   tick's line at the first `SetVehicleInput` firing and read every
   car's input back through `GetInput()` then, fresh only if that car's
   own firing had already run — two clips with every analog axis `0`,

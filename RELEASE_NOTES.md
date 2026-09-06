@@ -11,7 +11,8 @@ keyed by the commit/PR that shipped them.
 
 - The two capture defects `RB-PHYSICS-001-FR-085` found (whole clips
   with every analog axis at `0`, a dodge with no `jump` press recorded,
-  a pitch one tick late) came from the plugin, not the controller: it
+  a pitch one tick late) came from the plugin, not the input device
+  (keyboard and mouse throughout): it
   wrote each tick's line at the first `SetVehicleInput` firing and read
   every car's input back through `GetInput()` at that instant. Version
   1.1 records the `ControllerInput` the hook hands over, per car, and
