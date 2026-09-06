@@ -6,6 +6,32 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The tires get their curves: analog handbrake, slip, and stick
+**2026-09-06** · `RB-PHYSICS-001-FR-082` step (b)
+
+- The handbrake is analog now: RocketSim's `handbrakeVal` climbs to
+  full in `0.2` s and falls off in `0.5` s, blending the steer angle
+  toward the powerslide curve and the tires' lateral (a tenth) and
+  longitudinal (`0.5` rising to `0.9` with slip) handbrake factors in
+  proportion, instead of switching.
+- **Grip follows slip.** Each touching wheel's lateral friction reads
+  `LAT_FRICTION_CURVE` of its mount's sideways-over-total velocity
+  ratio — full grip rolling straight, a fifth sliding straight sideways
+  — above a `5` uu/s threshold; longitudinal friction is `1` unless
+  powersliding. With no throttle held, both scale down by the
+  non-sticky curve of the surface normal, so a coasting car slides
+  down a wall.
+- **Measured.** The isolated fixture goes `117.41 → 102.64` uu (`0.46 →
+  0.40` rad, `229 → 200` uu/s); the hit window's ball error drops `31 →
+  7` uu though the whole-run ball figure edges up `75 → 79` uu, its exit
+  still fast. The post-jump gains match tick for tick, one tick shorter
+  than the recording (the ground-effect residual already recorded), and
+  a new landing-tick yaw residual is noted for the next diagnosis.
+- `rb_physics_bullet` 389 → 396 tests, the workspace 450 → 457; the
+  ratchet tightens to `< 110` uu on the car.
+
+---
+
 ## The hit takes its real material and its extra kick
 **2026-09-06** · `RB-PHYSICS-001-FR-083` finding 5, closing `FR-063`
 

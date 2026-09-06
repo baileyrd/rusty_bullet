@@ -367,7 +367,12 @@ mod tests {
     /// `2.0`, restitution `0` — and `Ball::_OnHit`'s extra impulse): the
     /// ball figure fell to `~75` uu, its exit flatter (`z` `1057 → 957`
     /// uu/s against the recorded `790`) and the car's post-hit path
-    /// closer for the same reason.
+    /// closer for the same reason. Then `~103` uu after
+    /// `RB-PHYSICS-001-FR-082` step (b) (the analog handbrake with its
+    /// factor curves, the slip-driven lateral friction curve, the
+    /// non-sticky curve): the landing and the ticks into the hit tighten
+    /// (rotation `0.46 → 0.40` rad, velocity `229 → 200` uu/s); the ball
+    /// figure edged up `75 → 79` uu, its exit still fast.
     #[test]
     fn isolated_replay_of_the_real_dodge_stays_under_its_last_recorded_divergence() {
         let score = score_capture_against_candidate(
@@ -378,12 +383,13 @@ mod tests {
 
         assert_eq!(score.frames_compared, 347);
         assert_eq!(score.cars.pairs_compared, 347);
-        // Ratchet (2026-09-06): mean car position distance ~117 uu and
-        // mean ball distance ~75 uu after `FR-083` finding 5 (`~140` /
-        // `~91` after findings 1–4, `~160` / `~80` after the wheels,
-        // `~240` / `~730` before them). Bounded loosely above to catch a
-        // regression, not to pin the exact figure.
-        assert!(score.cars.mean_position_distance < 125.0);
+        // Ratchet (2026-09-06): mean car position distance ~103 uu and
+        // mean ball distance ~79 uu after `FR-082` step (b) (`~117` /
+        // `~75` after `FR-083` finding 5, `~140` / `~91` after findings
+        // 1–4, `~160` / `~80` after the wheels, `~240` / `~730` before
+        // them). Bounded loosely above to catch a regression, not to pin
+        // the exact figure.
+        assert!(score.cars.mean_position_distance < 110.0);
         assert!(score.mean_ball_distance < 85.0);
     }
 }

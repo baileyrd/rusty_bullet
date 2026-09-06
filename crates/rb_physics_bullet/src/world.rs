@@ -119,6 +119,9 @@ pub struct PhysicsWorld {
     car_inputs: Vec<ControllerInput>,
     car_boost: Vec<f32>,
     car_wheels: Vec<[wheels::WheelState; 4]>,
+    /// Each car's analog handbrake value (RocketSim's `handbrakeVal`,
+    /// `RB-PHYSICS-001-FR-082` step (b)), ramped by `wheels::update_wheels`.
+    car_handbrake_val: Vec<f32>,
     car_jump_held: Vec<bool>,
     car_double_jump_available: Vec<bool>,
     car_jump_hold_time_remaining: Vec<f32>,
@@ -216,6 +219,7 @@ impl PhysicsWorld {
             car_inputs: Vec::new(),
             car_boost: Vec::new(),
             car_wheels: Vec::new(),
+            car_handbrake_val: Vec::new(),
             car_jump_held: Vec::new(),
             car_double_jump_available: Vec::new(),
             car_jump_hold_time_remaining: Vec::new(),
@@ -387,7 +391,9 @@ impl PhysicsWorld {
             input.boost,
             self.car_boost[index],
             input.handbrake,
+            &mut self.car_handbrake_val[index],
             self.gravity.z,
+            1.0 / 120.0,
         );
         car.clear_forces();
     }
@@ -473,6 +479,7 @@ impl PhysicsWorld {
     /// index in `cars`, added cars are always appended, never inserted.
     pub fn with_car(mut self, car: RigidBody) -> PhysicsWorld {
         self.car_wheels.push(wheels::initial_wheels());
+        self.car_handbrake_val.push(0.0);
         self.cars.push(car);
         self.car_inputs.push(ControllerInput::default());
         self.car_boost.push(drive::MAX_BOOST);
@@ -561,6 +568,7 @@ impl PhysicsWorld {
     fn drive_and_integrate_velocities(
         car: &mut RigidBody,
         car_wheels: &mut [wheels::WheelState; 4],
+        handbrake_val: &mut f32,
         input: &ControllerInput,
         wall_normal: Option<Vec3>,
         boost_amount: &mut f32,
@@ -589,7 +597,9 @@ impl PhysicsWorld {
             input.boost,
             *boost_amount,
             input.handbrake,
+            handbrake_val,
             gravity.z,
+            dt,
         );
         drive::apply_driven_forces(
             car,
@@ -831,7 +841,10 @@ impl PhysicsWorld {
         for (
             (
                 (
-                    (((((car, car_wheels), input), wall_normal), boost), jump_held),
+                    (
+                        (((((car, car_wheels), handbrake_val), input), wall_normal), boost),
+                        jump_held,
+                    ),
                     double_jump_available,
                 ),
                 jump_hold_time_remaining,
@@ -841,6 +854,7 @@ impl PhysicsWorld {
             .cars
             .iter_mut()
             .zip(self.car_wheels.iter_mut())
+            .zip(self.car_handbrake_val.iter_mut())
             .zip(self.car_inputs.iter())
             .zip(car_wall_normal.iter())
             .zip(self.car_boost.iter_mut())
@@ -852,6 +866,7 @@ impl PhysicsWorld {
             Self::drive_and_integrate_velocities(
                 car,
                 car_wheels,
+                handbrake_val,
                 input,
                 *wall_normal,
                 boost,
@@ -2242,17 +2257,33 @@ mod tests {
                 ..Default::default()
             },
         );
+        // Step (b): the analog value ramps at `POWERSLIDE_RISE_RATE` — one
+        // tick in, the lateral factor has only started down from `1`.
         world.step(dt);
-        assert_eq!(
-            world.car_wheels(0)[0].lat_friction,
-            wheels::HANDBRAKE_LAT_FRICTION_FACTOR
-        );
-        assert_eq!(world.car_wheels(0)[0].long_friction, 1.0);
+        let first = world.car_wheels(0)[0].lat_friction;
+        let expected_first = 1.0 + (0.1 - 1.0) * wheels::POWERSLIDE_RISE_RATE * dt;
+        assert!((first - expected_first).abs() < 1e-5, "{first}");
+        // `0.2` s later it is fully in: the real `0.1` laterally and the
+        // handbrake's longitudinal factor `0.5` at zero slip.
+        for _ in 0..30 {
+            world.step(dt);
+        }
+        assert!((world.car_wheels(0)[0].lat_friction - 0.1).abs() < 1e-6);
+        assert!((world.car_wheels(0)[0].long_friction - 0.5).abs() < 1e-6);
         assert!((world.cars[0].friction - 0.9).abs() < 1e-6);
 
+        // Release: `0.5` s at `POWERSLIDE_FALL_RATE` back to full grip.
         world.set_car_input(0, rb_domain::ControllerInput::default());
         world.step(dt);
+        assert!(
+            world.car_wheels(0)[0].lat_friction < 0.2,
+            "still mostly in a tick after release"
+        );
+        for _ in 0..65 {
+            world.step(dt);
+        }
         assert_eq!(world.car_wheels(0)[0].lat_friction, 1.0);
+        assert_eq!(world.car_wheels(0)[0].long_friction, 1.0);
         assert!((world.cars[0].friction - 0.9).abs() < 1e-6);
     }
 

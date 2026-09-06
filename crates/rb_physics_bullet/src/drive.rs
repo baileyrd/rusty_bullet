@@ -23,11 +23,10 @@
 //! `RigidBody.friction`, one isotropic factor on a box with no wheels —
 //! `RB-PHYSICS-001-FR-066` found the real reduction is anisotropic
 //! (lateral `0.1`, longitudinal near `0.9`). Since `RB-PHYSICS-001-FR-082`
-//! the handbrake is the wheels': it scales each tire's lateral friction
-//! factor (`wheels::HANDBRAKE_LAT_FRICTION_FACTOR`) and swaps the steer
-//! angle to the powerslide curve, and the chassis friction is never
-//! touched. The analog ramp and the longitudinal factor curve are that
-//! entry's step (b).
+//! the handbrake is the wheels': the analog `handbrakeVal` blends each
+//! tire's lateral and longitudinal friction factors through the real
+//! factor curves and the steer angle toward the powerslide curve, and the
+//! chassis friction is never touched (that entry's step (b)).
 //!
 //! Jump is a single, fixed-height vertical impulse fired on the *rising
 //! edge* of `ControllerInput.jump` (a fresh press, not merely "held") while
@@ -1844,8 +1843,10 @@ mod tests {
     /// *before* the friction impulses are computed (the world carries a
     /// one-tick lag; these tests want the input's own effect), the sticky
     /// force is discarded (there is no gravity or spring here to balance
-    /// it), and the driven forces run gated on the wheel count, the way
-    /// `step_with_input` runs them alone.
+    /// it), the analog handbrake sits at its rail for the input (`1` held,
+    /// `0` released — the ramp is `wheels.rs`'s to test), and the driven
+    /// forces run gated on the wheel count, the way `step_with_input`
+    /// runs them alone.
     fn step_on_wheels(
         car: &mut RigidBody,
         input: &ControllerInput,
@@ -1858,6 +1859,7 @@ mod tests {
         let mut jump_hold_time_remaining = 0.0;
         let mut dodge_flip = None;
         car.clear_forces();
+        let mut handbrake_val = if input.handbrake { 1.0 } else { 0.0 };
         crate::wheels::update_wheels(
             car,
             wheels,
@@ -1866,7 +1868,9 @@ mod tests {
             input.boost,
             *boost_amount,
             input.handbrake,
+            &mut handbrake_val,
             -650.0,
+            dt,
         );
         car.clear_forces();
         crate::wheels::compute_friction_impulses(car, wheels, dt);
@@ -2453,14 +2457,31 @@ mod tests {
         let handbrake_grip = 200.0 - sliding.linear_velocity.y;
         assert!(grip > 0.0, "the tires should pull the slide in: {grip}");
         assert!(
-            (handbrake_grip - grip * crate::wheels::HANDBRAKE_LAT_FRICTION_FACTOR).abs() < 1e-3,
+            (handbrake_grip - grip * 0.1).abs() < 1e-3,
             "handbrake grip {handbrake_grip} vs a tenth of {grip}"
         );
-        assert_eq!(
-            slide_wheels[0].lat_friction,
-            crate::wheels::HANDBRAKE_LAT_FRICTION_FACTOR
+        // Step (b): both cars slip at `200 / (500 + 200)`, so the gripping
+        // car's lateral factor is already below `1` on `LAT_FRICTION_CURVE`
+        // and the handbrake's is a tenth of that; the handbrake's
+        // longitudinal factor reads `HANDBRAKE_LONG_FRICTION_FACTOR_CURVE`
+        // at that slip.
+        let slip = 200.0 / 700.0;
+        assert!(
+            (grip_wheels[0].lat_friction
+                - crate::wheels::piecewise_linear(&crate::wheels::LAT_FRICTION_CURVE, slip))
+            .abs()
+                < 1e-5
         );
-        assert_eq!(slide_wheels[0].long_friction, 1.0);
+        assert!((slide_wheels[0].lat_friction - grip_wheels[0].lat_friction * 0.1).abs() < 1e-5);
+        assert!(
+            (slide_wheels[0].long_friction
+                - crate::wheels::piecewise_linear(
+                    &crate::wheels::HANDBRAKE_LONG_FRICTION_FACTOR_CURVE,
+                    slip
+                ))
+            .abs()
+                < 1e-5
+        );
         assert_eq!(
             sliding.friction, base_friction,
             "the chassis friction is untouched"
@@ -2499,10 +2520,7 @@ mod tests {
             &mut boost,
             1.0 / 60.0,
         );
-        assert_eq!(
-            wheels[0].lat_friction,
-            crate::wheels::HANDBRAKE_LAT_FRICTION_FACTOR
-        );
+        assert!((wheels[0].lat_friction - 0.1).abs() < 1e-6);
         step_on_wheels(
             &mut c,
             &ControllerInput::default(),

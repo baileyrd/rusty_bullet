@@ -136,7 +136,7 @@ Full text: <https://github.com/ZealanL/RocketSim/blob/main/LICENSE>.
 | `wheels::apply_suspension_impulses` | `src/Sim/btVehicleRL/btVehicleRL.cpp` | `btVehicleRL::updateSuspension` and its impulse loop |
 | `wheels::compute_friction_impulses`, `apply_friction_impulses` | `src/Sim/btVehicleRL/btVehicleRL.cpp` | `btVehicleRL::calcFrictionImpulses` (`ROLLING_FRICTION_SCALE_MAGIC` included), `applyFrictionImpulses` |
 | `wheels::upwards_dir_from_contacts` | `src/Sim/btVehicleRL/btVehicleRL.cpp` | `btVehicleRL::getUpwardsDirFromWheelContacts` |
-| `wheels::update_wheels` | `src/Sim/Car/Car.cpp` | `Car::_UpdateWheels` (throttle/brake/coast logic, steer angle, friction factors, sticky force) and `_PreTickUpdate`'s `isOnGround` rule |
+| `wheels::update_wheels` | `src/Sim/Car/Car.cpp`, `src/RLConst.h` | `Car::_UpdateWheels` (the `handbrakeVal` ramp, throttle/brake/coast logic, the steer-angle blend, the slip ratio and `LAT_FRICTION_CURVE`/`LONG_FRICTION_CURVE`, the `HANDBRAKE_*_FRICTION_FACTOR_CURVE` blend, `NON_STICKY_FRICTION_FACTOR_CURVE`, sticky force) and `_PreTickUpdate`'s `isOnGround` rule |
 | `wheels::piecewise_linear` | `src/Sim/MutatorConfig` / `src/Math/LinearPieceCurve.cpp` | `LinearPieceCurve::GetOutput` |
 | `PhysicsWorld::step`'s wheel ordering | `src/Sim/Car/Car.cpp` | `Car::_PreTickUpdate`'s `updateVehicleFirst` → `_UpdateWheels` → jump/air → `updateVehicleSecond` order |
 | `hit::ball_car_extra_impulse` and the `BALL_CAR_EXTRA_IMPULSE_*` constants | `src/Sim/Ball/Ball.cpp`, `src/RLConst.h` | `Ball::_OnHit`'s `hitDir` flattening, forward bias, `relSpeed` cap, and `BALL_CAR_EXTRA_IMPULSE_FACTOR_CURVE`; `_velocityImpulseCache` applied in `_FinishPhysicsTick` |
@@ -144,7 +144,5 @@ Full text: <https://github.com/ZealanL/RocketSim/blob/main/LICENSE>.
 | `solver::PairMaterial` and the `CARBALL_*`/`CARCAR_*` constants | `src/Sim/Arena/Arena.cpp`, `src/Sim/Ball/Ball.cpp`, `src/RLConst.h` | the contact callback's per-pair `m_combinedFriction`/`m_combinedRestitution` overrides (`CARCAR` set in `Arena.cpp`, `CARBALL` returned by `Ball::_OnHit`) |
 
 Deliberate, documented deviations (rays against the scene's flat planes
-only, the auto-roll not yet ported, the analog
-`handbrakeVal` and the slip-driven friction curves not yet ported) are
-noted in `wheels.rs`'s module doc comment and in `RB-PHYSICS-001-FR-082`'s
-own step sequencing.
+only, the auto-roll not yet ported) are noted in `wheels.rs`'s module doc
+comment and in `RB-PHYSICS-001-FR-082`'s own step sequencing.

@@ -266,7 +266,11 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   restitution per manifold, and `hit::ball_car_extra_impulse` adds
   RocketSim's `Ball::_OnHit` kick after the solve, once per two ticks
   per car — the fixture `139.52 → 117.41` uu, the ball `91.16 → 75.22`
-  uu.
+  uu. `FR-082` step (b) then brings the curves: the analog
+  `handbrakeVal` blending the steer angle and the handbrake's lateral
+  and longitudinal factor curves, the slip-driven lateral friction
+  curve from each mount's velocity, and the non-sticky curve of the
+  contact normal — the fixture `117.41 → 102.64` uu.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

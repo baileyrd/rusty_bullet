@@ -9,11 +9,13 @@
 //! with their engine/brake/coast logic. The *curves* that shape those
 //! impulses — the speed-to-steer-angle curve, the analog handbrake with its
 //! lateral/longitudinal factor curves, the slip-driven lateral friction
-//! curve, and the non-sticky curve — are step (b); until then lateral
-//! friction is `1` (or the real handbrake lateral factor `0.1` while the
-//! handbrake is held), longitudinal friction is `1`, and the handbrake
-//! blends the steer angle to the powerslide curve as a switch rather than
-//! through the analog `handbrakeVal`. The steer-angle curve itself is here
+//! curve, and the non-sticky curve — are here too since step (b): each
+//! touching wheel's lateral factor follows `LAT_FRICTION_CURVE` of its
+//! mount's slip ratio, the handbrake's two factor curves blend in by the
+//! analog `handbrakeVal` (ramped `5`/s up, `2`/s down), the longitudinal
+//! factor is `1` unless powersliding, and both scale down by the
+//! non-sticky curve of the contact normal whenever no throttle is held.
+//! The steer-angle curve itself is here
 //! in step (a): the real capture's grounded ticks yaw faster and faster
 //! under full steer, and unsteered tires fight any torque that tries to
 //! imitate that, so steering had to become the real mechanism the moment
@@ -76,7 +78,7 @@ pub struct WheelMount {
     pub rest_length: f32,
     /// `SUSPENSION_FORCE_SCALE_FRONT/BACK`.
     pub force_scale: f32,
-    /// Front wheels steer (step (b)); back wheels don't.
+    /// Front wheels steer; back wheels don't.
     pub is_front: bool,
 }
 
@@ -222,12 +224,39 @@ pub const STEER_ANGLE_FROM_SPEED_CURVE: [(f32, f32); 6] = [
 /// curve the handbrake blends toward.
 pub const POWERSLIDE_STEER_ANGLE_FROM_SPEED_CURVE: [(f32, f32); 2] =
     [(0.0, 0.39235), (2500.0, 0.12610)];
-/// The real handbrake's lateral friction factor
-/// (`HANDBRAKE_LAT_FRICTION_FACTOR_CURVE`, a constant `0.1` at every slip)
-/// — `RB-PHYSICS-001-FR-066`'s finding. Step (a) applies it as a switch
-/// while the handbrake is held; step (b) ramps it through RocketSim's
-/// analog `handbrakeVal` and adds the longitudinal factor curve.
-pub const HANDBRAKE_LAT_FRICTION_FACTOR: f32 = 0.1;
+/// `RLConst::POWERSLIDE_RISE_RATE`: the analog handbrake value climbs at
+/// this rate per second while the handbrake is held (`0 → 1` in `0.2` s).
+pub const POWERSLIDE_RISE_RATE: f32 = 5.0;
+/// `RLConst::POWERSLIDE_FALL_RATE`: and falls at this rate per second once
+/// released (`1 → 0` in `0.5` s).
+pub const POWERSLIDE_FALL_RATE: f32 = 2.0;
+/// `_UpdateWheels`' lateral-slip threshold: below this much sideways
+/// contact velocity (uu/s) at the wheel's mount, the friction curves read
+/// at zero slip.
+pub const LATERAL_SLIP_THRESHOLD: f32 = 5.0;
+/// `RLConst::LAT_FRICTION_CURVE` — the lateral friction factor against
+/// the slip ratio `lateral / (longitudinal + lateral)` of the mount's
+/// velocity: full grip rolling straight, a fifth sliding straight
+/// sideways. `RB-PHYSICS-001-FR-066`'s slip-driven curve.
+pub const LAT_FRICTION_CURVE: [(f32, f32); 2] = [(0.0, 1.0), (1.0, 0.2)];
+/// `RLConst::LONG_FRICTION_CURVE` — empty in RocketSim, so
+/// `LinearPieceCurve::GetOutput`'s default of `1` at every slip ratio.
+pub const LONG_FRICTION_CURVE: [(f32, f32); 0] = [];
+/// `RLConst::HANDBRAKE_LAT_FRICTION_FACTOR_CURVE` — a single point, so a
+/// constant `0.1` at every slip ratio: the handbrake cuts lateral grip to
+/// a tenth (`RB-PHYSICS-001-FR-066`'s finding), blended in by the analog
+/// handbrake value.
+pub const HANDBRAKE_LAT_FRICTION_FACTOR_CURVE: [(f32, f32); 1] = [(0.0, 0.1)];
+/// `RLConst::HANDBRAKE_LONG_FRICTION_FACTOR_CURVE` — the handbrake's
+/// longitudinal factor, `0.5` rolling straight rising to `0.9` sliding
+/// straight sideways; without the handbrake longitudinal friction is `1`.
+pub const HANDBRAKE_LONG_FRICTION_FACTOR_CURVE: [(f32, f32); 2] = [(0.0, 0.5), (1.0, 0.9)];
+/// `RLConst::NON_STICKY_FRICTION_FACTOR_CURVE` — with no throttle held,
+/// both friction factors scale by this curve of the contact normal's `z`:
+/// `1` on the floor, `0.5` at `45°`, a tenth on a vertical wall, so a
+/// coasting car slides down a wall.
+pub const NON_STICKY_FRICTION_FACTOR_CURVE: [(f32, f32); 3] =
+    [(0.0, 0.1), (0.7075, 0.5), (1.0, 1.0)];
 /// The sticky force's base scale: half a g into the surface whenever any
 /// wheel touches the world (`_UpdateWheels`, `stickyForceScale = 0.5`).
 pub const STICKY_FORCE_BASE_SCALE: f32 = 0.5;
@@ -279,8 +308,8 @@ pub struct WheelState {
     /// Longitudinal friction factor (`m_longFriction`), set by
     /// [`update_wheels`].
     pub long_friction: f32,
-    /// Steer angle in radians about the car's up (`m_steerAngle`); always
-    /// `0` until step (b).
+    /// Steer angle in radians about the car's up (`m_steerAngle`); `0` on
+    /// the back wheels.
     pub steer_angle: f32,
     /// The friction impulse per second (`m_impulse`) computed by
     /// [`compute_friction_impulses`] and applied `× dt` by
@@ -491,17 +520,22 @@ pub fn compute_friction_impulses(car: &RigidBody, wheels: &mut [WheelState; 4], 
 /// or throttling against the direction of travel, `COASTING_BRAKE_FACTOR`
 /// when coasting faster, the engine cut while braking), the front wheels'
 /// steer angle (`steer · STEER_ANGLE_FROM_SPEED_CURVE(|forward speed|)`,
-/// or the powerslide curve while the handbrake is held), the friction
-/// factors (`1`, or the real handbrake lateral factor while the handbrake
-/// is held — the curves are step (b)), and the sticky force into the
-/// averaged contact normal whenever any wheel touches: `0.5 g`, plus
-/// `(1 - |up.z|) g` when driving (throttle held or faster than
-/// `STOPPING_FORWARD_VEL`), so a car on a vertical wall is pressed into it
-/// with a full g.
+/// blended toward the powerslide curve by the analog handbrake value),
+/// each touching wheel's friction factors (step (b): the slip-driven
+/// `LAT_FRICTION_CURVE`, the handbrake's lateral and longitudinal factor
+/// curves blended in by `handbrake_val`, and the non-sticky curve of the
+/// contact normal's `z` whenever no throttle is held), and the sticky
+/// force into the averaged contact normal whenever any wheel touches:
+/// `0.5 g`, plus `(1 - |up.z|) g` when driving (throttle held or faster
+/// than `STOPPING_FORWARD_VEL`), so a car on a vertical wall is pressed
+/// into it with a full g.
 ///
-/// `gravity_z` is the world's vertical gravity (`-650`); `boost_amount` is
-/// read only, since boosting with boost left drives the wheels at full
-/// throttle.
+/// `handbrake_val` is RocketSim's `handbrakeVal`, the car's analog
+/// handbrake: ramped here first (`+POWERSLIDE_RISE_RATE · dt` while held,
+/// `-POWERSLIDE_FALL_RATE · dt` otherwise, clamped to `0..=1`) and then
+/// read by the steering and friction blocks. `gravity_z` is the world's
+/// vertical gravity (`-650`); `boost_amount` is read only, since boosting
+/// with boost left drives the wheels at full throttle.
 #[allow(clippy::too_many_arguments)]
 pub fn update_wheels(
     car: &mut RigidBody,
@@ -511,11 +545,20 @@ pub fn update_wheels(
     boost_pressed: bool,
     boost_amount: f32,
     handbrake: bool,
+    handbrake_val: &mut f32,
     gravity_z: f32,
+    dt: f32,
 ) {
     let forward_speed = car.linear_velocity.dot(&drive::forward_axis(car));
     let abs_forward_speed = forward_speed.abs();
     let in_contact = wheels_in_contact(wheels);
+
+    *handbrake_val = if handbrake {
+        *handbrake_val + POWERSLIDE_RISE_RATE * dt
+    } else {
+        *handbrake_val - POWERSLIDE_FALL_RATE * dt
+    }
+    .clamp(0.0, 1.0);
 
     let real_throttle = if boost_pressed && boost_amount > 0.0 {
         1.0
@@ -554,24 +597,63 @@ pub fn update_wheels(
     let brake_force = real_brake * BRAKE_TORQUE_AMOUNT;
 
     let mut steer_angle = piecewise_linear(&STEER_ANGLE_FROM_SPEED_CURVE, abs_forward_speed);
-    if handbrake {
-        // `steerAngle += (powerslide - steerAngle) * handbrakeVal`, with the
-        // analog value a switch until step (b).
-        steer_angle = piecewise_linear(&POWERSLIDE_STEER_ANGLE_FROM_SPEED_CURVE, abs_forward_speed);
+    if *handbrake_val > 0.0 {
+        // `steerAngle += (powerslide - steerAngle) * handbrakeVal`.
+        let powerslide =
+            piecewise_linear(&POWERSLIDE_STEER_ANGLE_FROM_SPEED_CURVE, abs_forward_speed);
+        steer_angle += (powerslide - steer_angle) * *handbrake_val;
     }
     steer_angle *= steer.clamp(-1.0, 1.0);
 
-    let lat_friction = if handbrake {
-        HANDBRAKE_LAT_FRICTION_FACTOR
-    } else {
-        1.0
-    };
     for (mount, wheel) in WHEELS.iter().zip(wheels.iter_mut()) {
         wheel.engine_force = engine_force;
         wheel.brake_force = brake_force;
         wheel.steer_angle = if mount.is_front { steer_angle } else { 0.0 };
+    }
+
+    // The friction factors, per touching wheel (a wheel in the air keeps
+    // its last values, as RocketSim's do; nothing reads them there).
+    let up = drive::up_axis(car);
+    let right = drive::right_axis(car);
+    for (mount, wheel) in WHEELS.iter().zip(wheels.iter_mut()) {
+        if !wheel.in_contact {
+            continue;
+        }
+        // `latDir` is the wheel transform's own axle — the car's right
+        // steered about its up, *not* flattened onto the surface —
+        // and `longDir = latDir × contactNormal`.
+        let lat_dir = rotate_about(&right, &up, wheel.steer_angle);
+        let long_dir = lat_dir.cross(&wheel.contact_normal);
+        // The mount's velocity (`hardPointWS`, not the contact point).
+        let mount_rel = car.orientation.rotate(&mount.mount);
+        let mount_velocity = car.velocity_at_point(&mount_rel);
+        let lateral = mount_velocity.dot(&lat_dir).abs();
+        let slip = if lateral > LATERAL_SLIP_THRESHOLD {
+            lateral / (mount_velocity.dot(&long_dir).abs() + lateral)
+        } else {
+            0.0
+        };
+        let mut lat_friction = piecewise_linear(&LAT_FRICTION_CURVE, slip);
+        let mut long_friction = piecewise_linear(&LONG_FRICTION_CURVE, slip);
+        if *handbrake_val > 0.0 {
+            lat_friction *= (piecewise_linear(&HANDBRAKE_LAT_FRICTION_FACTOR_CURVE, slip) - 1.0)
+                * *handbrake_val
+                + 1.0;
+            long_friction *= (piecewise_linear(&HANDBRAKE_LONG_FRICTION_FACTOR_CURVE, slip) - 1.0)
+                * *handbrake_val
+                + 1.0;
+        } else {
+            // "If we aren't powersliding, it's not scaled down."
+            long_friction = 1.0;
+        }
+        if real_throttle == 0.0 {
+            let non_sticky =
+                piecewise_linear(&NON_STICKY_FRICTION_FACTOR_CURVE, wheel.contact_normal.z);
+            lat_friction *= non_sticky;
+            long_friction *= non_sticky;
+        }
         wheel.lat_friction = lat_friction;
-        wheel.long_friction = 1.0;
+        wheel.long_friction = long_friction;
     }
 
     if in_contact > 0 {
@@ -645,7 +727,11 @@ pub fn upwards_dir_from_contacts(car: &RigidBody, wheels: &[WheelState; 4]) -> V
 /// RocketSim's `LinearPieceCurve::GetOutput`: linear between the points,
 /// clamped to the first and last values outside them.
 pub fn piecewise_linear(points: &[(f32, f32)], x: f32) -> f32 {
-    if x <= points[0].0 {
+    // `GetOutput`'s `defaultOutput = 1` for an empty curve.
+    let Some(first) = points.first() else {
+        return 1.0;
+    };
+    if x <= first.0 {
         return points[0].1;
     }
     for window in points.windows(2) {
@@ -832,7 +918,18 @@ mod tests {
         let mut car = car_at(17.0);
         let mut wheels = initial_wheels();
         raycast_wheels(&car, &mut wheels, &[&ground()], DT);
-        update_wheels(&mut car, &mut wheels, 1.0, 0.0, false, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            1.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         assert_eq!(wheels[0].engine_force, THROTTLE_TORQUE_AMOUNT);
         assert_eq!(wheels[0].brake_force, 0.0);
         compute_friction_impulses(&car, &mut wheels, DT);
@@ -851,7 +948,18 @@ mod tests {
         raycast_wheels(&car, &mut wheels, &[&ground()], DT);
         // Throttle against the direction of travel at speed: full brake,
         // engine cut.
-        update_wheels(&mut car, &mut wheels, -1.0, 0.0, false, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            -1.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         assert_eq!(wheels[0].engine_force, 0.0);
         assert_eq!(wheels[0].brake_force, BRAKE_TORQUE_AMOUNT);
         compute_friction_impulses(&car, &mut wheels, DT);
@@ -866,12 +974,34 @@ mod tests {
         car.linear_velocity = Vec3::new(500.0, 0.0, 0.0);
         let mut wheels = initial_wheels();
         raycast_wheels(&car, &mut wheels, &[&ground()], DT);
-        update_wheels(&mut car, &mut wheels, 0.0, 0.0, false, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         assert_eq!(wheels[0].engine_force, 0.0);
         assert!((wheels[0].brake_force - COASTING_BRAKE_FACTOR * BRAKE_TORQUE_AMOUNT).abs() < 1e-3);
 
         car.linear_velocity = Vec3::new(10.0, 0.0, 0.0);
-        update_wheels(&mut car, &mut wheels, 0.0, 0.0, false, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         assert_eq!(wheels[0].brake_force, BRAKE_TORQUE_AMOUNT);
         // Below the proportional band the brake is proportional to the
         // forward contact velocity, not the clamp: 113.74 * 10 * 60 * 4
@@ -889,17 +1019,52 @@ mod tests {
         let mut car = car_at(17.0);
         let mut wheels = initial_wheels();
         raycast_wheels(&car, &mut wheels, &[&ground()], DT);
-        update_wheels(&mut car, &mut wheels, 0.0, 0.0, true, 50.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            0.0,
+            true,
+            50.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         assert_eq!(wheels[0].engine_force, THROTTLE_TORQUE_AMOUNT);
-        update_wheels(&mut car, &mut wheels, 0.0, 0.0, true, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            0.0,
+            true,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         assert_eq!(wheels[0].engine_force, 0.0, "no boost left");
 
         // Handbrake: no coasting brake, the real lateral factor.
         car.linear_velocity = Vec3::new(500.0, 0.0, 0.0);
-        update_wheels(&mut car, &mut wheels, 0.0, 0.0, false, 0.0, true, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            0.0,
+            false,
+            0.0,
+            true,
+            &mut 1.0,
+            -650.0,
+            DT,
+        );
         assert_eq!(wheels[0].brake_force, 0.0);
-        assert_eq!(wheels[0].lat_friction, HANDBRAKE_LAT_FRICTION_FACTOR);
-        assert_eq!(wheels[0].long_friction, 1.0);
+        // Rolling straight (zero slip): the handbrake's lateral `0.1` and
+        // longitudinal `0.5`, fully in at `handbrake_val = 1`.
+        assert!((wheels[0].lat_friction - 0.1).abs() < 1e-6);
+        assert!((wheels[0].long_friction - 0.5).abs() < 1e-6);
     }
 
     #[test]
@@ -908,7 +1073,18 @@ mod tests {
         car.linear_velocity = Vec3::new(0.0, 300.0, 0.0);
         let mut wheels = initial_wheels();
         raycast_wheels(&car, &mut wheels, &[&ground()], DT);
-        update_wheels(&mut car, &mut wheels, 1.0, 0.0, false, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            1.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         compute_friction_impulses(&car, &mut wheels, DT);
         for wheel in &wheels {
             assert!(wheel.friction_impulse.y < 0.0, "grip opposes the slide");
@@ -932,7 +1108,9 @@ mod tests {
             false,
             0.0,
             true,
+            &mut 1.0,
             -650.0,
+            DT,
         );
         compute_friction_impulses(&sliding, &mut handbrake_wheels, DT);
         apply_friction_impulses(&mut sliding, &handbrake_wheels, DT);
@@ -947,14 +1125,36 @@ mod tests {
         let mut wheels = initial_wheels();
         raycast_wheels(&car, &mut wheels, &[&ground()], DT);
         car.clear_forces();
-        update_wheels(&mut car, &mut wheels, 0.0, 0.0, false, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         let resting = car.total_force();
         assert!(
             (resting.z + 0.5 * 650.0 * CAR_MASS).abs() < 1e-2,
             "{resting:?}"
         );
         car.clear_forces();
-        update_wheels(&mut car, &mut wheels, 1.0, 0.0, false, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            1.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         let driving = car.total_force();
         assert!(
             (driving.z + 0.5 * 650.0 * CAR_MASS).abs() < 1e-2,
@@ -976,7 +1176,9 @@ mod tests {
             false,
             0.0,
             false,
+            &mut 0.0,
             -650.0,
+            DT,
         );
         let on_wall = car.total_force();
         assert!(
@@ -986,7 +1188,18 @@ mod tests {
         // No wheel touching: no sticky force at all.
         let mut airborne = initial_wheels();
         car.clear_forces();
-        update_wheels(&mut car, &mut airborne, 1.0, 0.0, false, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut airborne,
+            1.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         assert_eq!(car.total_force(), Vec3::ZERO);
     }
 
@@ -998,7 +1211,18 @@ mod tests {
         wheels[0].contact_normal = Vec3::new(0.0, 0.0, 1.0);
         wheels[1].in_contact = true;
         wheels[1].contact_normal = Vec3::new(0.0, 0.0, 1.0);
-        update_wheels(&mut car, &mut wheels, 1.0, 0.0, false, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            1.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         assert!((wheels[0].engine_force - THROTTLE_TORQUE_AMOUNT / 4.0).abs() < 1e-3);
         assert!(!is_on_ground(&wheels));
     }
@@ -1008,12 +1232,34 @@ mod tests {
         let mut car = car_at(17.0);
         let mut wheels = initial_wheels();
         raycast_wheels(&car, &mut wheels, &[&ground()], DT);
-        update_wheels(&mut car, &mut wheels, 0.0, 1.0, false, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            1.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         assert!((wheels[0].steer_angle - 0.53356).abs() < 1e-5);
         assert!((wheels[1].steer_angle - 0.53356).abs() < 1e-5);
         assert_eq!(wheels[2].steer_angle, 0.0);
         car.linear_velocity = Vec3::new(1250.0, 0.0, 0.0);
-        update_wheels(&mut car, &mut wheels, 0.0, -0.5, false, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            -0.5,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         let expected = -0.5 * (0.18203 + 0.10570) / 2.0;
         assert!(
             (wheels[0].steer_angle - expected).abs() < 1e-5,
@@ -1021,12 +1267,34 @@ mod tests {
             wheels[0].steer_angle
         );
         // Handbrake: the powerslide curve.
-        update_wheels(&mut car, &mut wheels, 0.0, 1.0, false, 0.0, true, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            1.0,
+            false,
+            0.0,
+            true,
+            &mut 1.0,
+            -650.0,
+            DT,
+        );
         let powerslide = 0.39235 + (0.12610 - 0.39235) * 1250.0 / 2500.0;
         assert!((wheels[0].steer_angle - powerslide).abs() < 1e-5);
         // Past the curve's end it clamps.
         car.linear_velocity = Vec3::new(4000.0, 0.0, 0.0);
-        update_wheels(&mut car, &mut wheels, 0.0, 1.0, false, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            1.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         assert!((wheels[0].steer_angle - 0.03454).abs() < 1e-5);
     }
 
@@ -1036,7 +1304,18 @@ mod tests {
         car.linear_velocity = Vec3::new(1000.0, 0.0, 0.0);
         let mut wheels = initial_wheels();
         raycast_wheels(&car, &mut wheels, &[&ground()], DT);
-        update_wheels(&mut car, &mut wheels, 0.0, 1.0, false, 0.0, false, -650.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            1.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
         compute_friction_impulses(&car, &mut wheels, DT);
         assert!(
             wheels[0].friction_impulse.y > 0.0,
@@ -1065,5 +1344,347 @@ mod tests {
         raycast_wheels(&car, &mut wheels, &[&ground(), &wall], DT);
         assert_eq!(wheels_in_contact(&wheels), 4, "{wheels:?}");
         assert_eq!(wheels[0].contact_normal, Vec3::new(-1.0, 0.0, 0.0));
+    }
+
+    // RB-PHYSICS-001-FR-082 step (b): the curves.
+
+    #[test]
+    fn an_empty_curve_reads_one_and_a_single_point_reads_that_point_everywhere() {
+        assert_eq!(piecewise_linear(&LONG_FRICTION_CURVE, 0.0), 1.0);
+        assert_eq!(piecewise_linear(&LONG_FRICTION_CURVE, 0.7), 1.0);
+        assert_eq!(
+            piecewise_linear(&HANDBRAKE_LAT_FRICTION_FACTOR_CURVE, 0.0),
+            0.1
+        );
+        assert_eq!(
+            piecewise_linear(&HANDBRAKE_LAT_FRICTION_FACTOR_CURVE, 1.0),
+            0.1
+        );
+    }
+
+    #[test]
+    fn the_analog_handbrake_ramps_up_in_a_fifth_of_a_second_and_down_in_half_a_second() {
+        let mut car = car_at(17.0);
+        let mut wheels = initial_wheels();
+        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        let mut value = 0.0;
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            0.0,
+            false,
+            0.0,
+            true,
+            &mut value,
+            -650.0,
+            DT,
+        );
+        assert!((value - POWERSLIDE_RISE_RATE * DT).abs() < 1e-6, "{value}");
+        for _ in 0..23 {
+            update_wheels(
+                &mut car,
+                &mut wheels,
+                0.0,
+                0.0,
+                false,
+                0.0,
+                true,
+                &mut value,
+                -650.0,
+                DT,
+            );
+        }
+        assert!((value - 1.0).abs() < 1e-5, "full after 24 ticks: {value}");
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            0.0,
+            false,
+            0.0,
+            true,
+            &mut value,
+            -650.0,
+            DT,
+        );
+        assert_eq!(value, 1.0, "clamped at one");
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut value,
+            -650.0,
+            DT,
+        );
+        assert!(
+            (value - (1.0 - POWERSLIDE_FALL_RATE * DT)).abs() < 1e-6,
+            "{value}"
+        );
+        for _ in 0..59 {
+            update_wheels(
+                &mut car,
+                &mut wheels,
+                0.0,
+                0.0,
+                false,
+                0.0,
+                false,
+                &mut value,
+                -650.0,
+                DT,
+            );
+        }
+        assert!(value.abs() < 1e-5, "gone after 60 ticks: {value}");
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            0.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut value,
+            -650.0,
+            DT,
+        );
+        assert_eq!(value, 0.0, "clamped at zero");
+    }
+
+    #[test]
+    fn a_half_engaged_handbrake_blends_halfway_between_the_two_steer_curves_and_factors() {
+        let mut car = car_at(17.0);
+        car.linear_velocity = Vec3::new(1250.0, 0.0, 0.0);
+        let mut wheels = initial_wheels();
+        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        // Held with the value at `0.5 - rise`, so it reads `0.5` this tick.
+        let mut value = 0.5 - POWERSLIDE_RISE_RATE * DT;
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            1.0,
+            1.0,
+            false,
+            0.0,
+            true,
+            &mut value,
+            -650.0,
+            DT,
+        );
+        let normal = piecewise_linear(&STEER_ANGLE_FROM_SPEED_CURVE, 1250.0);
+        let powerslide = piecewise_linear(&POWERSLIDE_STEER_ANGLE_FROM_SPEED_CURVE, 1250.0);
+        assert!((wheels[0].steer_angle - (normal + powerslide) / 2.0).abs() < 1e-5);
+        // Rolling straight on the unsteered back wheels (the steered front
+        // wheels slip against the axle they are turned to): lateral `1 →
+        // 0.1` half blended is `0.55`, longitudinal `1 → 0.5` half blended
+        // is `0.75`.
+        assert!(
+            (wheels[2].lat_friction - 0.55).abs() < 1e-5,
+            "{}",
+            wheels[2].lat_friction
+        );
+        assert!(
+            (wheels[2].long_friction - 0.75).abs() < 1e-5,
+            "{}",
+            wheels[2].long_friction
+        );
+    }
+
+    #[test]
+    fn lateral_grip_falls_with_the_mounts_slip_ratio_and_ignores_slip_under_the_threshold() {
+        let mut wheels = initial_wheels();
+        let mut factors = |velocity: Vec3| {
+            let mut car = car_at(17.0);
+            car.linear_velocity = velocity;
+            raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+            update_wheels(
+                &mut car,
+                &mut wheels,
+                1.0,
+                0.0,
+                false,
+                0.0,
+                false,
+                &mut 0.0,
+                -650.0,
+                DT,
+            );
+            (wheels[0].lat_friction, wheels[0].long_friction)
+        };
+        assert_eq!(
+            factors(Vec3::new(1000.0, 0.0, 0.0)),
+            (1.0, 1.0),
+            "rolling straight"
+        );
+        let (lat, long) = factors(Vec3::new(0.0, 300.0, 0.0));
+        assert!(
+            (lat - 0.2).abs() < 1e-6 && long == 1.0,
+            "sliding straight sideways: {lat}"
+        );
+        let (lat, long) = factors(Vec3::new(300.0, 300.0, 0.0));
+        assert!((lat - 0.6).abs() < 1e-5, "half slip: {lat}");
+        assert_eq!(long, 1.0, "longitudinal is one without the handbrake");
+        assert_eq!(
+            factors(Vec3::new(1000.0, LATERAL_SLIP_THRESHOLD - 0.5, 0.0)),
+            (1.0, 1.0),
+            "under the threshold reads as no slip"
+        );
+        let (lat, _) = factors(Vec3::new(1000.0, LATERAL_SLIP_THRESHOLD + 0.5, 0.0));
+        assert!(lat < 1.0 && lat > 0.99, "just over it: {lat}");
+    }
+
+    #[test]
+    fn the_handbrakes_longitudinal_factor_rises_with_slip_and_the_lateral_stays_a_tenth() {
+        let mut car = car_at(17.0);
+        car.linear_velocity = Vec3::new(0.0, 300.0, 0.0);
+        let mut wheels = initial_wheels();
+        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            1.0,
+            0.0,
+            false,
+            0.0,
+            true,
+            &mut 1.0,
+            -650.0,
+            DT,
+        );
+        // Sliding straight sideways: `0.2 · 0.1` laterally, `1 · 0.9`
+        // longitudinally.
+        assert!(
+            (wheels[0].lat_friction - 0.02).abs() < 1e-6,
+            "{}",
+            wheels[0].lat_friction
+        );
+        assert!(
+            (wheels[0].long_friction - 0.9).abs() < 1e-6,
+            "{}",
+            wheels[0].long_friction
+        );
+    }
+
+    #[test]
+    fn a_coasting_car_on_a_wall_keeps_a_tenth_of_its_grip_and_a_driving_one_all_of_it() {
+        let mut car = car_at(17.0);
+        let mut wall_wheels = initial_wheels();
+        for wheel in wall_wheels.iter_mut() {
+            wheel.in_contact = true;
+            wheel.contact_normal = Vec3::new(-1.0, 0.0, 0.0);
+        }
+        update_wheels(
+            &mut car,
+            &mut wall_wheels,
+            0.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
+        assert!(
+            (wall_wheels[0].lat_friction - 0.1).abs() < 1e-6,
+            "{}",
+            wall_wheels[0].lat_friction
+        );
+        assert!((wall_wheels[0].long_friction - 0.1).abs() < 1e-6);
+        update_wheels(
+            &mut car,
+            &mut wall_wheels,
+            1.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
+        assert_eq!(
+            wall_wheels[0].lat_friction, 1.0,
+            "throttle makes the contact sticky"
+        );
+        assert_eq!(wall_wheels[0].long_friction, 1.0);
+        // Boost with boost left is full throttle: sticky too.
+        update_wheels(
+            &mut car,
+            &mut wall_wheels,
+            0.0,
+            0.0,
+            true,
+            10.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
+        assert_eq!(wall_wheels[0].lat_friction, 1.0);
+        // A 45° surface, coasting: the curve's midpoint.
+        for wheel in wall_wheels.iter_mut() {
+            wheel.contact_normal = Vec3::new(-0.7075, 0.0, 0.7075);
+        }
+        update_wheels(
+            &mut car,
+            &mut wall_wheels,
+            0.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
+        assert!(
+            (wall_wheels[0].lat_friction - 0.5).abs() < 1e-5,
+            "{}",
+            wall_wheels[0].lat_friction
+        );
+    }
+
+    #[test]
+    fn a_wheel_in_the_air_keeps_its_last_friction_factors() {
+        let mut car = car_at(17.0);
+        car.linear_velocity = Vec3::new(0.0, 300.0, 0.0);
+        let mut wheels = initial_wheels();
+        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            1.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
+        let sliding = wheels[0].lat_friction;
+        assert!((sliding - 0.2).abs() < 1e-6);
+        car.position.z = 200.0;
+        raycast_wheels(&car, &mut wheels, &[&ground()], DT);
+        assert_eq!(wheels_in_contact(&wheels), 0);
+        car.linear_velocity = Vec3::new(1000.0, 0.0, 0.0);
+        update_wheels(
+            &mut car,
+            &mut wheels,
+            1.0,
+            0.0,
+            false,
+            0.0,
+            false,
+            &mut 0.0,
+            -650.0,
+            DT,
+        );
+        assert_eq!(wheels[0].lat_friction, sliding, "untouched while airborne");
     }
 }

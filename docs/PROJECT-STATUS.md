@@ -2357,6 +2357,24 @@
   75.22` uu. `rb_physics_bullet` 383 → 389, workspace 444 → 450;
   ratchet `< 125` uu car / `< 85` uu ball. Full workspace
   `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-082` step (b) implemented — the curves: the analog
+  `handbrakeVal` per car (`5`/s up, `2`/s down, clamped) blending the
+  steer angle toward the powerslide curve and the handbrake's lateral
+  (`0.1`) and longitudinal (`0.5 → 0.9`) factor curves into the tires;
+  the slip-driven `LAT_FRICTION_CURVE` (`1 → 0.2`) of each mount's
+  lateral-over-total velocity ratio above a `5` uu/s threshold; and the
+  non-sticky curve of the contact normal's `z` whenever no throttle is
+  held. `HANDBRAKE_LAT_FRICTION_FACTOR` replaced by its curve;
+  `piecewise_linear` returns `1` for RocketSim's empty
+  `LONG_FRICTION_CURVE`. Isolated fixture `117.41 uu / 0.46 rad / 228.81
+  uu/s → 102.64 uu / 0.40 rad / 200.35 uu/s`; `mean_ball_distance`
+  `75.22 → 79.28` uu (the hit window itself `31 → 7` uu, the exit still
+  fast). The post-jump gains match tick for tick, one tick shorter
+  (`FR-083` finding 7); a landing-tick yaw residual (the recording's
+  yaw rate turning negative through the landing) recorded as the next
+  diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
+  workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
+  superseded. Full workspace `fmt`/`clippy`/`test` green.
 
 ## In progress
 
@@ -2438,10 +2456,15 @@
    real per-pair material and `Ball::_OnHit`'s extra impulse (closing
    `FR-063`) — the ball leaves flatter (`vz` `1057 → 957` against the
    recorded `790`), the fixture `139.52 → 117.41` uu, the ball `91.16
-   → 75.22` uu. Next step: `FR-082` step (b) —
-   the analog handbrake with its two factor curves, the slip-driven
-   lateral friction curve, and the non-sticky curve — and step (c), the
-   rest of the arena. Nothing is to be tuned against the segment after
+   → 75.22` uu. `FR-082` step (b) is done: the analog handbrake with
+   its two factor curves, the slip-driven lateral friction curve, and
+   the non-sticky curve (`117.41 → 102.64` uu, `0.46 → 0.40` rad). Next
+   step: diagnose the landing ticks (`t = 5.575`–`5.65`), where the
+   recording's wheels touch a tick before the port's rays and its yaw
+   rate turns negative under a held right steer while the port's stays
+   positive — the last `0.05` rad and the ticks that set up the hit —
+   then `FR-082` step (c), the rest of the arena. Nothing is to be
+   tuned against the segment after
    `6.05` s, where the capture's own pitch input is missing (finding
    6). See `FR-083`'s and `FR-082`'s own spec entries.
 
@@ -2449,9 +2472,10 @@
 
 - `cargo fmt --all -- --check`: pass
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass
-- `cargo test --workspace`: pass (450 tests: 27 in `rb_domain` (incl. 4
-  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 389 in
-  `rb_physics_bullet` (incl. 5 new `hit.rs` tests and 1 new `world.rs`
+- `cargo test --workspace`: pass (457 tests: 27 in `rb_domain` (incl. 4
+  new `score_windows` tests, `RB-VERIFY-003-FR-004`), 396 in
+  `rb_physics_bullet` (incl. 7 new `wheels.rs` curve tests for
+  `RB-PHYSICS-001-FR-082` step (b), 5 new `hit.rs` tests and 1 new `world.rs`
   pop test for `RB-PHYSICS-001-FR-083` finding 5, `19` new `wheels.rs` tests and 4 new `world.rs`
   acceptance tests for `RB-PHYSICS-001-FR-082` step (a), with 12
   `drive.rs` throttle/steer/handbrake tests moved onto the wheel
@@ -2703,6 +2727,21 @@
   post-`6.05` velocity step `635.61` uu/s at `t=6.07s` (finding 6). The
   per-tick trace (a temporary example, since removed): the hit still at
   `t=5.775`, ball `(1566, 2407, 957)` vs `(1602, 2148, 790)`.
+- `RB-PHYSICS-001-FR-082` step (b) re-run against the same fixture
+  (2026-09-06, this sandbox): `frames compared: 347, mean ball distance:
+  79.28 uu, max ball distance: 377.66 uu, car pairs compared: 347, mean
+  car position/rotation/velocity distance: 102.64 uu / 0.40 rad / 200.35
+  uu/s, max car position/rotation/velocity distance: 533.26 uu / 1.68 rad
+  / 552.91 uu/s` (from `117.41 / 0.46 / 228.81`, ball `75.22`).
+  `--self-growth ... 0.05`: the landing window `23.32` uu / `0.03` rad at
+  `t=5.67s`, the hit window at `t=5.77s` `6.84` uu ball / `23.11` uu,
+  `0.06` rad, `37.84` uu/s car; the post-`6.05` step `552.06` uu/s at
+  `t=6.07s` (finding 6). Per-tick trace (a temporary example, since
+  removed): post-jump `vx` gains `+9, +10, +11, +11, +11` vs the recorded
+  `+9, +10, +11, +11, +12, +11`; the recording holds `ω_z = -2.02`, `vx =
+  385` through `t=4.192` where the port is already in the air; landing
+  `ω_x` starts at `5.575` recorded vs `5.583`; the hit on the tick after
+  `5.758`, ball `(1788, 2347, 954)` vs `(1602, 2148, 790)`.
 
 ## Risks and decisions needed
 

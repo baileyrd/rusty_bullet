@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.101.0
+- Version: 0.102.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -4321,10 +4321,10 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     unchanged, confirming zero behavioral change.
 - `RB-PHYSICS-001-FR-066` (real handbrake friction reduction is
   anisotropic, not a single uniform multiplier — audit finding,
-  documentation only; **superseded by `FR-082` step (a)**, which made the
-  handbrake the wheels' lateral factor and removed
-  `HANDBRAKE_FRICTION_MULTIPLIER`; the longitudinal curve and the analog
-  ramp are step (b)): `drive::HANDBRAKE_FRICTION_MULTIPLIER` had no
+  documentation only; **superseded by `FR-082` steps (a) and (b)**: step
+  (a) made the handbrake the wheels' lateral factor and removed
+  `HANDBRAKE_FRICTION_MULTIPLIER`, step (b) added the analog ramp and the
+  longitudinal factor curve): `drive::HANDBRAKE_FRICTION_MULTIPLIER` had no
   public reference at all; this requirement fetched RocketSim's real
   `Car.cpp` directly to check, continuing the same `_UpdateWheels`
   investigation `RB-PHYSICS-001-FR-065` started.
@@ -6297,8 +6297,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     the re-measured `--self` / `--self-growth 0.05` numbers in
     `PROJECT-STATUS.md`, and the ratchet; the full workspace stays green
     (420 tests).
-- `RB-PHYSICS-001-FR-082` (wheel/suspension/tire model — scoped; step
-  (a) implemented, steps (b) and (c) open): `FR-065`/`FR-066` established that real steering
+- `RB-PHYSICS-001-FR-082` (wheel/suspension/tire model — scoped; steps
+  (a) and (b) implemented, step (c) open): `FR-065`/`FR-066` established that real steering
   and real handbrake friction live in a wheeled-vehicle model this port's
   single rigid box cannot express, and `FR-081` traced everything left in
   the isolated `dodge-derailment` fixture after the airborne phase
@@ -6726,6 +6726,85 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
       → 382`, the workspace `420 → 443`. The ratchet tightens `< 250 →
       < 165` uu on the car and `< 1000 → < 100` uu on the ball. Full
       workspace `fmt`/`clippy`/`test` green.
+  - **Step (b), implemented.** The curves, in `update_wheels`, exactly
+    where `_UpdateWheels` has them. (1) The analog handbrake: `PhysicsWorld`
+    carries `car_handbrake_val` per car (RocketSim's `handbrakeVal`), and
+    `update_wheels` ramps it first — `+POWERSLIDE_RISE_RATE · dt` (`5`/s,
+    full in `0.2` s) while the handbrake is held, `-POWERSLIDE_FALL_RATE
+    · dt` (`2`/s, gone in `0.5` s) otherwise, clamped to `0..=1` — then
+    reads it: the steer angle is `steer · (normal + (powerslide - normal)
+    · handbrakeVal)` instead of the switch, and the friction factors are
+    blended `factor · ((curve(slip) - 1) · handbrakeVal + 1)`. (2) The
+    slip-driven lateral curve: per touching wheel, `latDir` is the wheel
+    transform's own axle (the car's right steered about its up, not
+    flattened onto the surface) and `longDir = latDir × contactNormal`;
+    the *mount's* velocity `v + ω × (hardPoint - origin)` gives `lateral
+    = |v_mount · latDir|`, and when that exceeds `LATERAL_SLIP_THRESHOLD =
+    5` uu/s the slip ratio is `lateral / (|v_mount · longDir| +
+    lateral)`, else `0`. `LAT_FRICTION_CURVE {0: 1, 1: 0.2}` of that
+    ratio is the lateral factor; `LONG_FRICTION_CURVE` is empty in
+    RocketSim, so `piecewise_linear` now returns `GetOutput`'s default
+    `1` for an empty curve. (3) The handbrake factor curves:
+    `HANDBRAKE_LAT_FRICTION_FACTOR_CURVE {0: 0.1}` (a constant tenth, the
+    switch step (a) applied) and `HANDBRAKE_LONG_FRICTION_FACTOR_CURVE
+    {0: 0.5, 1: 0.9}`, blended in by the value; with no handbrake the
+    longitudinal factor is forced to `1` ("if we aren't powersliding,
+    it's not scaled down"). (4) The non-sticky curve: with `realThrottle
+    == 0` (boost with boost left counts as throttle), both factors scale
+    by `NON_STICKY_FRICTION_FACTOR_CURVE {0: 0.1, 0.7075: 0.5, 1: 1}` of
+    the contact normal's `z` — a coasting car on a wall keeps a tenth of
+    its grip. A wheel in the air keeps its last factors, as RocketSim's
+    does; nothing reads them there. `HANDBRAKE_LAT_FRICTION_FACTOR` is
+    gone (the curve replaces it); `prime_car_wheels` ramps the value once
+    at the seed like any other tick. `FR-066`'s remaining pieces — the
+    analog ramp and the longitudinal curve — close here.
+    - **Measured.** Isolated fixture `117.41 uu / 0.46 rad / 228.81 uu/s
+      → 102.64 uu / 0.40 rad / 200.35 uu/s` (max `615.60 / 1.91 / 636.01
+      → 533.26 / 1.68 / 552.91`); `mean_ball_distance` `75.22 → 79.28`
+      uu (max `361.25 → 377.66`). The growth diagnostic: the grounded
+      ticks and the flight unchanged (`0.1`–`23` uu), the landing window
+      `23.3` uu / `0.03` rad, and the hit window at `t = 5.77` reads `6.8`
+      uu on the ball (from `31`) and `23` uu / `0.06` rad / `38` uu/s on
+      the car (from `20` / `0.06` / `79`); the post-`6.05` step is still
+      finding 6's (`552` uu/s at `6.07`). Tick by tick: the post-jump
+      `vx` gains now read `+9, +10, +11, +11, +11` against the recorded
+      `+9, +10, +11, +11, +12, +11` — the same shape the scoping
+      predicted the slip curve would give, one tick shorter (`FR-083`
+      finding 7: the recording's wheels act through `t = 4.183` where the
+      port's ray lets go at `4.175`, and the recording then holds `ω_z =
+      -2.02` and `vx = 385` for one more tick with neither tires nor air
+      control acting, which the port cannot represent). That tick is the
+      whole remaining arrival gap: the port's car is `10` uu/s slower in
+      `x` through the flight, `≈17` uu behind at the landing, hits the
+      ball on the tick after the recorded `5.758`, and the ball leaves at
+      `(1788, 2347, 954)` against `(1602, 2148, 790)` — `11%` fast, on a
+      car whose yaw rate at contact reads `1.60` vs `1.49` rad/s. The
+      landing ticks show a second residual of the same kind: the
+      recording's wheels touch at `t = 5.575` (its `ω_x` starts climbing
+      there) where the port's rays touch at `5.583`, and the recorded
+      car's yaw rate turns *negative* through the landing (`0.64 →
+      -0.49` rad/s over `5.575`–`5.642`, steer held right) while the
+      port's stays positive (`0.77 → 0.14`) — worth `0.05` rad of the
+      rotation figure and left as read; it is the next diagnosis,
+      ahead of step (c).
+    - **Tests.** `7` new in `wheels.rs`: `an_empty_curve_reads_one_and_a_
+      single_point_reads_that_point_everywhere`, `the_analog_handbrake_
+      ramps_up_in_a_fifth_of_a_second_and_down_in_half_a_second`,
+      `a_half_engaged_handbrake_blends_halfway_between_the_two_steer_
+      curves_and_factors`, `lateral_grip_falls_with_the_mounts_slip_
+      ratio_and_ignores_slip_under_the_threshold` (`1` rolling straight,
+      `0.2` sliding sideways, `0.6` at half slip, the `5` uu/s
+      threshold), `the_handbrakes_longitudinal_factor_rises_with_slip_
+      and_the_lateral_stays_a_tenth`, `a_coasting_car_on_a_wall_keeps_a_
+      tenth_of_its_grip_and_a_driving_one_all_of_it`, `a_wheel_in_the_
+      air_keeps_its_last_friction_factors`; the world handbrake test
+      re-pinned to the ramp (`0.9625` one tick in, `0.1` / `0.5` after
+      `0.2` s, back to `1` `0.5` s after release); the `drive.rs`
+      handbrake tests re-pinned with `step_on_wheels` holding the value at
+      its rail and the gripping car's own slip on the curve. `rb_physics_
+      bullet` `389 → 396`, the workspace `450 → 457`; the ratchet
+      tightens `< 125 → < 110` uu on the car (the ball stays `< 85`).
+      Full workspace `fmt`/`clippy`/`test` green.
   - **Non-goals (this requirement).** The
     implementation steps do not model three-wheel or non-Octane presets
     (descriptors are Octane-only; other presets are a data change later),
@@ -8528,6 +8607,15 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.102.0 (2026-09-06): `RB-PHYSICS-001-FR-082` step (b) implemented:
+  the analog `handbrakeVal` (`5`/s up, `2`/s down) blending the steer
+  angle and the handbrake's lateral (`0.1`) and longitudinal (`0.5 →
+  0.9`) factor curves, the slip-driven `LAT_FRICTION_CURVE` from each
+  mount's velocity, and the non-sticky curve of the contact normal when
+  no throttle is held; `HANDBRAKE_LAT_FRICTION_FACTOR` replaced by the
+  curve, `piecewise_linear` returning `1` for an empty curve. Fixture
+  `117.41 → 102.64` uu (`0.46 → 0.40` rad, `229 → 200` uu/s); the ball
+  `75.22 → 79.28` uu. `FR-066` fully superseded.
 - 0.101.0 (2026-09-06): `RB-PHYSICS-001-FR-083` finding 5 implemented,
   closing `RB-PHYSICS-001-FR-063`: `solver::PairMaterial` per dynamic
   manifold (`CARBALL` friction `2.0` / restitution `0`, `CARCAR` `0.09`
