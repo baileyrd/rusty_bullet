@@ -1,6 +1,6 @@
 # RB-VERIFY-002 — BakkesMod Offline Capture Ingestion
 
-- Version: 0.4.0
+- Version: 0.5.0
 - Status: In Progress (FR-001 — the BakkesMod-side plugin — built, loaded,
   and run against a real Rocket League + BakkesMod install; FR-002/NFR-001
   implemented and now also verified against that real capture, not just the
@@ -68,6 +68,18 @@ at high frequency alongside ball/car physics state to a capture file, and
   `GameEventWrapper`), the game's own live spawned-car-actor list. A second
   real capture (2,818 lines, ~23.5s) confirmed both ball and car state
   update correctly with real, varied controller input. See Change history.
+  The second capture session (`RB-PHYSICS-001-FR-085`, finding I) then
+  found the input read itself unreliable: the line was written at the
+  *first* `SetVehicleInput` firing of each tick with every car's input
+  read back through `CarWrapper::GetInput()`, which is only fresh if that
+  car's own `SetVehicleInput` has already run that tick. Two of six clips
+  recorded every analog axis as `0` while the car turned and flipped, one
+  missed a dodge's `jump` press outright, and a pitch input landed one
+  tick after its flip — all on the same controller. Plugin 1.1 records
+  the `ControllerInput` the hook hands over in `params`, per car, and
+  writes each tick's line once the next tick begins (`beginFrame` /
+  `flushPending`); a car whose hook did not fire keeps its last input.
+  Written against the SDK, not yet rebuilt and run by the owner.
 - `RB-VERIFY-002-FR-002` (implemented, verified): `rb_capture_ingest`
   parses a capture file into a chronologically ordered `Vec<PhysicsFrame>`,
   with input data attached via `rb_domain::CarState.input` (unlike
@@ -171,6 +183,11 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 - NFR-002 (recording overhead) — still unmeasured; the plugin has now run
   in real matches without any observed framerate/physics impact, but this
   hasn't been rigorously benchmarked.
+- Plugin 1.1's per-firing input read (`params`, not `GetInput()`) needs
+  its first real capture: the check is a clip with stick movement, a
+  one-tick jump tap and a dodge, ingested and traced — analog axes
+  non-zero when the stick moves, the `jump` flag on the press tick, the
+  flip's `pitch` on the tick the flip starts.
 - Resolved: the hookable event name
   (`Function TAGame.Car_TA.SetVehicleInput`) is confirmed correct — it
   fired reliably across two real captures (9,358 and 2,818 lines), with the
@@ -182,6 +199,12 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.5.0 (2026-09-06): FR-001's plugin 1.1 — the input recorded per car
+  from the `SetVehicleInput` hook's own `ControllerInput` argument, each
+  tick's line flushed when the next tick begins, after
+  `RB-PHYSICS-001-FR-085` found 1.0's `GetInput()` read-back (at the
+  first firing of the tick) dropping presses and whole clips of analog
+  data. Not yet rebuilt and run by the owner.
 - 0.4.0 (2026-09-02): FR-001's plugin built (MSVC/VS2022 Build Tools +
   CMake, against the owner's own installed `BakkesModSDK` copy), loaded
   into a real Rocket League + BakkesMod session, and run in freeplay — the

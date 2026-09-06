@@ -10,7 +10,7 @@
 // THREADED, THREADEDUNLOAD exist. `PLUGINTYPE_FREEPLAY` is this plugin's
 // primary use case (see README); it doesn't gate loading during a normal
 // match, since there's no bit for one to begin with.
-BAKKESMOD_PLUGIN(RustyBulletCapturePlugin, "Rusty Bullet capture", "1.0", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(RustyBulletCapturePlugin, "Rusty Bullet capture", "1.1", PLUGINTYPE_FREEPLAY)
 
 namespace
 {
@@ -60,7 +60,10 @@ std::string inputJson(ControllerInput input)
 // `rb_replay_ingest::convert::boost_raw_to_percent`'s doc comment) --
 // `BoostWrapper::GetCurrentBoostAmount()` is the 0.0-1.0 fraction, so scale
 // it here to keep both ingestion adapters in the same unit.
-std::string carJson(int playerId, CarWrapper car)
+// Everything of a car's line except its `input` and the closing brace --
+// the input arrives separately, from this car's own `SetVehicleInput`
+// firing (see `onVehicleInput`).
+std::string carPrefixJson(int playerId, CarWrapper car)
 {
     std::ostringstream out;
     out << "{\"player_id\":" << playerId << ",";
@@ -70,10 +73,11 @@ std::string carJson(int playerId, CarWrapper car)
     // `boost_amount`/`input`, not `{"actor": {...}, ...}`.
     out << actor.substr(1, actor.size() - 2);
     out << ",\"boost_amount\":" << (car.GetBoostComponent().GetCurrentBoostAmount() * 100.0f);
-    out << ",\"input\":" << inputJson(car.GetInput());
-    out << "}";
     return out.str();
 }
+
+const char *const kNeutralInputJson =
+    "{\"throttle\":0,\"steer\":0,\"pitch\":0,\"yaw\":0,\"roll\":0,\"jump\":false,\"boost\":false,\"handbrake\":false}";
 } // namespace
 
 void RustyBulletCapturePlugin::onLoad()
@@ -119,6 +123,8 @@ void RustyBulletCapturePlugin::startCapture(std::vector<std::string> args)
     capturing_ = true;
     lastPhysicsFrame_ = -1;
     haveStartTime_ = false;
+    havePending_ = false;
+    lastInputJson_.clear();
     cvarManager->log("rusty_bullet_capture: recording to '" + path + "'");
 }
 
@@ -129,12 +135,13 @@ void RustyBulletCapturePlugin::stopCapture(std::vector<std::string> /*args*/)
         return;
     }
 
+    flushPending();
     capturing_ = false;
     captureFile_.close();
     cvarManager->log("rusty_bullet_capture: stopped recording");
 }
 
-void RustyBulletCapturePlugin::onVehicleInput(CarWrapper car, void * /*params*/, std::string /*eventName*/)
+void RustyBulletCapturePlugin::onVehicleInput(CarWrapper car, void *params, std::string /*eventName*/)
 {
     if (!capturing_ || car.IsNull())
     {
@@ -154,21 +161,92 @@ void RustyBulletCapturePlugin::onVehicleInput(CarWrapper car, void * /*params*/,
     }
 
     // `SetVehicleInput` fires once per car per physics tick; every car's
-    // firing this tick sees the same `GetPhysicsFrame()`, so only the first
-    // one to arrive actually writes a line -- this is what keeps a match
-    // with N cars from producing N near-duplicate lines per tick.
+    // firing this tick sees the same `GetPhysicsFrame()`. The first firing
+    // of a new frame closes the previous frame's line and snapshots this
+    // frame's state; the inputs are filled in firing by firing below, so a
+    // match with N cars still produces exactly one line per tick.
     int physicsFrame = ball.GetPhysicsFrame();
-    if (physicsFrame == lastPhysicsFrame_)
+    if (physicsFrame != lastPhysicsFrame_)
+    {
+        lastPhysicsFrame_ = physicsFrame;
+        flushPending();
+        beginFrame(server, ball);
+    }
+
+    // The input is the struct this very call was made with -- `params` is
+    // `SetVehicleInput`'s one argument, a `ControllerInput` -- recorded
+    // against this car. Version 1.0 instead read every car's
+    // `CarWrapper::GetInput()` back at the *first* firing of the tick,
+    // which is only fresh if that car's own `SetVehicleInput` has already
+    // run this tick; whether it had depended on firing order, and
+    // `RB-PHYSICS-001-FR-085` (finding I) found the result in real
+    // captures: whole clips with every analog axis recorded as `0`, a
+    // dodge whose `jump` press was never recorded, a pitch input arriving
+    // one tick after the flip it caused.
+    if (params == nullptr)
     {
         return;
     }
-    lastPhysicsFrame_ = physicsFrame;
-
-    writeFrame(server, ball);
+    ControllerInput input = *static_cast<ControllerInput *>(params);
+    std::string json = inputJson(input);
+    std::uintptr_t key = car.memory_address;
+    lastInputJson_[key] = json;
+    if (havePending_)
+    {
+        for (PendingCar &pendingCar : pending_.cars)
+        {
+            if (pendingCar.key == key)
+            {
+                pendingCar.input = json;
+                pendingCar.haveInput = true;
+            }
+        }
+    }
 }
 
-void RustyBulletCapturePlugin::writeFrame(ServerWrapper server, BallWrapper ball)
+void RustyBulletCapturePlugin::flushPending()
 {
+    if (!havePending_)
+    {
+        return;
+    }
+    havePending_ = false;
+
+    std::ostringstream line;
+    line << pending_.header;
+    bool first = true;
+    for (const PendingCar &pendingCar : pending_.cars)
+    {
+        if (!first)
+        {
+            line << ",";
+        }
+        first = false;
+        line << pendingCar.prefix << ",\"input\":";
+        if (pendingCar.haveInput)
+        {
+            line << pendingCar.input;
+        }
+        else
+        {
+            auto last = lastInputJson_.find(pendingCar.key);
+            line << (last != lastInputJson_.end() ? last->second : std::string(kNeutralInputJson));
+        }
+        line << "}";
+    }
+    line << "]}";
+
+    captureFile_ << line.str() << "\n";
+    captureFile_.flush();
+}
+
+void RustyBulletCapturePlugin::beginFrame(ServerWrapper server, BallWrapper ball)
+{
+    if (server.IsNull() || ball.IsNull())
+    {
+        return;
+    }
+
     if (!haveStartTime_)
     {
         // First frame of this recording: treat its own physics time as
@@ -191,10 +269,11 @@ void RustyBulletCapturePlugin::writeFrame(ServerWrapper server, BallWrapper ball
     // scoreboards use -- and reflects real movement.
     ArrayWrapper<CarWrapper> cars = server.GetCars();
 
-    std::ostringstream line;
-    line << "{\"timestamp_secs\":" << timestampSecs << ",\"ball\":" << rbActorJson(ball) << ",\"cars\":[";
+    std::ostringstream header;
+    header << "{\"timestamp_secs\":" << timestampSecs << ",\"ball\":" << rbActorJson(ball) << ",\"cars\":[";
+    pending_.header = header.str();
+    pending_.cars.clear();
 
-    bool first = true;
     int nextPlayerId = 0;
     // `player_id` here is just this recording session's car iteration order,
     // not a stable cross-session id -- BakkesMod's own PRI/unique-id
@@ -211,18 +290,14 @@ void RustyBulletCapturePlugin::writeFrame(ServerWrapper server, BallWrapper ball
                 continue;
             }
 
-            if (!first)
-            {
-                line << ",";
-            }
-            first = false;
-            line << carJson(nextPlayerId, car);
+            PendingCar pendingCar;
+            pendingCar.key = car.memory_address;
+            pendingCar.prefix = carPrefixJson(nextPlayerId, car);
+            pendingCar.haveInput = false;
+            pending_.cars.push_back(pendingCar);
             ++nextPlayerId;
         }
     }
 
-    line << "]}";
-
-    captureFile_ << line.str() << "\n";
-    captureFile_.flush();
+    havePending_ = true;
 }

@@ -2375,6 +2375,16 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-VERIFY-002` plugin 1.1 (spec 0.5.0): `RB-PHYSICS-001-FR-085`
+  finding I's capture defects traced to the recorder, not the
+  controller (one device for all six clips): plugin 1.0 wrote each
+  tick's line at the first `SetVehicleInput` firing and read every
+  car's input back through `GetInput()` then, fresh only if that car's
+  own firing had already run — two clips with every analog axis `0`,
+  one dodge with no `jump` recorded, a pitch one tick late. 1.1 records
+  the hook's own `ControllerInput` per car and flushes the line when
+  the next tick begins. Written against the SDK; not yet rebuilt and
+  run by the owner — the next session's first check.
 - `RB-PHYSICS-001-FR-085` added and findings A, C, D and E implemented
   — the second capture session (six clips), each divergence run to a
   mechanism: (A) the `2300` uu/s cap is a whole-vector rescale of

@@ -7437,9 +7437,14 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     false` on every frame from `29.825` to `31.5`, its `pitch = 1`
     appearing one tick *after* the flip begins; `jumpbeforehit02` is a
     byte-identical upload of `hittickjump01`. The other three clips
-    carry full analog data. Open questions for the owner: input
-    device, and whether `CarWrapper::GetInput()` is read before or
-    after the tick consumes the press.
+    carry full analog data. The owner confirmed one controller for all
+    six (`jumpbeforehit02` was a rename of the first take), which
+    points at the recorder: plugin 1.0 wrote each tick's line at the
+    *first* `SetVehicleInput` firing and read every car's input back
+    through `CarWrapper::GetInput()` then — fresh only if that car's
+    own firing had already run. Plugin 1.1 (`RB-VERIFY-002` 0.5.0)
+    records the hook's own `ControllerInput` per car and flushes the
+    line when the next tick begins; it awaits its first real capture.
   - **J. The dodge residuals remain (`FR-083`).** `onewheellanding06`'s
     diagonal-dodge hops (`4.575`, `14.008`) diverge as the
     `dodge-derailment` fixture does (`ω_x 1.57` recorded vs `−0.47`,

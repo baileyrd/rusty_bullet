@@ -6,6 +6,20 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The recorder takes the input it is handed
+**2026-09-06** · `RB-VERIFY-002` plugin 1.1
+
+- The two capture defects `RB-PHYSICS-001-FR-085` found (whole clips
+  with every analog axis at `0`, a dodge with no `jump` press recorded,
+  a pitch one tick late) came from the plugin, not the controller: it
+  wrote each tick's line at the first `SetVehicleInput` firing and read
+  every car's input back through `GetInput()` at that instant. Version
+  1.1 records the `ControllerInput` the hook hands over, per car, and
+  writes the line once the next tick begins. Not yet rebuilt and run —
+  that is the next capture session's first check.
+
+---
+
 ## The second capture session
 **2026-09-06** · `RB-PHYSICS-001-FR-085`
 

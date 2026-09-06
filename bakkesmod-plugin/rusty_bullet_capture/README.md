@@ -19,16 +19,34 @@ every line, since a PRI's `Car` back-reference is never updated in freeplay
 (PRI exists for scoreboard/stat tracking, which freeplay has none of). Fixed
 by switching to `ServerWrapper::GetCars()`, the game's own live
 spawned-car-actor list — see `RB-VERIFY-002`'s Change history for the full
-before/after. Still open: a manual cross-check of one recorded value against
-BakkesMod's own overlay at a remembered timestamp, and NFR-002 (recording
-overhead), unmeasured.
+before/after. A second real bug came out of the second capture session
+(`RB-PHYSICS-001-FR-085`, finding I): version 1.0 wrote each tick's line
+at the *first* `SetVehicleInput` firing of the tick and read every car's
+input back through `CarWrapper::GetInput()` at that instant, which is
+only fresh if that car's own `SetVehicleInput` has already run — whether
+it had depended on firing order, and two of six clips recorded every
+analog axis as `0` throughout, one clip missed a dodge's `jump` press
+entirely, and a pitch input arrived one tick after the flip it caused.
+Version 1.1 records the `ControllerInput` the hook hands over, per car,
+and writes the line once the next tick begins (see "What it does"). It
+is written against the SDK but has not yet been rebuilt and run by the
+owner — that is the next capture session's first check. Still open: a
+manual cross-check of one recorded value against BakkesMod's own overlay
+at a remembered timestamp, and NFR-002 (recording overhead), unmeasured.
 
 ## What it does
 
 - Hooks `Function TAGame.Car_TA.SetVehicleInput` (post), which fires once
-  per car per physics tick. Since a tick can fire this once per car, the
-  plugin dedupes on the ball's own `GetPhysicsFrame()` counter so exactly
-  one capture line is written per tick regardless of car count.
+  per car per physics tick. The first firing of a new tick (the ball's own
+  `GetPhysicsFrame()` counter changing) flushes the previous tick's line
+  and snapshots this tick's ball and car state; each firing then records
+  the `ControllerInput` it was called with against its own car. So exactly
+  one line is written per tick regardless of car count, and every car's
+  input on that line is the one the game actually applied that tick — not
+  `CarWrapper::GetInput()` read back at some other car's firing, which
+  version 1.0 did and which lost presses and whole clips of analog data.
+  A car whose hook did not fire during a tick keeps its previous input;
+  `rb_capture_stop` flushes the last pending line.
 - Each line is the ball's transform/velocity plus every car's transform,
   velocity, boost amount (converted from BakkesMod's 0.0-1.0 fraction to
   this project's 0-100 scale, matching `rb_replay_ingest`'s convention),

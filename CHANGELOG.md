@@ -294,7 +294,11 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   push (`296` recorded vs `304`) — the fixture `114.17 → 73.76` uu, and
   three new fixtures at `3–6` uu (`throttle-jump`, `boost-wall-entry`,
   `airborne-hit`). Open: the floor-to-wall curve's `~380` uu/s loss,
-  the ball's goal entry, two capture defects.
+  the ball's goal entry, two capture defects — traced to the plugin's
+  input read: `rusty_bullet_capture` 1.1 (`RB-VERIFY-002` 0.5.0)
+  records the `SetVehicleInput` hook's own `ControllerInput` per car
+  and flushes each tick's line when the next begins, instead of
+  reading `GetInput()` back at the tick's first firing.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation
