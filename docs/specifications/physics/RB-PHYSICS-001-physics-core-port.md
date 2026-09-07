@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.105.0
+- Version: 0.106.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7417,7 +7417,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `~30 g` of normal load is `~1000` uu/s of friction budget per
     `0.2` s), which the port's `resolveSingleCollision` pushback
     prevents. `boost-wall-entry` (`271` frames) pins the run at `3.9`
-    uu mean, `64` uu max at the curve.
+    uu mean, `64` uu max at the curve. Resolved by `RB-PHYSICS-001-FR-086`:
+    the fillet is `270` uu and the pushback has no positional term.
   - **G. The airborne hit matches (fixture).** `hittickjump01b`: boost
     from rest, jump at the cap, the ball met in the air `7` ticks after
     the press with the wheels already off — ball `4.8` uu mean, car
@@ -7470,6 +7471,72 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `rb_physics_bullet`: `+2` speed cap, `+1` press tick, `−6` goal
     fillets; `13` in `rb_verify_cli`: `+3` fixtures); the four fixture
     ratchets.
+- `RB-PHYSICS-001-FR-086` (the wall-curve transition — `FR-085` finding F;
+  implemented): the real car sheds `~380` uu/s more than gravity explains
+  climbing the `+X` wall's floor curve at `2300` uu/s, `~220` descending
+  it backwards at `1520`, and `~260` descending the `−X` wall under
+  boost, where the port shed `~100`, nothing, and nothing. Worked from the
+  three recorded passes with a per-tick decomposition of the port's
+  speed change into gravity, the wheels' spring-plus-pushback impulses
+  along the velocity, the tire friction impulses, and the remainder (the
+  chassis contacts); temporary examples, since removed.
+  - **1. The fillet radius is `270` uu, not `292` (implemented).** Three
+    fits from the second session agree (`arena::FILLET_RADIUS`'s doc):
+    the low-load ride along the fillet in `curverun05` (`67` frames,
+    `263.3 ± 3.0` at the flat-floor rest height, `269.6 ± 4.5` with `2`
+    uu of compression), the corner arch crossed at `1900` uu/s (`262.7 ±
+    7.3` at rest height, `255–258` compressed), and the wall transitions
+    themselves (the recorded origin path fits `270` with the suspension
+    bottomed, `292` only with the origin `3` uu inside the surface).
+    `CORNER_ARCH_RADIUS` follows it. `FR-040`'s "not circular" caveat
+    survives as the `±5` uu scatter of the fits.
+  - **2. The pushback has no positional term (implemented).** With
+    RocketSim's `resolveSingleCollision` pushback — `erp × overshoot /
+    dt` plus the approach velocity, through the contact's effective
+    mass, over the wheel count — the port's origin rides every curve `5`
+    uu higher than the recording (`10.7` uu of clearance against `5.6`
+    at the deepest point of the `2300` climb; `15` against `8` on the
+    slow descent) and its chassis never reaches the wall, so nothing but
+    gravity slows it. Halving or quartering the whole pushback, moving
+    its threshold to the end of the travel, and dropping its positional
+    term all let the car sink and scrape; only the last keeps the
+    recorded flat landing (`FR-084`: bottom `15.54`, rebound `+14`,
+    which the velocity term alone reproduces — the threshold move
+    bounces it past `25`) and matches all three transitions at once:
+    speed at the top of the climb `1807` vs `1839` recorded (`2130`
+    before), the `−X` descent `1891` / `1873` vs `1882` / `1885` (`2086`
+    / `2154` before), the sinking profile `15.6 → 4.6` vs `14.4 → 9.9`
+    through the climb. A positional term at a quarter of Bullet's `erp`
+    already costs `60–80` uu/s of that. The port keeps the velocity
+    term and `SUSPENSION_SUBTRACTION`'s threshold; `PUSHBACK_ERP` is
+    gone. RocketSim carries the term; the recording says the real game
+    does not, or not at any strength these passes can see.
+  - **3. Where the loss goes.** The decomposition puts it in the chassis:
+    the wheels' own impulses shed `5–20` uu/s a tick either way, the
+    tire friction under `1`, and the chassis contacts — absent before —
+    take `10–60` uu/s a tick once the car sinks. The real mechanism is
+    the hitbox scraping the mesh, as `FR-085` guessed, under the port's
+    static `0.5` friction (RocketSim's car-world `0.3` measured the same
+    to within `10` uu/s; not changed here).
+  - **4. Residuals.** The slow backwards descent still ends `1521` vs
+    `1412`: at `8.5` uu of clearance the trailing nose sits within a uu
+    of the surface and the recording scrapes where the port does not.
+    At the top of the climb the port stays sunk (`2.3` uu of clearance
+    where the recording has recovered to `9.6`) — the springs alone push
+    it back out more slowly than whatever the real game has there. Both
+    are within the `boost-wall-entry` fixture's new `8.4` uu max.
+  - **Non-goals (this requirement).** The car-world material, the
+    chassis contact model, `FR-085`'s findings K and I–J, `FR-084`'s 4–5.
+  - **Acceptance criteria.** Both changes implemented; the three
+    transitions' speeds within `35` uu/s of the recording where the
+    port was `100–300` out; `boost-wall-entry` `3.91 → 1.02` uu mean,
+    `63.6 → 8.4` max; the other fixtures within their ratchets
+    (`dodge-derailment` `73.76 → 77.80`, the post-hit slam of `FR-084`
+    finding 4 moving with the pushback; `throttle-jump` and
+    `airborne-hit` unchanged); the pushback test re-pinned.
+  - **Verification plan.** `468` tests in the workspace; the
+    `boost-wall-entry` ratchet tightened `< 8 → < 3` uu mean, `< 90 → <
+    20` max.
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -8959,6 +9026,12 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.106.0 (2026-09-06): `RB-PHYSICS-001-FR-086` added — `FR-085` finding
+  F resolved: `FILLET_RADIUS` measured at `270` uu from three fits, and
+  the suspension pushback's positional (`erp`) term dropped, which lets
+  the car sink into the wall curves as recorded and scrape the speed
+  off; the three recorded transitions within `35` uu/s (`100–300`
+  before), `boost-wall-entry` `3.91 → 1.02` uu.
 - 0.105.0 (2026-09-06): `RB-PHYSICS-001-FR-085` added — the second
   capture session, six clips: the `2300` uu/s whole-vector speed cap
   (`clamp_linear_speed`), the goal-side edge and corner fillets

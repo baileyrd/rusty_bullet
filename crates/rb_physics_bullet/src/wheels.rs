@@ -109,11 +109,6 @@ pub const BT_TO_UU: f32 = 50.0;
 /// `51.2` uu ray and a pushback that engaged at rest from that; both are
 /// corrected here.)
 pub const SUSPENSION_SUBTRACTION: f32 = 0.05 * BT_TO_UU;
-/// Bullet's `btContactSolverInfo::m_erp` (`0.2`), the error-reduction
-/// fraction the pushback's positional term uses
-/// (`resolveSingleCollision`, `positionalError = erp * -distance /
-/// timeStep`).
-pub const PUSHBACK_ERP: f32 = 0.2;
 /// `RLConst::BTVehicle::SUSPENSION_FORCE_SCALE_FRONT` (`36 - 1/4`).
 pub const SUSPENSION_FORCE_SCALE_FRONT: f32 = 36.0 - 1.0 / 4.0;
 /// `RLConst::BTVehicle::SUSPENSION_FORCE_SCALE_BACK` (`54 + 1/4 + 1.5/100`).
@@ -309,13 +304,17 @@ pub struct WheelState {
     /// (`m_clippedInvContactDotSuspension`).
     pub inv_normal_dot_up: f32,
     /// The hard-stop impulse (`m_extraPushback`) for a spring compressed
-    /// more than `SUSPENSION_SUBTRACTION` past its rest: Bullet's
-    /// `resolveSingleCollision` against the surface with that overshoot as
-    /// the penetration — its `erp`-scaled positional error plus the
-    /// contact's approach velocity, through the contact's effective mass,
-    /// floored at zero and divided by the wheel count. Zero at rest (the
-    /// springs sit `≈1.5` uu compressed, inside the `2.5` uu margin) and
-    /// what stops a hard landing without a bounce.
+    /// more than `SUSPENSION_SUBTRACTION` past its rest: the contact's
+    /// approach velocity through the contact's effective mass
+    /// (`resolveSingleCollision`'s velocity term), floored at zero and
+    /// divided by the wheel count. RocketSim adds an `erp`-scaled
+    /// positional term (`0.2 × overshoot / dt`) to it; the recording does
+    /// not (`RB-PHYSICS-001-FR-086`): with that term the car rides the
+    /// wall curves `5` uu higher than recorded and keeps `~300` uu/s it
+    /// should lose, without it the recorded sinking and the recorded loss
+    /// both follow. Zero at rest (the springs sit `≈1.5` uu compressed,
+    /// inside the `2.5` uu margin) and what stops a hard landing without
+    /// a bounce.
     pub extra_pushback: f32,
     /// This wheel's engine force (`m_engineForce`), set by
     /// [`update_wheels`].
@@ -403,9 +402,13 @@ pub fn ray_length(mount: &WheelMount) -> f32 {
 /// suspension relative velocity (`normal · velocity_at_contact / (normal
 /// · up)`, zeroed at a grazing angle), and the `extra_pushback` hard stop
 /// when the trace is shorter than `rest + radius - SUSPENSION_SUBTRACTION`
-/// (`dt` is the step the pushback's positional term is scaled by, Bullet's
-/// `solverInfo.m_timeStep`). The drive fields are left alone.
+/// — the velocity term of RocketSim's `resolveSingleCollision` only (see
+/// `WheelState::extra_pushback` for the positional term the recording
+/// rules out). The drive fields are left alone. `dt` is unused since
+/// `RB-PHYSICS-001-FR-086` dropped the positional term it scaled, and is
+/// kept so the call shape matches RocketSim's `rayCast(step)`.
 pub fn raycast_wheels(car: &RigidBody, wheels: &mut [WheelState; 4], scene: &StaticScene, dt: f32) {
+    let _ = dt;
     let up = drive::up_axis(car);
     let down = -up;
     for (mount, wheel) in WHEELS.iter().zip(wheels.iter_mut()) {
@@ -440,13 +443,15 @@ pub fn raycast_wheels(car: &RigidBody, wheels: &mut [WheelState; 4], scene: &Sta
                 // zero restitution, shared over the four wheels.
                 let pushback_threshold = mount.rest_length + mount.radius - SUSPENSION_SUBTRACTION;
                 wheel.extra_pushback = if trace < pushback_threshold {
-                    let penetration = pushback_threshold - trace;
-                    let positional_error = PUSHBACK_ERP * penetration / dt;
+                    // RB-PHYSICS-001-FR-086: RocketSim's `resolveSingleCollision`
+                    // adds `erp * (threshold - trace) / dt` here. The
+                    // recorded wall curves say the real car has no such
+                    // push-out: it sinks to the recorded depth and sheds the
+                    // recorded speed only without it.
                     let velocity_error = -projected_velocity;
                     let (_, _, denominator) =
                         crate::solver::effective_mass_denom(car, &rel_pos, &hit.normal);
-                    ((positional_error + velocity_error) / denominator).max(0.0)
-                        / WHEELS.len() as f32
+                    (velocity_error / denominator).max(0.0) / WHEELS.len() as f32
                 } else {
                     0.0
                 };
@@ -922,7 +927,7 @@ mod tests {
     }
 
     #[test]
-    fn the_pushback_hard_stop_engages_only_past_the_subtraction_margin() {
+    fn the_pushback_hard_stop_is_the_approach_velocity_past_the_subtraction_margin() {
         // At the recorded rest height the springs sit 1.5 / 2.3 uu
         // compressed, inside the 2.5 uu margin: no pushback.
         let mut wheels = initial_wheels();
@@ -932,17 +937,15 @@ mod tests {
         // positional term alone (no approach velocity) pushes back by
         // erp * (6.5 - 2.5) / dt through the contact's effective mass,
         // shared over four wheels.
+        // RB-PHYSICS-001-FR-086: past the margin but not approaching, the
+        // stop is idle -- RocketSim's positional (erp) term, which would
+        // read 0.2 * 4 uu / dt here, is not in the recording.
         let car = car_at(12.0);
         raycast_wheels(&car, &mut wheels, &ground_scene(), DT);
         let rel_pos = wheels[0].contact_point - car.position;
         let (_, _, denominator) =
             crate::solver::effective_mass_denom(&car, &rel_pos, &Vec3::new(0.0, 0.0, 1.0));
-        let expected = PUSHBACK_ERP * (6.5 - 2.5) / DT / denominator / 4.0;
-        assert!(
-            (wheels[0].extra_pushback - expected).abs() < 1e-2,
-            "{} vs {expected}",
-            wheels[0].extra_pushback
-        );
+        assert_eq!(wheels[0].extra_pushback, 0.0);
         // A separating contact (moving up) is subtracted, never below zero.
         let mut rising = car_at(12.0);
         rising.linear_velocity = Vec3::new(0.0, 0.0, 1000.0);
@@ -952,7 +955,7 @@ mod tests {
         let mut falling = car_at(12.0);
         falling.linear_velocity = Vec3::new(0.0, 0.0, -300.0);
         raycast_wheels(&falling, &mut wheels, &ground_scene(), DT);
-        let expected_falling = (PUSHBACK_ERP * 4.0 / DT + 300.0) / denominator / 4.0;
+        let expected_falling = 300.0 / denominator / 4.0;
         assert!((wheels[0].extra_pushback - expected_falling).abs() < 1e-2);
     }
 

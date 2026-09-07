@@ -152,4 +152,9 @@ own, standing in for the Bullet mesh raycast RocketSim runs against its
 arena collision mesh. Deliberate, documented deviations (no rays against
 other bodies, no chassis world contact as the auto-roll's fallback, no
 auto-flip) are noted in `wheels.rs`'s module doc comment and in
-`RB-PHYSICS-001-FR-082`'s own step sequencing.
+`RB-PHYSICS-001-FR-082`'s own step sequencing. Two more are measured
+rather than chosen: the wheel rays are not shortened by
+`SUSPENSION_SUBTRACTION` (`RB-PHYSICS-001-FR-084`), and the pushback
+carries only `resolveSingleCollision`'s velocity term, not its `erp`
+positional term (`RB-PHYSICS-001-FR-086`) — in both cases the owner's own
+recordings contradict the RocketSim form.

@@ -299,6 +299,12 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   records the `SetVehicleInput` hook's own `ControllerInput` per car
   and flushes each tick's line when the next begins, instead of
   reading `GetInput()` back at the tick's first firing.
+  `RB-PHYSICS-001-FR-086` resolves the wall curve: `FILLET_RADIUS` is
+  `270` uu (three capture fits), and the suspension pushback keeps only
+  its velocity term — RocketSim's positional `erp` term rode the car `5`
+  uu above the recorded path and kept `~300` uu/s the real car scrapes
+  off on the wall. The three recorded transitions end within `35` uu/s
+  of the recording; `boost-wall-entry` `3.91 → 1.02` uu.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

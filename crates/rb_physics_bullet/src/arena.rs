@@ -147,40 +147,37 @@ pub const CEILING_Z: f32 = 2048.0;
 /// model either), but the flat corner-wall plane itself is exact.
 pub const CORNER_LENGTH: f32 = 1152.0;
 
-/// Uncalibrated placeholder: the radius of the curved fillet connecting a
-/// cardinal wall to the floor or ceiling (`standard_curves`). This port has
-/// no *reliable* reference for Rocket League's actual transition radius —
-/// chosen only to be small relative to the field's own dimensions (a
-/// visibly local rounding of the corner, not a wall-length-scale ramp), not
-/// measured from real field mesh data.
+/// The radius of the curved fillet connecting a cardinal wall to the
+/// floor or ceiling (`standard_curves`), measured from the second capture
+/// session by `RB-PHYSICS-001-FR-086`. Three independent fits agree:
 ///
-/// `RB-PHYSICS-001-FR-040` looked for one and came back empty-handed, not
-/// for lack of trying: the only candidate found anywhere in this port's
-/// established reference tier (RocketSim/RLUtilities source, the RLBot
-/// wiki) is the RLBot wiki's "Useful Game Values" page, which states "Wall
-/// bottom ramp radius: Aprox. 256 (but they are not circular)" with no
-/// citation, no distinction between a cardinal wall's small rounding and a
-/// corner wall's own bigger arch (`CORNER_ARCH_RADIUS`), and an explicit
-/// admission the real geometry isn't a single circular arc at all — a much
-/// weaker source than the named, source-code-level constants
-/// `RB-PHYSICS-001-FR-036` was able to confirm for the ball radius and
-/// `arena::CEILING_Z` (RocketSim's own `ARENA_HEIGHT = 2048.f`, read
-/// directly from source). Worse, that same `256` is suspiciously identical
-/// to RLGym's own documented `RAMP_HEIGHT` constant — the vertical height
-/// of the corner boost-pad ramp *from the ground*, a completely different
-/// geometric quantity from a floor-seam curve's radius — raising real doubt
-/// that the wiki's "ramp radius" entry is an independent measurement at all
-/// rather than a mixed-up cross-reference to that unrelated height value.
-/// Adopting `256` here would trade one honestly-labeled uncalibrated
-/// placeholder for a differently-uncertain number dressed up as a real
-/// citation, so this port doesn't. Genuinely closing this gap needs actual
-/// extracted collision-mesh geometry (e.g. via `ZealanL/RLArenaCollisionDumper`,
-/// which dumps Rocket League's real triangle mesh, not a parameterized
-/// radius) — the same "requires the owner's own Windows/Rocket League
-/// environment" blocker `RB-VERIFY-002-FR-001` already documents, not
-/// something a wiki search alone can resolve. See `CORNER_ARCH_RADIUS`'s
-/// own doc comment for the same finding applied to that constant.
-pub const FILLET_RADIUS: f32 = 292.0;
+/// - **Low-load ride along the fillet** (`curverun05`, `17.55–18.10` s):
+///   the car drives along the `+X` wall's floor curve at `1200–1500` uu/s
+///   with its roll following the surface, so its origin sits about a
+///   rest height off the surface. Solving each of the `67` frames for the
+///   circle centred `(4096 − R, R)` whose surface is `c` from the origin
+///   gives `R = 263.3 ± 3.0` for `c = 17` (the flat-floor rest height) and
+///   `269.6 ± 4.5` for `c = 15` (a couple of uu of compression).
+/// - **The corner arch crossed at speed** (same clip, `18.95–19.25` s,
+///   `1900` uu/s): `262.7 ± 7.3` at `c = 17`, `255–258` with the `3–5` uu
+///   of compression that speed implies (`CORNER_ARCH_RADIUS`).
+/// - **The wall transitions themselves** (`walldrive04`): the recorded
+///   origin path through the `+X` floor curve at `2300` uu/s fits a
+///   `270` circle with the suspension bottomed (`5.6` uu of clearance at
+///   the deepest point) and a `292` one only with the origin `3` uu
+///   *inside* the surface; the slow backwards descent (`1520` uu/s) and
+///   the `−X` descent under boost fit the same way.
+///
+/// `270` sits inside all three bands. `RB-PHYSICS-001-FR-040`'s research
+/// had found no source better than the RLBot wiki's uncited "Wall bottom
+/// ramp radius: Aprox. 256 (but they are not circular)" — a number that
+/// also happens to be RLGym's `RAMP_HEIGHT` — and this port carried an
+/// honestly-labelled `292` placeholder until the captures arrived. The
+/// wiki's caveat holds in one respect: the fits scatter by `±5` uu and
+/// drift with the assumed clearance, so the real curve is not exactly
+/// circular; within that, a single circular arc of `270` uu reproduces
+/// every recorded pass through it that this session holds.
+pub const FILLET_RADIUS: f32 = 270.0;
 
 /// The radius of the curved arch connecting a diagonal *corner* wall to
 /// the floor or ceiling. Also governs the 16 compound-corner fillets
@@ -198,17 +195,19 @@ pub const FILLET_RADIUS: f32 = 292.0;
 /// clip settles it: the real car crosses the `+X/−Y` corner arch at
 /// `(3827, −4075, z = 69)` and `(3631, −4346, z = 120)`, i.e. `115` and
 /// `62` uu (perpendicular) in from the corner wall's `|x| + |y| = 8064`
-/// line at `52` and `103` uu above the floor — both points fit a
-/// circular arch of radius `≈ 277` (`≈ 285` allowing `5` uu of suspension
-/// compression at `1900` uu/s) — while a `750` arch would put the floor
-/// `113` uu high under a car the recording shows resting flat at
-/// `(3886, −3677)`. That is the same radius the cardinal walls' own
-/// floor seam measures in the same session (`FILLET_RADIUS`, `≈ 270–292`
-/// from `walldrive04`), so the arch simply shares it: real Rocket League's
-/// corner is the cardinal curve continued round the corner, not a bigger
-/// one. Under the old `750` the port's car riding the side-wall fillet
-/// at `y ≈ −3300` was already `26` uu up a phantom ramp the recording
-/// never touches, and popped off it (`FR-085` finding D's trace).
+/// line at `52` and `103` uu above the floor — the whole crossing
+/// (`37` frames) fits a circular arch of `263 ± 7` uu at the flat-floor
+/// rest height, `255–258` with the `3–5` uu of compression `1900` uu/s
+/// implies — while a `750` arch would put the floor `113` uu high under
+/// a car the recording shows resting flat at `(3886, −3677)`. That is
+/// the same radius the cardinal walls' own floor seam measures in the
+/// same session (`FILLET_RADIUS`, `263–270`; `RB-PHYSICS-001-FR-086`
+/// settled both at `270`), so the arch simply shares it: real Rocket
+/// League's corner is the cardinal curve continued round the corner, not
+/// a bigger one. Under the old `750` the port's car riding the side-wall
+/// fillet at `y ≈ −3300` was already `26` uu up a phantom ramp the
+/// recording never touches, and popped off it (`FR-085` finding D's
+/// trace).
 pub const CORNER_ARCH_RADIUS: f32 = FILLET_RADIUS;
 
 // The whole point of RB-PHYSICS-001-FR-025: a corner wall's own

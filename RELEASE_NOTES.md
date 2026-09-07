@@ -6,6 +6,25 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The car sinks into the wall curve as recorded
+**2026-09-06** · `RB-PHYSICS-001-FR-086`
+
+- The floor-to-wall curve is `270` uu, not `292`: three fits from the
+  second capture session agree (the car riding along the fillet at low
+  load, the corner arch crossed at speed, the recorded paths through the
+  transitions themselves).
+- The suspension's hard-stop pushback loses its positional term.
+  RocketSim's `resolveSingleCollision` adds `erp × overshoot / dt` to the
+  approach-velocity kill; with it the port rides every wall curve `5` uu
+  higher than the recording and its chassis never touches the wall, so it
+  keeps `~300` uu/s the real car scrapes off. Without it the recorded
+  sinking, the recorded loss and the recorded flat landing all follow.
+- The three recorded transitions end within `35` uu/s of the recording
+  where the port was `100–300` out; the `boost-wall-entry` fixture drops
+  `3.91 → 1.02` uu mean, `63.6 → 8.4` max.
+
+---
+
 ## The recorder takes the input it is handed
 **2026-09-06** · `RB-VERIFY-002` plugin 1.1
 

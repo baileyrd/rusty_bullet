@@ -450,11 +450,13 @@ mod tests {
         assert!(score.cars.max_position_distance < 12.0);
     }
 
-    /// `RB-PHYSICS-001-FR-085` findings A and F: a real full-boost run at
-    /// the `2300` uu/s cap into the `+X` wall's floor curve. The straight
-    /// run tracks to a uu; the curve itself is the open finding F — the
-    /// recording sheds `~380` uu/s more than gravity explains through the
-    /// transition, the port `~100` — which is where the max sits.
+    /// `RB-PHYSICS-001-FR-085` finding A and `RB-PHYSICS-001-FR-086`: a
+    /// real full-boost run at the `2300` uu/s cap into the `+X` wall's
+    /// floor curve. The straight run tracks to a uu; the curve, once the
+    /// open finding F (`64` uu max: the recording shed `~380` uu/s more
+    /// than gravity explains, the port `~100`), tracks to a few uu with
+    /// `FR-086`'s `270` uu fillet and its pushback without the positional
+    /// term.
     #[test]
     fn isolated_replay_of_a_real_boost_run_into_the_wall_curve_stays_under_its_recorded_divergence()
     {
@@ -466,10 +468,11 @@ mod tests {
 
         assert_eq!(score.frames_compared, 271);
         assert_eq!(score.cars.pairs_compared, 271);
-        // Ratchet (2026-09-06): mean car position distance ~3.9 uu, max
-        // ~64 uu (the curve, finding F). Bounded loosely above.
-        assert!(score.cars.mean_position_distance < 8.0);
-        assert!(score.cars.max_position_distance < 90.0);
+        // Ratchet (2026-09-06): mean car position distance ~1.0 uu, max
+        // ~8.4 uu after `FR-086` (`~3.9` / `~64` before it). Bounded
+        // loosely above.
+        assert!(score.cars.mean_position_distance < 3.0);
+        assert!(score.cars.max_position_distance < 20.0);
     }
 
     /// `RB-PHYSICS-001-FR-085` finding G: a real boost-and-jump approach

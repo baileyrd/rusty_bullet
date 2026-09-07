@@ -71,9 +71,11 @@ with throttle held and boost just released (the recording holds exactly
 `2297` for the full straight, so no drag acts above `1410` while the
 throttle is down), boost re-engaged at `28.608`, and the car driven
 straight up the `+X` wall's floor curve. Seeds on its first frame (boost
-off, throttle on, flat). The straight tracks to a uu; the curve is
-`RB-PHYSICS-001-FR-085`'s open finding F, and where the excerpt's `64` uu
-max sits (see `rb_verify_cli::tests::isolated_replay_of_a_real_boost_run_into_the_wall_curve_stays_under_its_recorded_divergence`).
+off, throttle on, flat). The straight tracks to a uu; the curve was
+`RB-PHYSICS-001-FR-085`'s finding F (a `64` uu max, the recording shedding
+`~380` uu/s the port did not) until `RB-PHYSICS-001-FR-086` measured the
+fillet at `270` uu and dropped the pushback's positional term — `1.0` uu
+mean, `8.4` uu max since (see `rb_verify_cli::tests::isolated_replay_of_a_real_boost_run_into_the_wall_curve_stays_under_its_recorded_divergence`).
 
 ## `airborne-hit.capture.jsonl`
 

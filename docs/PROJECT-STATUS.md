@@ -2375,6 +2375,24 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-086` added and implemented — `FR-085` finding F, the
+  wall-curve transition: `FILLET_RADIUS` `292 → 270` from three
+  independent capture fits (the low-load ride along the fillet `263–270`,
+  the corner arch crossing `255–263`, the transitions' own origin paths),
+  and the suspension pushback's positional `erp` term dropped —
+  RocketSim's `resolveSingleCollision` carries it, but with it the port
+  rides every curve `5` uu higher than the recording and its chassis
+  never touches the wall, so it keeps `~300` uu/s the real car scrapes
+  off. A per-tick decomposition of the speed change (gravity, spring +
+  pushback, tire friction, chassis) put the loss in the chassis. The
+  three recorded transitions now end within `35` uu/s of the recording
+  (`100–300` before); `boost-wall-entry` `3.91 → 1.02` uu mean, `63.6 →
+  8.4` max (ratchet `< 3` / `< 20`); `dodge-derailment` `73.76 → 77.80`
+  (the open post-hit slam moves with the pushback); the recorded flat
+  landing (`FR-084`) still reproduced. Residuals: the slow backwards
+  descent's chassis scrape the port narrowly misses (`1521` vs `1412`),
+  the slow push-out at the top of the climb. Tests `468` unchanged. Full
+  workspace `fmt`/`clippy`/`test` green.
 - `RB-VERIFY-002` plugin 1.1 (spec 0.5.0): `RB-PHYSICS-001-FR-085`
   finding I's capture defects traced to the recorder, not the
   input device (keyboard and mouse for all six clips): plugin 1.0 wrote each
@@ -2546,13 +2564,15 @@
    clips through the port — the speed cap, the goal-side fillets, the
    corner arch radius and the jump press tick are fixed
    (`dodge-derailment` `114.17 → 73.76` uu; three new fixtures at `3–6`
-   uu) — and left finding F as the next mechanism: the real car sheds
-   `~380` uu/s more than gravity explains through the floor-to-wall
-   curve at `2300` (and `110` uu/s descending it), the port `~100` and
-   nothing; the real origin path fits the `292` curve only with the
-   suspension bottomed harder than the port's pushback allows, so the
-   candidate is the chassis scraping the mesh under
-   `CARWORLD_COLLISION_FRICTION`. Finding K (the ball's goal entry)
+   uu) — and left finding F, which `RB-PHYSICS-001-FR-086` then resolved:
+   the fillet is `270` uu, not `292`, and the suspension pushback has no
+   positional term — with both, the car sinks into the wall curves as
+   recorded and its chassis scrapes the speed off, the three recorded
+   transitions ending within `35` uu/s of the recording
+   (`boost-wall-entry` `3.91 → 1.02` uu). Next mechanism: the slow
+   backwards descent's chassis scrape the port narrowly misses (`1521`
+   vs `1412` uu/s) and the push-out at the top of the climb, both inside
+   the fixture's `8.4` uu max, then finding K (the ball's goal entry). Finding K (the ball's goal entry)
    and the dodge residuals (`FR-083`) follow. `FR-084` finding 4 still
    wants a wheels-down hit-tick jump (`hittickjump01b`'s press came
    `7` ticks early with the wheels off), and finding 5 wants one-wheel
@@ -2887,6 +2907,17 @@
   `walldrive04` `2118.43` (the curve, then the corner), `curverun05`
   `3450.31` (the corner arch at `18.5` s), `onewheellanding06` `1645.53`
   (the dodge at `4.575` s, then the car on its roof).
+- `RB-PHYSICS-001-FR-086` fixture runs (2026-09-06, this sandbox):
+  `boost-wall-entry` — `frames compared: 271, mean car
+  position/rotation/velocity distance: 1.02 uu / 0.00 rad / 7.04 uu/s,
+  max 8.44 uu / 0.06 rad / 120.30 uu/s` (was `3.91 / 0.01 / 28.94`, max
+  `63.56`); `dodge-derailment` — `77.80 uu / 0.35 rad / 163.73 uu/s`,
+  ball `41.22` (was `73.76`, ball `41.80`); `throttle-jump` `3.33` and
+  `airborne-hit` `5.74` / ball `4.77` unchanged. Speed at the end of each
+  recorded transition, port vs recording: `+X` climb at `2300` `1807` vs
+  `1839` (was `2130`); `−X` descent under boost `1891` / `1873` vs `1882`
+  / `1885` (was `2086` / `2154`); `+X` backwards descent at `1520` `1521`
+  vs `1412` (was `1582`).
 
 ## Risks and decisions needed
 
