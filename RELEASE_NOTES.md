@@ -80,6 +80,27 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The wheel that can't turn fast enough
+**2026-09-09** · `RB-PHYSICS-001-FR-088` (still open, characterized)
+
+- Went looking for what actually burns the speed during a full-boost
+  curve into the wall, by reading the simulation's own wheel state back
+  tick by tick instead of only comparing the car's final trajectory.
+- Found it: at the speeds this maneuver runs at, the curve asks the car
+  to spin onto the wall faster than its own hard angular-speed limit
+  allows. The car can't turn quickly enough to keep its wheel riding
+  the fillet's surface, so the wheel punches through it, tick after
+  tick, for about a third of a second — and each of those correction
+  impulses is an order of magnitude bigger than an ordinary landing's,
+  which is what's actually eating the speed.
+- That explains the loss channel, but not the mystery this session set
+  out to solve: the same thing happens, at the same size, in the other
+  wall-curve clip that already tracks tightly. Whatever makes one curve
+  lose noticeably more speed than the other isn't this. The search for
+  that continues.
+
+---
+
 ## The dodge's real axis, run to ground
 **2026-09-09** · `RB-PHYSICS-001-FR-090` (partially implemented)
 

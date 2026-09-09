@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.112.0
+- Version: 0.113.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7669,7 +7669,30 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     single signed parameter, exercised by `standard_curves`' own
     symmetric geometry tests. What makes this curve's own loss
     `≈2.7×` `boost-wall-entry`'s is not yet isolated.
-  - **4. The lag compounds, it does not compound forever.** Followed
+  - **5. The loss channel, found; the asymmetry, still not (further
+    isolated).** Instrumented `PhysicsWorld::car_wheels` tick-by-tick
+    through both curves: at `v≈2300` uu/s around a `FILLET_RADIUS = 270`
+    uu curve, the kinematic reorientation rate the surface demands
+    (`v / r ≈ 8.5` rad/s) exceeds `MAX_CAR_ANGULAR_SPEED` (`5.5`) —
+    the car physically cannot rotate fast enough to track the fillet,
+    so a wheel re-penetrates the surface every tick for roughly `20`
+    consecutive ticks, each one firing `WheelState::extra_pushback`'s
+    hard-stop correction at `2000`–`5000` uu (an order of magnitude
+    past an ordinary landing's), and it's this repeated correction, not
+    gravity or ordinary tire friction, doing most of the work of
+    shedding speed through the curve. This is real and mechanistic, but
+    it does not explain the `24%`-vs-`9%` asymmetry: summed over each
+    curve's own transition window, `boost-wall-entry`'s cumulative
+    pushback total is not smaller than `wall-climb-crest`'s (comparable
+    per-tick magnitude, a similar ~`20`-tick duration) — the shared
+    mechanism, ruled out as the differentiator. What *does* differ is
+    narrower than it first looked: the two recordings' own curve-loss
+    rates are close to each other (`-2325` vs `-2440` uu/s²) while the
+    two ports' rates are not (`-2951` vs `-2671`) — whatever's
+    different lives on the port's side of the comparison specifically
+    (plausibly the exact tick-count the transition takes, or a subtler
+    per-tick contact-pattern difference), not yet isolated further.
+  - **6. The lag compounds, it does not compound forever.** Followed
     past the crest, the port does eventually cross the fillet, invert,
     and fall the same qualitative way the recording does — both end the
     traced window within `0.13` rad of the same upside-down orientation
@@ -7687,12 +7710,14 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     an open residual, not a fixed maneuver, so the bound exists to catch
     a further regression, not to pin today's figure as correct).
   - **Non-goals (this requirement).** Isolating what specific per-tick
-    difference makes this curve's own speed-loss asymmetry (finding 3)
-    `≈2.7×` `boost-wall-entry`'s smaller one; the other four wall-climb
-    events in `wall_curve02` (two throttle-only climbs, a boost run into
-    the `+X` wall, and one with boost engaged mid-climb), not yet
-    excerpted; `RB-PHYSICS-001-FR-084` finding 5; `RB-PHYSICS-001-FR-085`'s
-    findings I, J and K.
+    difference (finding 5 rules out the shared pushback mechanism's own
+    magnitude, so it's something narrower — plausibly transition tick-
+    count or a subtler contact-pattern difference) makes this curve's
+    own speed-loss asymmetry `≈2.7×` `boost-wall-entry`'s smaller one;
+    the other four wall-climb events in `wall_curve02` (two
+    throttle-only climbs, a boost run into the `+X` wall, and one with
+    boost engaged mid-climb), not yet excerpted; `RB-PHYSICS-001-FR-084`
+    finding 5; `RB-PHYSICS-001-FR-085`'s findings I, J and K.
   - **Acceptance criteria.** The fillet-selection hypothesis tested and
     ruled out with a reproducible probe; the speed-decay discrepancy
     measured and documented; one new fixture with a ratchet test
@@ -9360,6 +9385,23 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.113.0 (2026-09-09): `RB-PHYSICS-001-FR-088` refined again (still
+  open, characterized): instrumented `PhysicsWorld::car_wheels`
+  tick-by-tick through both curve-entry clips. At `v≈2300` uu/s around
+  a `270` uu fillet, the kinematic reorientation rate the surface
+  demands (`≈8.5` rad/s) exceeds `MAX_CAR_ANGULAR_SPEED` (`5.5`) — the
+  car cannot rotate fast enough to track the fillet, so a wheel
+  re-penetrates it every tick for roughly `20` consecutive ticks, each
+  firing a `2000`–`5000` uu hard-stop pushback correction; this
+  repeated correction, not gravity or tire friction, does most of the
+  work of shedding speed through the curve. Ruled out as the
+  asymmetry's cause: `boost-wall-entry`'s own cumulative pushback total
+  over its curve is not smaller than `wall-climb-crest`'s — the
+  mechanism is shared and comparable in magnitude. What does differ:
+  the two recordings' own curve-loss rates are close to each other
+  while the two ports' are not, meaning whatever's different lives on
+  the port's side specifically, still not isolated. No fixture numbers
+  changed.
 - 0.112.0 (2026-09-09): `RB-PHYSICS-001-FR-090` moved from open,
   characterized to partially implemented: fetching RocketSim's current
   `Car.cpp` confirms this port's flip-direction formula matches it

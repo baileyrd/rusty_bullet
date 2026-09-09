@@ -368,6 +368,16 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   Rotation divergence on `clean-dodge` drops `~26%`; position/velocity
   move slightly the other way, a downstream landing-timing effect left
   open. 3 new unit tests.
+  `RB-PHYSICS-001-FR-088` refined again (still open, characterized):
+  instrumented per-wheel state through both curve-entry clips finds the
+  actual loss channel — the fillet's own kinematic reorientation demand
+  (`≈8.5` rad/s at `v≈2300` uu/s around a `270` uu radius) exceeds
+  `MAX_CAR_ANGULAR_SPEED` (`5.5`), so a wheel re-penetrates the surface
+  every tick for `~20` ticks, each firing a `2000`–`5000` uu hard-stop
+  pushback correction. That mechanism is shared and comparably sized in
+  both curve-entry fixtures, ruling it out as the reason one loses `24%`
+  more and the other `9%`; the narrower cause stays open. No fixture
+  numbers changed.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

@@ -2393,6 +2393,23 @@
   descent's chassis scrape the port narrowly misses (`1521` vs `1412`),
   the slow push-out at the top of the climb. Tests `468` unchanged. Full
   workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-088` refined again, still open and characterized —
+  instrumented `PhysicsWorld::car_wheels` tick-by-tick through both
+  curve-entry clips. At `v≈2300` uu/s around a `270` uu fillet, the
+  kinematic reorientation rate the surface demands (`≈8.5` rad/s)
+  exceeds `MAX_CAR_ANGULAR_SPEED` (`5.5`) — the car cannot rotate fast
+  enough to track the fillet, so a wheel re-penetrates it every tick
+  for roughly `20` consecutive ticks, each firing a `2000`–`5000` uu
+  hard-stop pushback correction; this repeated correction, not gravity
+  or tire friction, does most of the work of shedding speed through
+  the curve. Ruled out as the asymmetry's own cause: `boost-wall-
+  entry`'s cumulative pushback total over its curve is not smaller
+  than `wall-climb-crest`'s — the mechanism is shared, comparable in
+  magnitude. What differs: the two recordings' own curve-loss rates
+  are close to each other while the two ports' are not, so whatever's
+  different lives on the port's side specifically, still not isolated.
+  No fixture numbers changed. Workspace tests `479` unchanged. Full
+  workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-088` refined, still open and characterized —
   re-traced `wall-climb-crest` tick-by-tick with `FR-058`'s
   `drive_speed_taper` evaluated directly: the flat span's sub-`g` decay
@@ -2736,8 +2753,15 @@
    pure yaw-triggered side dodge specifically (pure-roll and diagonal
    dodges untouched, untested). Rotation divergence on `clean-dodge`
    drops `~26%`; position/velocity move slightly the other way, a
-   downstream landing-timing effect not yet isolated. Next: isolate that
-   landing-timing residual and the curve-entry asymmetry from `FR-088`,
+   downstream landing-timing effect not yet isolated. `FR-088`'s own
+   curve-entry asymmetry was then dug into further: instrumented per-
+   wheel state shows the actual loss channel is a sustained hard-stop
+   suspension pushback firing every tick for `~20` ticks, because the
+   car's angular-speed cap can't keep pace with the fillet's own
+   kinematic reorientation demand at this speed — but that mechanism
+   is present at comparable magnitude in both curve-entry clips,
+   ruling it out as the reason one loses `24%` and the other `9%`. Next:
+   isolate that narrower asymmetry, the dodge's landing-timing residual,
    then `FR-084` finding 5 and `FR-085` findings I/J.
 
 ## Validation
@@ -3136,6 +3160,19 @@
   uu/s` (max `777.65 uu / 0.564 rad / 477.13 uu/s`; ball unaffected,
   `0.044`/`0.061` uu) — rotation down from `0.442` pre-fix, position and
   velocity up slightly from `350.96`/`336.49`.
+- `RB-PHYSICS-001-FR-088` per-wheel curve probe (2026-09-09, this
+  sandbox): `PhysicsWorld::car_wheels(0)` read back tick-by-tick through
+  both curve entries. `wall-climb-crest`: front-wheel `extra_pushback`
+  climbs `2782 → 4800` uu over the first `6` ticks past curve-onset,
+  staying in the `1700`–`4800` uu range for `~20` ticks total before
+  tapering to `0` past the transition — an order of magnitude past an
+  ordinary landing's pushback, at `4` wheels in contact throughout.
+  `boost-wall-entry`'s own curve shows the same pattern at comparable
+  magnitude (`2079 → 5126` uu over its own `~24`-tick transition) — its
+  cumulative pushback is not smaller than `wall-climb-crest`'s. Kinematic
+  check: `v / FILLET_RADIUS ≈ 2300 / 270 ≈ 8.5` rad/s against
+  `MAX_CAR_ANGULAR_SPEED = 5.5` explains why the wheel keeps
+  re-penetrating tick after tick rather than settling immediately.
 
 ## Risks and decisions needed
 
