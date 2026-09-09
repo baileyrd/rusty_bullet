@@ -618,6 +618,19 @@ pub struct StaticQuarterPipe {
     pub sector_end: Vec3,
     pub restitution: f32,
     pub friction: f32,
+    /// A goal-mouth cutout, carved out of this fillet along its own axis
+    /// (`RB-PHYSICS-001-FR-089`): `None` for every ordinary fillet, but
+    /// `Some(half_width)` for the two back-wall floor/ceiling seams that
+    /// run behind each goal — the seam's own construction treats the back
+    /// wall as one solid plane the full arena width, oblivious to the
+    /// goal window `StaticGoalWall` cuts into that same plane, so without
+    /// this cutout the fillet still catches a ball flying straight through
+    /// the goal mouth. `Some(half_width)` means: no collision at all when
+    /// the contact point's projection onto `axis_direction`, measured from
+    /// `axis_point`, falls within `half_width` of zero — the same window
+    /// `StaticGoalWall::contains_in_window` tests, just applied to this
+    /// shape instead of a flat plane.
+    pub goal_mouth_half_width: Option<f32>,
 }
 
 impl StaticQuarterPipe {
@@ -636,7 +649,15 @@ impl StaticQuarterPipe {
             sector_end,
             restitution: 0.5,
             friction: 0.5,
+            goal_mouth_half_width: None,
         }
+    }
+
+    /// Carves a goal-mouth cutout into this fillet — see
+    /// `goal_mouth_half_width`'s own doc comment.
+    pub fn with_goal_mouth_exclusion(mut self, half_width: f32) -> StaticQuarterPipe {
+        self.goal_mouth_half_width = Some(half_width);
+        self
     }
 
     /// Derives a fillet of the given `radius` connecting two flat

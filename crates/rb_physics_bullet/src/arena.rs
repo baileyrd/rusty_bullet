@@ -550,18 +550,22 @@ pub fn standard_curves() -> Vec<StaticQuarterPipe> {
     for &sign in &[1.0f32, -1.0] {
         let wall = back_wall_plane(sign);
         let axis_direction = Vec3::new(1.0, 0.0, 0.0);
-        curves.push(StaticQuarterPipe::between_planes(
-            &floor,
-            &wall,
-            FILLET_RADIUS,
-            axis_direction,
-        ));
-        curves.push(StaticQuarterPipe::between_planes(
-            &ceiling,
-            &wall,
-            FILLET_RADIUS,
-            axis_direction,
-        ));
+        // RB-PHYSICS-001-FR-089: these two seams run behind a goal, whose
+        // own mouth cuts a GOAL_HALF_WIDTH-wide window straight through
+        // `wall` (`standard_goal_walls`) — but `between_planes` derives
+        // this fillet from `wall` as one solid plane the full arena width,
+        // with no idea that window exists. Without the cutout, a ball
+        // flying through the goal mouth still meets this fillet instead of
+        // passing straight through untouched, exactly the mechanism behind
+        // a real recorded goal shot the port diverged from.
+        curves.push(
+            StaticQuarterPipe::between_planes(&floor, &wall, FILLET_RADIUS, axis_direction)
+                .with_goal_mouth_exclusion(GOAL_HALF_WIDTH),
+        );
+        curves.push(
+            StaticQuarterPipe::between_planes(&ceiling, &wall, FILLET_RADIUS, axis_direction)
+                .with_goal_mouth_exclusion(GOAL_HALF_WIDTH),
+        );
     }
 
     for &(sx, sy) in &[(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
@@ -756,6 +760,31 @@ mod tests {
     #[test]
     fn standard_curves_has_twenty_four_fillets() {
         assert_eq!(standard_curves().len(), 24);
+    }
+
+    #[test]
+    fn exactly_the_four_back_wall_floor_and_ceiling_seams_carry_a_goal_mouth_cutout() {
+        // RB-PHYSICS-001-FR-089: a ball flying through a goal's own mouth
+        // must pass the back wall's floor/ceiling seam fillets untouched,
+        // since the goal window (`standard_goal_walls`) already cuts that
+        // same footprint out of the flat wall those fillets round. Every
+        // other fillet (the side/corner walls' seams, every vertical
+        // corner edge) has nothing to do with a goal and must carry no
+        // cutout at all.
+        let curves = standard_curves();
+        let with_cutout: Vec<_> = curves
+            .iter()
+            .filter(|c| c.goal_mouth_half_width.is_some())
+            .collect();
+        assert_eq!(with_cutout.len(), 4, "{with_cutout:?}");
+        for pipe in with_cutout {
+            assert_eq!(pipe.goal_mouth_half_width, Some(GOAL_HALF_WIDTH));
+            // Every one of the four sits on a back wall (`axis_point.y`
+            // near `+-BACK_WALL_Y`, `axis_direction` along `X`) -- not a
+            // side wall's or corner wall's own seam.
+            assert!((pipe.axis_point.y.abs() - BACK_WALL_Y).abs() < FILLET_RADIUS + 1.0);
+            assert!(pipe.axis_direction.x.abs() > 0.99);
+        }
     }
 
     #[test]

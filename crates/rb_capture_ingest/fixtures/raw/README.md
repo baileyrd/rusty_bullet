@@ -27,3 +27,9 @@ to `hittickjump01.jsonl`; it is not kept.
 | Clip | Frames | What it holds |
 |---|---|---|
 | `wall_curve02.jsonl` | 6825 | five wall-climb events; the first (a full-boost floor-to-`-X`-wall curve, climb to the ceiling fillet, crest, and fall) is excerpted as `wall-climb-crest.capture.jsonl` (`RB-PHYSICS-001-FR-088`, open); the other four (two throttle-only climbs, a boost run into the `+X` wall, and one with boost engaged mid-climb into the `-X` wall) are not yet excerpted |
+
+## Fifth capture session
+
+| Clip | Frames | What it holds |
+|---|---|---|
+| `goal_shot03.jsonl` | 9356 | two goal shots; the first (a ground shot arcing through the `+Y` goal mouth into the net) is excerpted as `goal-shot-net-entry.capture.jsonl` (`RB-PHYSICS-001-FR-089`, implemented); the second (a slow rolling shot the length of the field into the `-Y` goal, bouncing back into play) is not yet excerpted |

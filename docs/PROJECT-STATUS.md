@@ -2393,6 +2393,24 @@
   descent's chassis scrape the port narrowly misses (`1521` vs `1412`),
   the slow push-out at the top of the climb. Tests `468` unchanged. Full
   workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-089` added and implemented — `FR-085` finding K's
+  ball-in-goal divergence traced, on a fifth capture session's
+  ground-shot clip, to the back wall's own floor-seam `StaticQuarterPipe`
+  fillet: derived as one solid plane the full arena width, oblivious to
+  the goal-mouth window `standard_goal_walls` cuts through that same
+  wall, so a ball flying through the open mouth still met the fillet as
+  if the wall were solid — `~140` uu before the goal line, `~580` uu
+  short of the real net. `StaticQuarterPipe` gains an optional
+  `goal_mouth_half_width` cutout (`None` on every ordinary fillet);
+  `arena::standard_curves` sets it on exactly the 4 fillets running
+  behind a goal (both goals' floor- and ceiling-seams). With the cutout,
+  the ball reaches and tangles in the real net mesh for the first time.
+  New `goal-shot-net-entry` fixture (`550` frames): ball divergence
+  `494.0 → 199.3` uu mean, `1351.6 → 1037.2` uu max — the remainder is
+  `FR-033`'s own already-acknowledged net-mesh chaos/uncalibrated-
+  constant residual, not this bug. 4 new unit tests (2 sphere, 1 ray, 1
+  arena-wiring). Workspace tests `470 → 475`. Full workspace
+  `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-088` added, open and characterized — a fourth
   capture session's `wall_curve02` clip shows the port's wheels staying
   raycast-down and its orientation frozen noticeably longer than the
@@ -2621,9 +2639,14 @@
    session's `wall_curve02` clip then surfaced `FR-088` (open,
    characterized): a compounding speed-decay residual through the
    wall-to-ceiling fillet on a long climb, not yet root-caused past
-   ruling out wrong fillet selection. Next: isolate the sub-`g`
-   deceleration's own mechanism, then `FR-084` finding 5 and `FR-085`
-   findings K/I/J.
+   ruling out wrong fillet selection. A fifth session's `goal_shot03`
+   clip then closed `FR-085` finding K as `FR-089`: the back wall's own
+   floor-seam fillet had no goal-mouth cutout, so a ball flying through
+   the goal mouth met it as if the wall were solid; carving the cutout
+   in lets the ball reach the real net for the first time, leaving only
+   `FR-033`'s own already-acknowledged net-mesh residual. Next: isolate
+   `FR-088`'s sub-`g` deceleration mechanism, then `FR-084` finding 5 and
+   `FR-085` findings I/J.
 
 ## Validation
 
@@ -2963,7 +2986,9 @@
   `hit-tick-jump` — `frames compared: 492, mean car
   position/rotation/velocity distance: 18.23 uu / 0.08 rad / 45.44
   uu/s, mean ball distance: 19.94 uu` (max `135.26 uu / 0.28 rad /
-  305.84 uu/s`, ball max `90.89 uu`).
+  305.84 uu/s`, ball max `90.89 uu`). Post-hit `vz` excess measured
+  directly on the reseeded traces at the three hit ticks: `+7`, `+3`,
+  `-3` uu/s (was `+67` on `dodge-derailment`'s pre-`FR-086` sample).
 - `RB-PHYSICS-001-FR-088` fixture run (2026-09-09, this sandbox):
   `wall-climb-crest` — `frames compared: 824, mean car
   position/rotation/velocity distance: 169.43 uu / 0.09 rad / 164.38
@@ -2974,9 +2999,14 @@
   essentially `g`); port `1475 → 1255` uu/s over the same span
   (`≈-472` uu/s²). `raycast_static` fillet-selection probe at the
   `-X`-wall-to-ceiling seam: pipe hit `4.9` uu vs. the flat wall's
-  `34.0` uu at `z=1900`, coinciding at the tangent (`z≈1778`). Post-hit `vz` excess measured
-  directly on the reseeded traces at the three hit ticks: `+7`, `+3`,
-  `-3` uu/s (was `+67` on `dodge-derailment`'s pre-`FR-086` sample).
+  `34.0` uu at `z=1900`, coinciding at the tangent (`z≈1778`).
+- `RB-PHYSICS-001-FR-089` fixture run (2026-09-09, this sandbox):
+  `goal-shot-net-entry` — `frames compared: 550, mean car
+  position/rotation/velocity distance: 9.99 uu / 0.005 rad / 3.42 uu/s,
+  mean ball distance: 199.26 uu` (max `13.94 uu / 0.011 rad / 29.03
+  uu/s`, ball max `1037.28 uu`) — before the fix, the same 550-frame
+  window scored `494.01` uu mean / `1351.59` uu max ball distance (car
+  numbers unchanged, since the divergence was entirely the ball's).
 
 ## Risks and decisions needed
 

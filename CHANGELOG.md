@@ -323,6 +323,17 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   port vs. `≈-659` recorded) that compounds over the climb. New
   `wall-climb-crest` fixture with a ratchet test bounding the current
   divergence.
+  `RB-PHYSICS-001-FR-089` closes `RB-PHYSICS-001-FR-085` finding K: a
+  fifth capture session's ground-shot clip traced the ball's goal-entry
+  divergence to the back wall's own floor-seam `StaticQuarterPipe`
+  fillet, derived as one solid plane the full arena width with no idea
+  the goal-mouth window cuts a hole through that same wall — so a ball
+  flying through the open mouth still met the fillet as if the wall were
+  solid, well before it could ever reach the real net. `StaticQuarterPipe`
+  gains an optional `goal_mouth_half_width` cutout, set on exactly the 4
+  fillets that run behind a goal; with it, the ball now reaches and
+  tangles in the real net mesh instead. New `goal-shot-net-entry` fixture
+  with a ratchet test; ball divergence `494.0 → 199.3` uu mean.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

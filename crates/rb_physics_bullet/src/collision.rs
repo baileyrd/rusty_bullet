@@ -144,6 +144,11 @@ pub fn ray_vs_quarter_pipe(
     }
     let point = origin + direction * distance;
     let hit_rel = point - pipe.axis_point;
+    if let Some(half_width) = pipe.goal_mouth_half_width {
+        if hit_rel.dot(&axis).abs() < half_width {
+            return None;
+        }
+    }
     let hit_perp = hit_rel - axis * hit_rel.dot(&axis);
     let dir = hit_perp.normalize()?;
     if pipe.sector_start.cross(&dir).dot(&axis) < 0.0
@@ -602,6 +607,11 @@ fn sphere_vs_quarter_pipe(
 ) -> Option<Contact> {
     let rel = position - pipe.axis_point;
     let along_axis = rel.dot(&pipe.axis_direction);
+    if let Some(half_width) = pipe.goal_mouth_half_width {
+        if along_axis.abs() < half_width {
+            return None;
+        }
+    }
     let perp = rel - pipe.axis_direction * along_axis;
     let dist = perp.length();
 
@@ -1878,6 +1888,40 @@ mod tests {
     }
 
     #[test]
+    fn sphere_embedded_in_the_pipe_but_inside_its_goal_mouth_cutout_has_no_contact() {
+        // Same embedding depth `sphere_pushed_past_the_pipe_surface_...`
+        // exercises, but on a pipe carrying a goal-mouth cutout
+        // (`RB-PHYSICS-001-FR-089`) and with the sphere positioned inside
+        // that cutout's own along-axis window -- the exact shape of the
+        // real bug: a ball flying straight through a goal's open mouth
+        // still meeting this fillet as if the wall behind it were solid.
+        let pipe = floor_wall_pipe().with_goal_mouth_exclusion(50.0);
+        let radius = 1.0;
+        let bisector = ((pipe.sector_start + pipe.sector_end) * 0.5)
+            .normalize()
+            .unwrap();
+        let position = pipe.axis_point + bisector * (pipe.radius - radius + 5.0);
+        let s = RigidBody::sphere(radius, 1.0, position);
+        assert!(contacts_vs_quarter_pipe(&s, &pipe).is_empty());
+    }
+
+    #[test]
+    fn sphere_embedded_in_the_pipe_outside_its_goal_mouth_cutout_still_has_contact() {
+        // The same cutout as above, but the sphere sits well outside the
+        // window (along the pipe's own infinite axis) -- the ordinary,
+        // still-solid part of the fillet the cutout must leave alone.
+        let pipe = floor_wall_pipe().with_goal_mouth_exclusion(5.0);
+        let radius = 1.0;
+        let bisector = ((pipe.sector_start + pipe.sector_end) * 0.5)
+            .normalize()
+            .unwrap();
+        let position =
+            pipe.axis_point + pipe.axis_direction * 50.0 + bisector * (pipe.radius - radius + 5.0);
+        let s = RigidBody::sphere(radius, 1.0, position);
+        assert_eq!(contacts_vs_quarter_pipe(&s, &pipe).len(), 1);
+    }
+
+    #[test]
     fn sphere_outside_the_pipes_sector_has_no_contact() {
         // Directly "above" the axis, i.e. deep into the room along the
         // diagonal away from the corner -- outside the 90-degree sector
@@ -2380,6 +2424,33 @@ mod tests {
             &pipe
         )
         .is_none());
+    }
+
+    #[test]
+    fn a_ray_that_would_hit_the_fillet_misses_inside_its_goal_mouth_cutout() {
+        // Same ray as `a_ray_from_inside_a_fillet_hits_its_concave_face_...`
+        // (y = 5.0, well within a 10-unit cutout window), but on a pipe
+        // carrying a goal-mouth cutout (`RB-PHYSICS-001-FR-089`): the wheel
+        // raycast this exercises must miss too, not just the ball's own
+        // sphere-vs-quarter-pipe contact test, else a car driving through
+        // the goal mouth would still catch a wheel on this fillet.
+        let pipe = floor_wall_fillet().with_goal_mouth_exclusion(10.0);
+        let x = 900.0 + 100.0 * std::f32::consts::FRAC_1_SQRT_2;
+        assert!(ray_vs_quarter_pipe(
+            Vec3::new(x, 5.0, 80.0),
+            Vec3::new(0.0, 0.0, -1.0),
+            60.0,
+            &pipe
+        )
+        .is_none());
+        // Outside the window (y = 100.0), the same ray still hits.
+        assert!(ray_vs_quarter_pipe(
+            Vec3::new(x, 100.0, 80.0),
+            Vec3::new(0.0, 0.0, -1.0),
+            60.0,
+            &pipe
+        )
+        .is_some());
     }
 
     #[test]

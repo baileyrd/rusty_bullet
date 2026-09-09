@@ -134,3 +134,27 @@ fall) matches — see
 `rb_verify_cli::tests::a_real_wall_climb_through_the_ceiling_fillet_diverges_the_open_fr_088_residual`.
 The whole clip is kept untrimmed under `raw/` as `wall_curve02.jsonl`
 (four more wall-climb events in it are not yet excerpted).
+
+## `goal-shot-net-entry.capture.jsonl`
+
+A **real, 550-frame excerpt** (`t=8.817s` through `t=13.4s`) of the
+owner's fifth capture session's `goal_shot03` clip (recorded with
+plugin 1.1): a still car drives into a stationary ball, sending it on a
+parabolic arc through the `+Y` goal mouth into the real net. Seeds on
+its first grounded, neutral frame. `RB-PHYSICS-001-FR-089` (implemented)
+used this fixture to find and fix `RB-PHYSICS-001-FR-085` finding K: the
+ball wasn't diverging at the net at all — it never reached the net,
+because the back wall's own floor-seam curved fillet (rounding the seam
+between the floor and the solid part of the back wall) had no idea the
+goal window (`standard_goal_walls`) cuts a hole straight through that
+same wall, so a ball flying through the open goal mouth still collided
+with the fillet as if the wall behind it were solid. Carving a
+`GOAL_HALF_WIDTH`-wide cutout into the fillet lets the ball pass through
+untouched and reach the real net mesh; ball divergence over this excerpt
+drops `494.0 → 199.3` uu mean, `1351.6 → 1037.2` uu max — see
+`rb_verify_cli::tests::a_real_ground_shot_now_reaches_and_tangles_in_the_goal_net_instead_of_a_phantom_fillet`.
+The remaining gap is the net mesh's own already-acknowledged chaos/
+uncalibrated-constant residual (`RB-PHYSICS-001-FR-033`'s own
+Non-goals), not this bug. The whole clip is kept untrimmed under `raw/`
+as `goal_shot03.jsonl` (it also records a second, slow rolling shot into
+the opposite goal, not excerpted).

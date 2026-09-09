@@ -240,6 +240,13 @@ mod tests {
         )
     }
 
+    fn goal_shot_net_entry_fixture() -> &'static str {
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../rb_capture_ingest/fixtures/goal-shot-net-entry.capture.jsonl"
+        )
+    }
+
     #[test]
     fn scores_a_real_replay_against_the_synthetic_capture_fixture() {
         let score = score_replay_against_capture(
@@ -557,5 +564,28 @@ mod tests {
         // the current known gap so a further regression is still caught.
         assert!(score.cars.mean_position_distance < 200.0);
         assert!(score.mean_ball_distance < 20.0);
+    }
+
+    #[test]
+    fn a_real_ground_shot_now_reaches_and_tangles_in_the_goal_net_instead_of_a_phantom_fillet() {
+        let score = score_capture_against_candidate(
+            goal_shot_net_entry_fixture(),
+            DEFAULT_MAX_TIMESTAMP_DELTA_SECS,
+        )
+        .unwrap();
+
+        assert_eq!(score.frames_compared, 550);
+        assert_eq!(score.cars.pairs_compared, 550);
+        // Ratchet (2026-09-09): mean ball distance 494.0 -> 199.3 uu (max
+        // 1351.6 -> 1037.2) once RB-PHYSICS-001-FR-089 carved the goal
+        // mouth out of the back wall's floor-seam fillet — the ball now
+        // reaches the real net mesh instead of bouncing off a fillet that
+        // should not have been there. The remaining gap is the net mesh's
+        // own already-acknowledged chaos/uncalibrated-constant residual
+        // (RB-PHYSICS-001-FR-033's own Non-goals), not this bug; bounded
+        // loosely to catch a further regression, not to pin today's figure
+        // as correct.
+        assert!(score.cars.mean_position_distance < 15.0);
+        assert!(score.mean_ball_distance < 250.0);
     }
 }

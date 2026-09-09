@@ -52,6 +52,31 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The ball finally reaches the net
+**2026-09-09** · `RB-PHYSICS-001-FR-089`
+
+- A fifth capture session's `goal_shot03` clip: a still car drives into
+  a stationary ball, sending it on a parabolic arc through the `+Y` goal
+  mouth. The port's ball never reached the net at all — it diverged
+  `~140` uu before the goal line even opened.
+- The actual cause: the back wall's own floor-seam curved fillet
+  (rounding the seam between the floor and the solid part of the back
+  wall) was built from that wall as one solid plane the full arena
+  width, with no idea the goal window cuts a hole straight through it.
+  A ball flying through the open goal mouth still collided with the
+  fillet as if the wall behind it were solid — `RB-PHYSICS-001-FR-085`
+  finding K's real mechanism, not a net problem at all.
+- The fix: `StaticQuarterPipe` gains an optional goal-mouth cutout,
+  carved into exactly the 4 fillets that run behind a goal (both goals'
+  floor- and ceiling-seams). The ball now passes straight through and
+  reaches the real net mesh for the first time on this shot.
+- New `goal-shot-net-entry` fixture (550 frames) with a ratchet test:
+  ball divergence `494.0 → 199.3` uu mean, `1351.6 → 1037.2` uu max. The
+  remaining gap is the net mesh's own already-acknowledged chaos/
+  uncalibrated-constant residual, not this bug.
+
+---
+
 ## The hit-tick jump lands clean
 **2026-09-09** · `RB-PHYSICS-001-FR-087`
 

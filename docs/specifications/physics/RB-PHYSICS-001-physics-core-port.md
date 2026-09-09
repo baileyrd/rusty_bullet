@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.108.0
+- Version: 0.109.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7455,12 +7455,16 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     its roof at `6.4` and stays (`z = 40.1`, no wheel down) while the
     recording drives off. The clip's plain hops and air rolls track to
     the second decimal in `ω`.
-  - **K. The ball's goal entry diverges (open).** `hittickjump01b` at
-    `10.0–10.25`: the recorded ball enters the `+Y` goal (`|y| > 5000`
-    at `10.042`); the port's parts from it by `~990` uu there — the
-    goal mouth / net interaction, outside `airborne-hit`'s cut.
+  - **K. The ball's goal entry diverges (resolved by `FR-089`).**
+    `hittickjump01b` at `10.0–10.25`: the recorded ball enters the `+Y`
+    goal (`|y| > 5000` at `10.042`); the port's parts from it by `~990`
+    uu there — the goal mouth / net interaction, outside `airborne-hit`'s
+    cut. A fifth capture session's own ground shot into a goal found the
+    actual mechanism: not the net, but the back wall's floor-seam fillet
+    catching the ball as if the goal mouth were still solid wall.
   - **Non-goals (this requirement).** Finding F's mechanism, finding
-    K, the dodge (`FR-083`), `FR-084` finding 4 (still without a
+    K (at the time; resolved by `FR-089`), the dodge (`FR-083`), `FR-084`
+    finding 4 (still without a
     wheels-down hit-tick jump at the time; resolved by `FR-086`, see
     `FR-087`) and finding 5 (the clip's one-wheel
     landings all follow dodges the port already misses).
@@ -7528,7 +7532,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     it back out more slowly than whatever the real game has there. Both
     are within the `boost-wall-entry` fixture's new `8.4` uu max.
   - **Non-goals (this requirement).** The car-world material, the
-    chassis contact model, `FR-085`'s findings K and I–J, `FR-084`'s 4–5.
+    chassis contact model, `FR-085`'s finding K (resolved by `FR-089`)
+    and findings I–J, `FR-084`'s 4–5.
   - **Acceptance criteria.** Both changes implemented; the three
     transitions' speeds within `35` uu/s of the recording where the
     port was `100–300` out; `boost-wall-entry` `3.91 → 1.02` uu mean,
@@ -7583,8 +7588,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     isolated tick window, but on the same order as `dodge-derailment`.
   - **Non-goals (this requirement).** The `2`–`3` uu/s residual itself
     (`FR-085` finding E's, not reopened here), `FR-085`'s findings F
-    (already `FR-086`), K, I and J, `FR-084` finding 5 (still no
-    dodge-free one-wheel landing).
+    (already `FR-086`), K (resolved by `FR-089`), I and J, `FR-084`
+    finding 5 (still no dodge-free one-wheel landing).
   - **Acceptance criteria.** `FR-084` finding 4 and the `FR-085`/`086`
     Non-goals bullets that named it updated to record the resolution;
     one new fixture with a ratchet test.
@@ -7654,6 +7659,63 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     bounding (not fixing) the current divergence.
   - **Verification plan.** `470` tests in the workspace (`+1` fixture
     ratchet in `rb_verify_cli`).
+- `RB-PHYSICS-001-FR-089` (the goal mouth's phantom fillet — `FR-085`
+  finding K; implemented): a fifth capture session's `goal_shot03` clip
+  (plugin 1.1) records a still car driving into a stationary ball,
+  sending it on a parabolic arc through the `+Y` goal mouth. Reseeded and
+  traced tick-by-tick, the port's ball never reached the net at all — it
+  diverged from the recording well before, at `y≈4980`, `~140` uu short
+  of the goal line itself.
+  - **The actual mechanism (implemented).** A direct query of every
+    static shape near the divergent tick found the port's ball
+    colliding with `curve[4]`: the back wall's own floor-seam
+    `StaticQuarterPipe` (`arena::standard_curves`), axis at
+    `y = BACK_WALL_Y - FILLET_RADIUS = 4850`. That fillet is derived
+    from the back wall as one solid `StaticPlane` the full arena width
+    (`StaticQuarterPipe::between_planes`), with no idea the goal window
+    `standard_goal_walls` cuts a `GOAL_HALF_WIDTH`-wide hole straight
+    through that same wall — so a ball flying through the open goal
+    mouth still met the fillet as if the wall behind it were solid,
+    long before it could ever reach the actual net panel (`~580` uu
+    away at the moment of the phantom bounce). This was finding K's real
+    cause, not a net-mesh or net-position problem.
+  - **The fix (implemented).** `StaticQuarterPipe` gains an optional
+    `goal_mouth_half_width` field (`None` for every ordinary fillet):
+    when set, both `ray_vs_quarter_pipe` and `sphere_vs_quarter_pipe`
+    (and, since `box_vs_quarter_pipe` dispatches to it per corner, a
+    car too) miss entirely whenever the contact point's projection onto
+    the fillet's own axis falls within that half-width of zero — the
+    same window `StaticGoalWall::contains_in_window` already tests
+    against a flat plane, applied here to the curved shape instead.
+    `arena::standard_curves` sets `Some(GOAL_HALF_WIDTH)` on exactly the
+    4 fillets that run behind a goal (both goals' own floor- and
+    ceiling-seam curves); the other 20 are untouched.
+  - **Result.** With the cutout, the ball passes straight through the
+    goal mouth and reaches the real `net::NetMesh` for the first time on
+    this shot — a physically plausible net-catch (velocity absorbed and
+    redirected by the mesh's own springs) instead of the phantom
+    fillet's near-elastic bounce. New `goal-shot-net-entry` fixture
+    (`550` frames): ball divergence `494.0 → 199.3` uu mean, `1351.6 →
+    1037.2` uu max.
+  - **A residual remains, and it isn't this bug.** The net mesh's own
+    catch is highly sensitive to the ball's exact entry angle/speed/
+    position, so the ordinary few-percent hit-exit velocity difference
+    already present at the moment the car meets the ball (see `FR-083`/
+    `FR-084`'s own residuals) amplifies once the ball tangles in the
+    net, rather than staying small the way it does in open flight. This
+    is `RB-PHYSICS-001-FR-033`'s own already-acknowledged
+    uncalibrated-constants and manifold-richness Non-goals playing out
+    on real data for the first time, not a new mechanism.
+  - **Non-goals (this requirement).** Calibrating the net mesh's own
+    constants or manifold richness (`FR-033`'s own Non-goals, unchanged);
+    the same clip's second, slow rolling shot into the opposite goal
+    (not yet excerpted); `FR-085`'s findings I and J; `FR-084` finding 5.
+  - **Acceptance criteria.** The goal-mouth cutout implemented and
+    tested directly (4 new unit tests: 2 sphere, 1 ray, 1 arena-wiring)
+    and via the new fixture's ratchet; `FR-085`'s finding K and the three
+    Non-goals bullets that named it updated to record the resolution.
+  - **Verification plan.** `475` tests in the workspace (`+4` unit tests
+    in `rb_physics_bullet`, `+1` fixture ratchet in `rb_verify_cli`).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -9143,6 +9205,23 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.109.0 (2026-09-09): `RB-PHYSICS-001-FR-089` added and implemented —
+  `RB-PHYSICS-001-FR-085` finding K's ball-in-goal divergence traced to
+  its actual cause on a fifth capture session's ground-shot clip: the
+  back wall's own floor-seam `StaticQuarterPipe` fillet, derived from the
+  back wall as one solid plane the full arena width, had no idea
+  `standard_goal_walls`'s goal-mouth window cuts a hole through that same
+  wall, so a ball flying through the open goal mouth still met the
+  fillet as if the wall were solid — long before it ever reached the
+  actual net. `StaticQuarterPipe` gains an optional
+  `goal_mouth_half_width` cutout (`None` for every ordinary fillet);
+  `arena::standard_curves` sets it on exactly the 4 fillets that run
+  behind a goal. With the cutout, the ball now reaches and tangles in
+  the real net mesh instead. New `goal-shot-net-entry` fixture (`550`
+  frames) with a ratchet test: ball divergence `494.0 → 199.3` uu mean,
+  `1351.6 → 1037.2` uu max; the remaining gap is the net mesh's own
+  already-acknowledged (`FR-033`) chaos/uncalibrated-constant residual,
+  not this bug. 4 new unit tests in `rb_physics_bullet` (408 total).
 - 0.108.0 (2026-09-09): `RB-PHYSICS-001-FR-088` added — a fourth capture
   session's `wall_curve02` clip shows the port's wheels staying raycast-
   down and its orientation frozen noticeably longer than the recording's
