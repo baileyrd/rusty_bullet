@@ -52,6 +52,34 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The wall climb's real gap is in the curve, not the climb
+**2026-09-09** · `RB-PHYSICS-001-FR-088` refinement (still open, characterized)
+
+- Re-traced `wall-climb-crest` tick-by-tick with the real speed-dependent
+  throttle taper (`FR-058`) evaluated at each tick: the flat wall span's
+  sub-`g` deceleration is exactly explained by that same, already-
+  validated curve behaving identically for both the recording and the
+  port — full-`g` above `1410` uu/s, some throttle assist below it. It
+  isn't a bug; it only looked like one because the port was already
+  behind before this span begins.
+- Where that earlier deficit actually comes from: the clip's own
+  full-boost floor-to-wall curve entry, traced tick-by-tick with steer
+  and handbrake both neutral throughout. Over the same ~0.2 second
+  transition from flat to vertical, the port sheds about 24% more speed
+  than the recording. The same session's `boost-wall-entry` clip — a
+  materially identical curve into the opposite wall — shows the same
+  direction of loss, just far smaller (~9%), which is why that fixture's
+  own whole-run divergence stays tiny: boost re-saturates both cars near
+  the speed cap again almost immediately, erasing a small gap before it
+  can compound. This clip's larger gap survives boost cutting out and
+  rides the (correctly-modeled) flat span the rest of the way to the
+  crest.
+- No fixture numbers changed — this narrows what's still open rather
+  than fixing it. What makes this curve's own loss asymmetry roughly
+  2.7× `boost-wall-entry`'s smaller one is the next question.
+
+---
+
 ## The dodge finally shows its real axis
 **2026-09-09** · `RB-PHYSICS-001-FR-090` (open, characterized)
 

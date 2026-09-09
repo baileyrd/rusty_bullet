@@ -345,6 +345,16 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   the existing `FLIP_TORQUE_X`:`FLIP_TORQUE_Y` ratio is noted but
   explicitly not acted on absent a derivation. New `clean-dodge` fixture
   with a ratchet test.
+  `RB-PHYSICS-001-FR-088` refined (still open, characterized): re-traced
+  tick-by-tick with `FR-058`'s `drive_speed_taper` evaluated directly,
+  the flat wall span's sub-`g` decay is the same, already-validated
+  taper curve behaving identically for both cars — not a bug, resolving
+  the requirement's previous "not isolated" lead. The real gap opens
+  earlier, in the clip's own full-boost floor-to-wall curve entry, where
+  the port sheds `≈24%` more speed than the recording over the same
+  transition; the already-fixtured `boost-wall-entry` clip's materially
+  identical curve shows the same asymmetry, just far smaller (`≈9%`),
+  consistent with its own tiny divergence. No fixture numbers changed.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

@@ -2393,6 +2393,29 @@
   descent's chassis scrape the port narrowly misses (`1521` vs `1412`),
   the slow push-out at the top of the climb. Tests `468` unchanged. Full
   workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-088` refined, still open and characterized —
+  re-traced `wall-climb-crest` tick-by-tick with `FR-058`'s
+  `drive_speed_taper` evaluated directly: the flat span's sub-`g` decay
+  is the same, already-validated taper curve behaving identically for
+  both cars (`taper == 0` above `1410` uu/s giving full-`g` decay on
+  both sides, `taper > 0` below it giving both sides some throttle
+  assist) — not a bug, and now resolved as this requirement's own
+  "not isolated" lead. The port only sees the assisted portion sooner
+  because it's already behind: the real gap opens earlier, in the
+  clip's own full-boost floor-to-wall curve entry, where the port sheds
+  `≈24%` more speed than the recording over the same `~0.2` s
+  transition (identical boost-held, neutral-steer/handbrake input on
+  both). The already-fixtured `boost-wall-entry` clip's materially
+  identical curve shows the same-direction asymmetry, just far smaller
+  (`≈9%`) — consistent with its own tiny `1.02` uu mean divergence,
+  since boost re-saturates both cars near the speed cap right after and
+  erases a small gap almost as fast as it opens; `wall-climb-crest`'s
+  larger gap survives boost cutting out and compounds through the flat
+  span instead. A `+X`-vs-`-X` wall sign bug is ruled out (the same
+  asymmetry appears on both walls, and both are built from the same
+  signed construction). No fixture numbers changed; the exact cause of
+  the curve-entry asymmetry itself is the new open question. Workspace
+  tests `476` unchanged. Full workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-090` added, open and characterized — a sixth
   capture session's `clean_dodge04` clip gives the first genuinely clean
   ground dodges this port has had (flat, open field, no wall, no
@@ -2674,9 +2697,17 @@
    stick-axis-aligned input, where the port lands purely on forward —
    reproduced identically (sign-flipped) on a second independent dodge
    with a different pre-existing spin, ruling that spin and a magnitude
-   bug both out, with the exact mechanism still open. Next: isolate
-   `FR-088`'s sub-`g` deceleration mechanism and `FR-090`'s axis-split
-   mechanism, then `FR-084` finding 5 and `FR-085` findings I/J.
+   bug both out, with the exact mechanism still open. `FR-088` was then
+   re-traced: the flat span's sub-`g` decay is the already-validated
+   `FR-058` taper curve behaving identically for both cars, not a bug —
+   the real gap opens earlier, in the clip's own full-boost
+   floor-to-wall curve entry, where the port sheds `≈24%` more speed
+   than the recording over the same transition (the already-fixtured
+   `boost-wall-entry` clip's materially identical curve shows the same
+   asymmetry, just far smaller, `≈9%`, consistent with its own tiny
+   divergence). Next: isolate that curve-entry asymmetry and `FR-090`'s
+   axis-split mechanism, then `FR-084` finding 5 and `FR-085` findings
+   I/J.
 
 ## Validation
 
@@ -3047,6 +3078,21 @@
   independent right dodge in the same clip (`(-4.09, +3.67, ...)`
   recorded vs `(-5.50, +0.00, ...)` port), a different pre-existing spin
   (`+1.26` vs `-0.99` rad/s yaw) each time.
+- `RB-PHYSICS-001-FR-088` refinement probe (2026-09-09, this sandbox):
+  `wall-climb-crest` re-traced with `drive_speed_taper` evaluated at
+  each tick. The flat span's `0.466` s window splits at the port's own
+  `1410.3` uu/s crossing: `1475 → 1410.3` uu/s (`0.1` s, `-647` uu/s²,
+  matching the recording's full-`g` rate) then `1410.3 → 1255` uu/s
+  (`0.366` s, `-426` uu/s², taper re-engaged), a length-weighted blend
+  of `-472.4` uu/s² — matching the previously-measured whole-window
+  rate exactly. Traced back to the clip's own floor-to-`-X`-wall curve
+  (`t≈17.03`–`17.25`, boost held, steer/handbrake neutral throughout):
+  recording `2299 → 1814` uu/s in `0.209` s (`-2325` uu/s²), port
+  `2289 → 1648` uu/s in `0.217` s (`-2951` uu/s², `≈24%` more loss).
+  The same-session `boost-wall-entry` clip's equivalent floor-to-`+X`-
+  wall curve (`t≈28.84`–`29.03`, same boost/steer/handbrake profile):
+  recording `2300 → 1834` uu/s (`-2440` uu/s²), port `2300 → 1790` uu/s
+  (`-2671` uu/s², `≈9%` more) — same-direction, much smaller.
 
 ## Risks and decisions needed
 

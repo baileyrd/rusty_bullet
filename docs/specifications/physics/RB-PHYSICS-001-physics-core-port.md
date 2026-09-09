@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.110.0
+- Version: 0.111.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7616,19 +7616,60 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     only, no simulation) drops within a few ticks of that height in two
     separate climbs in the clip. This is not a missing- or
     wrong-surface bug.
-  - **2. The wall span sheds less than gravity (the actual cause).**
-    Below the fillet, on the flat vertical span, the recording's
-    climbing speed decays at essentially `g` (`1777 → 1470` uu/s over
-    `0.466` s, `≈-659` uu/s²) while the port's decays markedly slower
-    (`1475 → 1255` over the same span, `≈-472` uu/s²) — throttle is held
-    the whole climb, so some of the difference is plausibly
-    `RB-PHYSICS-001-FR-058`'s speed-dependent torque taper giving the
-    (already slower) port relatively more drive force than the
-    recording gets at its own higher speed, but this has not been
-    isolated from tire friction or grip differences. The extra retained
-    speed is what pushes the port's arrival at the fillet, its crest,
-    and its detachment later in real time than the recording's.
-  - **3. The lag compounds, it does not compound forever.** Followed
+  - **2. The wall span sheds less than gravity on the port's side (a
+    symptom, not the cause — resolved).** Below the fillet, on the flat
+    vertical span, the recording's climbing speed decays at essentially
+    `g` (`1777 → 1470` uu/s over `0.466` s, `≈-659` uu/s²) while the
+    port's decays markedly slower (`1475 → 1255` over the same span,
+    `≈-472` uu/s²). Re-traced tick-by-tick with the car's own forward
+    axis and `RB-PHYSICS-001-FR-058`'s `drive_speed_taper` evaluated
+    directly at each tick's speed: the port's own speed crosses
+    `UNBOOSTED_MAX_CAR_SPEED` (`1410`) partway through this exact
+    window (at `1410.3` uu/s), so the `0.466` s splits into a
+    `taper == 0` portion (`1475 → 1410.3`, `-647` uu/s², matching `g` to
+    within noise — identical to the recording's own rate) and a
+    `taper > 0` portion below the cap (`1410.3 → 1255`, `-426` uu/s²);
+    the length-weighted blend of those two rates is `-472.4` uu/s²,
+    matching the measured whole-window rate exactly. The recording
+    never crosses the cap in this window (it stays above `1410`
+    throughout, so it never leaves the `taper == 0`, full-`g` regime)
+    — not because its own throttle taper behaves differently, but
+    because it enters the window faster. This rules out the previously
+    "not isolated" `FR-058` lead as any kind of bug: the taper is the
+    *same*, already-validated curve on both sides, correctly giving
+    zero drive force above the cap and increasing drive force below it,
+    for both cars alike — it only reads as a residual here because the
+    port is already behind before this span even starts. Isolating the
+    flat-span decay was never itself the open question; where that
+    earlier speed deficit comes from is (see 3, below).
+  - **3. The gap actually opens earlier, in the curve itself
+    (newly isolated).** Traced back past the flat span to the clip's
+    own full-boost floor-to-`-X`-wall curve (`t≈17.03`–`17.25`, boost
+    held and steer/handbrake both neutral the whole way, per the
+    recorded input): the recording sheds `2299 → 1814` uu/s crossing
+    from flat to vertical (`0.209` s, `≈-2325` uu/s²) while the port
+    sheds `2289 → 1648` over the same transition (`0.217` s,
+    `≈-2951` uu/s²) — the port loses about `24%` more speed *through
+    the curve itself*, before the flat span (and its now-confirmed-
+    correct taper behavior above) ever comes into play. The same
+    session's already-fixtured `boost-wall-entry` clip (a materially
+    identical full-boost floor-to-`+X`-wall curve, also boost-held,
+    steer- and handbrake-neutral) shows the same-direction asymmetry —
+    recording `2300 → 1834` (`-2440` uu/s²) against the port's
+    `2300 → 1790` (`-2671` uu/s², `≈9%` more) — but much smaller, which
+    is consistent with that fixture's own tiny whole-run divergence
+    (`1.02` uu mean): boost keeps both cars re-saturating near the
+    `2300` cap immediately afterward, erasing a `9%` gap almost as fast
+    as it opens. `wall-climb-crest`'s curve loses enough more (`24%`)
+    that boost cuts out shortly after, handing the deficit to the flat
+    span to carry forward (correctly, per 2 above) rather than erasing
+    it. A `+X`-vs-`-X` sign bug is ruled out — the same-direction
+    asymmetry appears on both walls, and `arena::side_wall_plane` and
+    `StaticQuarterPipe::between_planes` build both walls from the same
+    single signed parameter, exercised by `standard_curves`' own
+    symmetric geometry tests. What makes this curve's own loss
+    `≈2.7×` `boost-wall-entry`'s is not yet isolated.
+  - **4. The lag compounds, it does not compound forever.** Followed
     past the crest, the port does eventually cross the fillet, invert,
     and fall the same qualitative way the recording does — both end the
     traced window within `0.13` rad of the same upside-down orientation
@@ -7645,13 +7686,12 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     with a ratchet test bounding the current divergence loosely (it is
     an open residual, not a fixed maneuver, so the bound exists to catch
     a further regression, not to pin today's figure as correct).
-  - **Non-goals (this requirement).** Isolating the exact mechanism
-    behind the sub-`g` deceleration on the flat wall span (the
-    speed-dependent torque taper vs. tire/lateral friction vs. a
-    residual grip difference); the other four wall-climb events in
-    `wall_curve02` (two throttle-only climbs, a boost run into the `+X`
-    wall, and one with boost engaged mid-climb), not yet excerpted;
-    `RB-PHYSICS-001-FR-084` finding 5; `RB-PHYSICS-001-FR-085`'s
+  - **Non-goals (this requirement).** Isolating what specific per-tick
+    difference makes this curve's own speed-loss asymmetry (finding 3)
+    `≈2.7×` `boost-wall-entry`'s smaller one; the other four wall-climb
+    events in `wall_curve02` (two throttle-only climbs, a boost run into
+    the `+X` wall, and one with boost engaged mid-climb), not yet
+    excerpted; `RB-PHYSICS-001-FR-084` finding 5; `RB-PHYSICS-001-FR-085`'s
     findings I, J and K.
   - **Acceptance criteria.** The fillet-selection hypothesis tested and
     ruled out with a reproducible probe; the speed-decay discrepancy
@@ -9279,6 +9319,22 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.111.0 (2026-09-09): `RB-PHYSICS-001-FR-088` refined (still open,
+  characterized): re-traced tick-by-tick with `drive_speed_taper`
+  evaluated directly, the flat wall span's sub-`g` decay is now
+  confirmed to be the already-validated `FR-058` taper curve behaving
+  identically for both cars — not a bug — exercised differently only
+  because the port already trails in speed by the time this span
+  begins; that resolves the requirement's previous "not isolated" lead.
+  The actual gap opens earlier: the clip's own full-boost floor-to-wall
+  curve entry sheds `≈24%` more speed on the port's side than the
+  recording's, over the same `~0.2` s transition with identical
+  (boost-held, neutral steer/handbrake) input — the same-direction
+  asymmetry the already-tightly-fixtured `boost-wall-entry` clip shows
+  too, just far smaller there (`≈9%`), consistent with that fixture's
+  own `1.02` uu mean divergence. No fixture numbers changed; the
+  requirement's own mechanism write-up and Non-goals are updated to
+  reflect the new, narrower open question.
 - 0.110.0 (2026-09-09): `RB-PHYSICS-001-FR-090` added — a sixth capture
   session's `clean_dodge04` clip gives the first genuinely clean ground
   dodges this port has had (flat ground, no wall, no one-wheel landing

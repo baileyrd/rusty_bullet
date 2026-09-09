@@ -133,7 +133,13 @@ qualitative maneuver (curve in, climb, cross the fillet, invert, detach,
 fall) matches — see
 `rb_verify_cli::tests::a_real_wall_climb_through_the_ceiling_fillet_diverges_the_open_fr_088_residual`.
 The whole clip is kept untrimmed under `raw/` as `wall_curve02.jsonl`
-(four more wall-climb events in it are not yet excerpted).
+(four more wall-climb events in it are not yet excerpted). A later
+re-trace ruled the flat-span sub-`g` decay itself out as a bug — it's
+`FR-058`'s own already-validated throttle taper, exact on both sides —
+and instead localized the real gap to the clip's own initial full-boost
+floor-to-wall curve entry, where the port sheds `≈24%` more speed than
+the recording over the same transition; `boost-wall-entry`'s own
+equivalent curve shows the same asymmetry, just far smaller (`≈9%`).
 
 ## `goal-shot-net-entry.capture.jsonl`
 
