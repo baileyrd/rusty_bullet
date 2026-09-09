@@ -158,3 +158,28 @@ uncalibrated-constant residual (`RB-PHYSICS-001-FR-033`'s own
 Non-goals), not this bug. The whole clip is kept untrimmed under `raw/`
 as `goal_shot03.jsonl` (it also records a second, slow rolling shot into
 the opposite goal, not excerpted).
+
+## `clean-dodge.capture.jsonl`
+
+A **real, 279-frame excerpt** (`t=6.275s` through `t=8.6s`) of the
+owner's sixth capture session's `clean_dodge04` clip: a car on flat
+ground, no wall nearby, ground-jumps then dodges left with a pure
+stick-axis-aligned input (`yaw = -1`, `pitch = 0`, `roll = 0` — no
+diagonal component at all), then lands. Seeds on its first grounded,
+neutral frame. `RB-PHYSICS-001-FR-090` (open) used this fixture — and a
+second, independent dodge in the same clip (a mirrored right dodge,
+`yaw = +1`, with a different pre-dodge spin) that reproduced the exact
+same numbers, only sign-flipped — to isolate `RB-PHYSICS-001-FR-083`'s
+long-standing dodge residual far more cleanly than any earlier fixture:
+decomposed into the car's own body frame (`rotation.conjugate().rotate
+(angular_velocity)`), the real flip's angular velocity splits between
+the local forward and right axes (`4.09` / `3.67` rad/s, consistently,
+regardless of the car's pre-dodge spin) even though the stick input is
+purely axis-aligned, while the port's flip torque — implemented and
+verified as a pure single-axis kick — lands entirely on local forward
+(`5.50` / `0.00`). Car divergence over this excerpt: `351.0` uu mean
+position (max `706.7`), `0.44` rad mean rotation (max `1.46`) — see
+`rb_verify_cli::tests::a_real_clean_ground_dodge_diverges_the_open_flip_torque_axis_residual`.
+The clip's other 8 dodges (2 traced for this finding, 6 unexcerpted) and
+the mechanism behind the exact `4.09`/`3.67` split remain open. The
+whole clip is kept untrimmed under `raw/` as `clean_dodge04.jsonl`.

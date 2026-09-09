@@ -247,6 +247,13 @@ mod tests {
         )
     }
 
+    fn clean_dodge_fixture() -> &'static str {
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../rb_capture_ingest/fixtures/clean-dodge.capture.jsonl"
+        )
+    }
+
     #[test]
     fn scores_a_real_replay_against_the_synthetic_capture_fixture() {
         let score = score_replay_against_capture(
@@ -587,5 +594,26 @@ mod tests {
         // as correct.
         assert!(score.cars.mean_position_distance < 15.0);
         assert!(score.mean_ball_distance < 250.0);
+    }
+
+    #[test]
+    fn a_real_clean_ground_dodge_diverges_the_open_flip_torque_axis_residual() {
+        let score = score_capture_against_candidate(
+            clean_dodge_fixture(),
+            DEFAULT_MAX_TIMESTAMP_DELTA_SECS,
+        )
+        .unwrap();
+
+        assert_eq!(score.frames_compared, 279);
+        assert_eq!(score.cars.pairs_compared, 279);
+        // Ratchet (2026-09-09): mean car position distance ~351.0 uu (max
+        // ~706.7), mean rotation ~0.442 rad (max ~1.458). Wide on purpose —
+        // RB-PHYSICS-001-FR-090 is an open, characterized residual (the
+        // flip torque's real local-frame axis splits between forward and
+        // right even for a stick-axis-aligned dodge, where the port applies
+        // it purely along forward), not a fixed maneuver; this bounds the
+        // current known gap so a further regression is still caught.
+        assert!(score.cars.mean_position_distance < 400.0);
+        assert!(score.cars.mean_rotation_distance < 0.6);
     }
 }

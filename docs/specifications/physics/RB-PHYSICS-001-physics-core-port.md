@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.109.0
+- Version: 0.110.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7716,6 +7716,80 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     Non-goals bullets that named it updated to record the resolution.
   - **Verification plan.** `475` tests in the workspace (`+4` unit tests
     in `rb_physics_bullet`, `+1` fixture ratchet in `rb_verify_cli`).
+- `RB-PHYSICS-001-FR-090` (the flip torque's real local-frame axis — a
+  cleaner isolation of `FR-083`'s dodge residual; open, characterized):
+  a sixth capture session's `clean_dodge04` clip records nine ground
+  dodges on flat, open field with no wall in reach — the first genuinely
+  clean dodges this port has had to work from, every earlier fixture
+  (`dodge-derailment`, `onewheellanding06`) confounding the dodge itself
+  with a wall or a one-wheel landing. The first dodge is a pure stick-
+  axis-aligned left dodge (`yaw = -1`, `pitch = 0`, `roll = 0`, no
+  diagonal component at all).
+  - **The method: decompose in the car's own body frame, not world.**
+    Comparing raw world-frame angular velocity between recording and
+    port conflates two different questions — did the flip apply the
+    right torque, and did the two cars' orientations already differ
+    enough to rotate that torque's *reported* direction apart. Computing
+    `rotation.conjugate().rotate(angular_velocity)` for each car
+    separately answers only the first question: the flip's torque axis
+    as that car itself experiences it, independent of whatever the two
+    orientations happen to be.
+  - **The finding.** In its own body frame, the port's flip lands
+    exactly where `apply_flip_torque` says it should for a pure left
+    dodge — purely on local forward (`(5.4957, -0.0000, ...)` once
+    capped): a clean roll, matching the coded formula
+    (`rel_torque = (-norm_dodge_roll, dodge_forward)`) and RocketSim's
+    own cited source (`flipRelTorque = (-dodgeDir.y, dodgeDir.x)`) to
+    four decimal places. The recording's own body-frame decomposition
+    does not: `(4.0907, 3.6692, ...)` — split between local forward
+    *and* local right, a real rotation about a mixed axis roughly `42°`
+    off pure forward, for stick input that is not diagonal at all.
+  - **Reproduced independently, ruling out a one-off artifact.** The
+    same clip's sixth dodge — a mirrored pure-right dodge (`yaw = +1`),
+    fired with a completely different pre-existing spin (`+1.26` rad/s
+    yaw beforehand, versus the first dodge's `-0.99`) — settles at the
+    *identical* magnitudes, sign-flipped for the mirrored direction:
+    `(-4.09, +3.67, ...)`. Two independent dodges, opposite directions,
+    different starting spins, the same exact split: this rules out the
+    pre-existing spin itself as the source (a real gyroscopic/precession
+    effect was considered and ruled out too — this port's rigid-body
+    integration has no `ω × Iω` coupling term, matching Bullet3's own
+    default, the engine RocketSim itself runs on, so the reference
+    almost certainly doesn't produce that effect either).
+  - **Not a magnitude bug.** Both engines reach and hold
+    `MAX_CAR_ANGULAR_SPEED = 5.5` for the flip's duration — confirmed
+    already by `FR-080`'s own isolated capture. This is purely a
+    direction/axis-split question.
+  - **An unconfirmed lead, not a fix.** The observed split
+    (`4.09` / `3.67`, magnitude ratio `1.115`) sits close to, but not
+    exactly on, `FLIP_TORQUE_X` / `FLIP_TORQUE_Y` (`260` / `224` =
+    `1.161`) — suggestive that the real torque may not scale down to a
+    single axis for single-axis stick input the way this port's
+    `normalize_dodge_direction` does, but not close enough to treat as
+    confirmed, and it contradicts well-established Rocket League
+    community knowledge that a pure side dodge looks like a clean roll,
+    not a diagonal flip. Speculatively changing the formula to chase a
+    number this close without understanding *why* risks trading an
+    understood gap for an un-understood wrong one, which this project's
+    own history of measured, verified changes (`FR-086`, `FR-089`)
+    argues against.
+  - **New fixture.** `clean-dodge.capture.jsonl` (`279` frames,
+    `t=6.275`–`8.6`, the first dodge and its landing), with a ratchet
+    test bounding the current divergence (`351.0` uu mean position, max
+    `706.7`; `0.44` rad mean rotation, max `1.46`) — wide on purpose,
+    an open residual, not a fixed maneuver.
+  - **Non-goals (this requirement).** Identifying the exact mechanism
+    behind the `4.09`/`3.67` split; the clip's other 7 dodges (2 traced
+    for this finding, 6 unexcerpted); any change to `normalize_dodge_
+    direction`, `apply_flip_torque`, or the `FLIP_TORQUE_X`/`FLIP_TORQUE_Y`
+    constants, none of which this finding has enough evidence to justify
+    touching yet.
+  - **Acceptance criteria.** The local-body-frame decomposition method
+    documented and reproduced across two independent dodges; one new
+    fixture with a ratchet test bounding (not fixing) the current
+    divergence.
+  - **Verification plan.** `476` tests in the workspace (`+1` fixture
+    ratchet in `rb_verify_cli`).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -9205,6 +9279,21 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.110.0 (2026-09-09): `RB-PHYSICS-001-FR-090` added — a sixth capture
+  session's `clean_dodge04` clip gives the first genuinely clean ground
+  dodges this port has had (flat ground, no wall, no one-wheel landing
+  confounding the maneuver). Decomposed into each car's own body frame
+  (`rotation.conjugate().rotate(angular_velocity)`), the port's flip
+  torque lands exactly where its formula says it should — purely on
+  local forward — but the recording's real flip splits between local
+  forward and local right (`4.09`/`3.67` rad/s), reproduced identically
+  (sign-flipped) on a second, independent dodge in the same clip with a
+  different pre-existing spin. Ruled out: a magnitude bug (both reach
+  and hold the `5.5` rad/s cap) and gyroscopic precession (this port's
+  integration, like Bullet3's own default, has no `ω × Iω` term). Open,
+  characterized: new `clean-dodge` fixture (`279` frames) with a ratchet
+  test bounding the current divergence (`351.0` uu mean position, `0.44`
+  rad mean rotation).
 - 0.109.0 (2026-09-09): `RB-PHYSICS-001-FR-089` added and implemented —
   `RB-PHYSICS-001-FR-085` finding K's ball-in-goal divergence traced to
   its actual cause on a fifth capture session's ground-shot clip: the

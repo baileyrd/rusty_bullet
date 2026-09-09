@@ -334,6 +334,17 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   fillets that run behind a goal; with it, the ball now reaches and
   tangles in the real net mesh instead. New `goal-shot-net-entry` fixture
   with a ratchet test; ball divergence `494.0 → 199.3` uu mean.
+  `RB-PHYSICS-001-FR-090` (open, characterized): a sixth capture session's
+  `clean_dodge04` clip gives the first flat-ground, no-wall dodges this
+  port has traced. Decomposed into each car's own body frame (not world),
+  a pure `yaw`-only stick input's real flip angular velocity splits
+  between local forward and local right, where the port's flip torque
+  lands purely on forward — reproduced sign-flipped on a second,
+  independently-spinning dodge, ruling out both a one-off artifact and a
+  magnitude bug. The exact mechanism is still open; a numeric proximity to
+  the existing `FLIP_TORQUE_X`:`FLIP_TORQUE_Y` ratio is noted but
+  explicitly not acted on absent a derivation. New `clean-dodge` fixture
+  with a ratchet test.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

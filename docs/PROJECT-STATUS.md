@@ -2393,6 +2393,28 @@
   descent's chassis scrape the port narrowly misses (`1521` vs `1412`),
   the slow push-out at the top of the climb. Tests `468` unchanged. Full
   workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-090` added, open and characterized — a sixth
+  capture session's `clean_dodge04` clip gives the first genuinely clean
+  ground dodges this port has had (flat, open field, no wall, no
+  one-wheel landing muddying the maneuver). Decomposed into each car's
+  own body frame (`rotation.conjugate().rotate(angular_velocity)`), the
+  port's flip lands exactly where its own formula says it should — pure
+  local forward — but the recording's real flip splits between local
+  forward and local right (`4.09`/`3.67` rad/s), reproduced identically
+  (sign-flipped) on a second, independent dodge in the same clip fired
+  with a different pre-existing spin, ruling that spin out as the cause.
+  Also ruled out: a magnitude bug (both reach and hold
+  `MAX_CAR_ANGULAR_SPEED = 5.5` for the flip's duration) and gyroscopic
+  precession (this port's rigid-body integration has no `ω × Iω`
+  coupling term, matching Bullet3's own default — the engine RocketSim
+  itself runs on, so the reference almost certainly doesn't produce that
+  effect either). The observed split sits close to, but not exactly on,
+  `FLIP_TORQUE_X`/`FLIP_TORQUE_Y`'s own ratio (`1.115` vs `1.161`) — an
+  unconfirmed lead, not enough to justify changing the formula yet. New
+  `clean-dodge` fixture (`279` frames) with a ratchet test bounding the
+  current divergence (`351.0` uu mean position, max `706.7`; `0.44` rad
+  mean rotation, max `1.46`). Workspace tests `475 → 476`. Full
+  workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-089` added and implemented — `FR-085` finding K's
   ball-in-goal divergence traced, on a fifth capture session's
   ground-shot clip, to the back wall's own floor-seam `StaticQuarterPipe`
@@ -2644,9 +2666,17 @@
    floor-seam fillet had no goal-mouth cutout, so a ball flying through
    the goal mouth met it as if the wall were solid; carving the cutout
    in lets the ball reach the real net for the first time, leaving only
-   `FR-033`'s own already-acknowledged net-mesh residual. Next: isolate
-   `FR-088`'s sub-`g` deceleration mechanism, then `FR-084` finding 5 and
-   `FR-085` findings I/J.
+   `FR-033`'s own already-acknowledged net-mesh residual. A sixth
+   session's `clean_dodge04` clip then gave the first genuinely clean
+   ground dodges this port has had, isolated as `FR-090` (open): the
+   real flip's angular velocity, decomposed into the car's own body
+   frame, splits between local forward and local right even for a pure
+   stick-axis-aligned input, where the port lands purely on forward —
+   reproduced identically (sign-flipped) on a second independent dodge
+   with a different pre-existing spin, ruling that spin and a magnitude
+   bug both out, with the exact mechanism still open. Next: isolate
+   `FR-088`'s sub-`g` deceleration mechanism and `FR-090`'s axis-split
+   mechanism, then `FR-084` finding 5 and `FR-085` findings I/J.
 
 ## Validation
 
@@ -3007,6 +3037,16 @@
   uu/s`, ball max `1037.28 uu`) — before the fix, the same 550-frame
   window scored `494.01` uu mean / `1351.59` uu max ball distance (car
   numbers unchanged, since the divergence was entirely the ball's).
+- `RB-PHYSICS-001-FR-090` fixture run (2026-09-09, this sandbox):
+  `clean-dodge` — `frames compared: 279, mean car position/rotation/
+  velocity distance: 350.96 uu / 0.442 rad / 336.49 uu/s` (max `706.75
+  uu / 1.458 rad / 405.57 uu/s`; ball unaffected, `0.044`/`0.061` uu).
+  Body-frame decomposition at the flip's steady state: recording
+  `(4.0907, 3.6692, ...)` local `(forward, right, up)`, port
+  `(5.4957, -0.0000, ...)` — reproduced sign-flipped on a second,
+  independent right dodge in the same clip (`(-4.09, +3.67, ...)`
+  recorded vs `(-5.50, +0.00, ...)` port), a different pre-existing spin
+  (`+1.26` vs `-0.99` rad/s yaw) each time.
 
 ## Risks and decisions needed
 

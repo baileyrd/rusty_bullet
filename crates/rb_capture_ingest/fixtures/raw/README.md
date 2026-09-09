@@ -33,3 +33,9 @@ to `hittickjump01.jsonl`; it is not kept.
 | Clip | Frames | What it holds |
 |---|---|---|
 | `goal_shot03.jsonl` | 9356 | two goal shots; the first (a ground shot arcing through the `+Y` goal mouth into the net) is excerpted as `goal-shot-net-entry.capture.jsonl` (`RB-PHYSICS-001-FR-089`, implemented); the second (a slow rolling shot the length of the field into the `-Y` goal, bouncing back into play) is not yet excerpted |
+
+## Sixth capture session
+
+| Clip | Frames | What it holds |
+|---|---|---|
+| `clean_dodge04.jsonl` | 3925 | nine ground jump-dodges on flat, open field, no walls; the first (a pure-left, `yaw=-1`, dodge) and the sixth (a pure-right, `yaw=+1`, mirrored dodge, different pre-dodge spin) were both traced for `RB-PHYSICS-001-FR-090` (open); the excerpt around the first is `clean-dodge.capture.jsonl`; the other 7 (2 traced only, not excerpted; 5 untouched) remain for later sessions |

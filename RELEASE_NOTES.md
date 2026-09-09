@@ -52,6 +52,36 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The dodge finally shows its real axis
+**2026-09-09** · `RB-PHYSICS-001-FR-090` (open, characterized)
+
+- A sixth capture session's `clean_dodge04` clip: nine ground jump-dodges
+  on flat, open field with no walls in play — the first genuinely clean
+  dodges this port has had to trace, isolating the maneuver from the
+  wall-curve and net residuals the earlier clips carried.
+- The method: decompose each car's angular velocity into its own body
+  frame (`rotation.conjugate().rotate(&angular_velocity)`), not world
+  space, so the comparison holds even where the recorded and simulated
+  cars' orientations have already drifted apart.
+- The finding: for a pure `yaw`-only stick input (no pitch, no roll), the
+  real flip's angular velocity splits between the car's own local forward
+  and local right axes; the port's flip torque lands purely on forward.
+  Reproduced sign-flipped on a second, independently-spinning dodge
+  (mirrored `yaw` input, different pre-dodge spin), ruling out both a
+  one-off artifact and a magnitude bug — this is an axis-split, not a
+  strength error.
+- Not fixed: the exact mechanism producing the split is still open. A
+  numeric proximity between the observed axis ratio and the existing
+  `FLIP_TORQUE_X`:`FLIP_TORQUE_Y` constants is noted but explicitly not
+  acted on, absent a derivation tying it to this input case — trading an
+  understood gap for an unverified fix isn't a fix.
+- New `clean-dodge` fixture (279 frames) with a ratchet test bounding the
+  current divergence (`351.0`/`706.7` uu mean/max position, `0.44`/`1.46`
+  rad mean/max rotation) — wide on purpose, to catch a further
+  regression, not to pin today's figure as correct.
+
+---
+
 ## The ball finally reaches the net
 **2026-09-09** · `RB-PHYSICS-001-FR-089`
 
