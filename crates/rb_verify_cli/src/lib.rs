@@ -233,6 +233,13 @@ mod tests {
         )
     }
 
+    fn wall_climb_crest_fixture() -> &'static str {
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../rb_capture_ingest/fixtures/wall-climb-crest.capture.jsonl"
+        )
+    }
+
     #[test]
     fn scores_a_real_replay_against_the_synthetic_capture_fixture() {
         let score = score_replay_against_capture(
@@ -529,5 +536,26 @@ mod tests {
         // above to catch a regression, not to pin the exact figure.
         assert!(score.cars.mean_position_distance < 30.0);
         assert!(score.mean_ball_distance < 30.0);
+    }
+
+    #[test]
+    fn a_real_wall_climb_through_the_ceiling_fillet_diverges_the_open_fr_088_residual() {
+        let score = score_capture_against_candidate(
+            wall_climb_crest_fixture(),
+            DEFAULT_MAX_TIMESTAMP_DELTA_SECS,
+        )
+        .unwrap();
+
+        assert_eq!(score.frames_compared, 824);
+        assert_eq!(score.cars.pairs_compared, 824);
+        // Ratchet (2026-09-09): mean car position distance ~169.4 uu
+        // (max ~749.3), ball ~11.9 uu mean (max ~27.7). Wide on purpose —
+        // RB-PHYSICS-001-FR-088 is an open, characterized residual (the
+        // port retains more speed than the recording climbing the flat
+        // wall, so it reaches the wall-to-ceiling fillet, crests, and
+        // detaches noticeably later), not a fixed maneuver; this bounds
+        // the current known gap so a further regression is still caught.
+        assert!(score.cars.mean_position_distance < 200.0);
+        assert!(score.mean_ball_distance < 20.0);
     }
 }

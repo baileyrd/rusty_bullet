@@ -1791,6 +1791,7 @@ mod tests {
     // RB-PHYSICS-001-FR-082 step (c).
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn the_wall_contact_normal_is_the_wheels_average_for_a_partial_wall_touch_only() {
         let car = car_at(17.0);
         let mut wheels = initial_wheels();

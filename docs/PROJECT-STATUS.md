@@ -2393,6 +2393,25 @@
   descent's chassis scrape the port narrowly misses (`1521` vs `1412`),
   the slow push-out at the top of the climb. Tests `468` unchanged. Full
   workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-088` added, open and characterized — a fourth
+  capture session's `wall_curve02` clip shows the port's wheels staying
+  raycast-down and its orientation frozen noticeably longer than the
+  recording's on a long, flat wall climb before both cars cross the
+  wall-to-ceiling fillet, invert, and fall the same way. A direct probe
+  of `raycast_static` rules out wrong fillet selection — the modeled
+  `StaticQuarterPipe` correctly wins the nearest-hit test throughout its
+  own footprint (`4.9` uu vs the flat wall's `34.0` at `z=1900`, the two
+  coinciding only at the tangent, `z≈1778`); the recorded car's own
+  geometric wheel contact drops right around there too. The actual cause
+  is a measured sub-`g` climbing-speed decay on the flat wall span below
+  the fillet (recording `≈-659` uu/s², essentially gravity; port
+  `≈-472` uu/s², throttle held the whole climb) that compounds over the
+  ~7 s maneuver into a large lag by the crest. New `wall-climb-crest`
+  fixture (`824` frames) with a ratchet test bounding the current
+  divergence (`169.4`/`749.3` uu mean/max car, `11.9`/`27.7` uu
+  mean/max ball) — wide on purpose, an open residual, not a fixed
+  maneuver. Workspace tests `469 → 470`. Full workspace
+  `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-087` added and implemented — the third capture
   session's `hittickjump01` clip, the first recorded with the rebuilt
   plugin, gave three real wheels-down hit-tick jumps (a geometric
@@ -2596,7 +2615,15 @@
    scope. Nothing is to be tuned against
    the segment after
    `6.05` s, where the capture's own pitch input is missing (finding
-   6). See `FR-083`'s and `FR-082`'s own spec entries.
+   6). See `FR-083`'s and `FR-082`'s own spec entries. `FR-087` then
+   closed `FR-084` finding 4 using the third session's own wheels-down
+   hit-tick jumps (incidentally, via `FR-086`'s pushback fix). A fourth
+   session's `wall_curve02` clip then surfaced `FR-088` (open,
+   characterized): a compounding speed-decay residual through the
+   wall-to-ceiling fillet on a long climb, not yet root-caused past
+   ruling out wrong fillet selection. Next: isolate the sub-`g`
+   deceleration's own mechanism, then `FR-084` finding 5 and `FR-085`
+   findings K/I/J.
 
 ## Validation
 
@@ -2936,7 +2963,18 @@
   `hit-tick-jump` — `frames compared: 492, mean car
   position/rotation/velocity distance: 18.23 uu / 0.08 rad / 45.44
   uu/s, mean ball distance: 19.94 uu` (max `135.26 uu / 0.28 rad /
-  305.84 uu/s`, ball max `90.89 uu`). Post-hit `vz` excess measured
+  305.84 uu/s`, ball max `90.89 uu`).
+- `RB-PHYSICS-001-FR-088` fixture run (2026-09-09, this sandbox):
+  `wall-climb-crest` — `frames compared: 824, mean car
+  position/rotation/velocity distance: 169.43 uu / 0.09 rad / 164.38
+  uu/s, mean ball distance: 11.91 uu` (max `749.25 uu / 1.04 rad /
+  1109.16 uu/s`, ball max `27.66 uu`). Climbing-speed decay measured
+  directly on the reseeded trace over one matched interval below the
+  fillet: recording `1777 → 1470` uu/s in `0.466` s (`≈-659` uu/s²,
+  essentially `g`); port `1475 → 1255` uu/s over the same span
+  (`≈-472` uu/s²). `raycast_static` fillet-selection probe at the
+  `-X`-wall-to-ceiling seam: pipe hit `4.9` uu vs. the flat wall's
+  `34.0` uu at `z=1900`, coinciding at the tangent (`z≈1778`). Post-hit `vz` excess measured
   directly on the reseeded traces at the three hit ticks: `+7`, `+3`,
   `-3` uu/s (was `+67` on `dodge-derailment`'s pre-`FR-086` sample).
 

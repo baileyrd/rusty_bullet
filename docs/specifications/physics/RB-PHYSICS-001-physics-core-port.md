@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.107.0
+- Version: 0.108.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7590,6 +7590,70 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     one new fixture with a ratchet test.
   - **Verification plan.** `469` tests in the workspace (`+1` fixture
     ratchet in `rb_verify_cli`).
+- `RB-PHYSICS-001-FR-088` (extended wall climb: a compounding speed
+  residual through the ceiling fillet — open, characterized): a fourth
+  capture session's `wall_curve02` clip (plugin 1.1) records a full-boost
+  floor-to-`-X`-wall curve followed by a long, flat, throttle-held climb
+  all the way to the wall-to-ceiling fillet, the crest, a flip past
+  upside-down, and the fall. Reseeded and run tick-by-tick with the
+  car's own recorded orientation and angular velocity printed alongside
+  the port's, the port's wheels stay raycast-down and its orientation
+  frozen noticeably longer than the recording's before it, too, crests
+  the fillet and detaches the same way.
+  - **1. The fillet is being selected correctly (ruled out).** A direct
+    probe of `raycast_static` at the same wall/height confirms the
+    `-X`-wall-to-ceiling `StaticQuarterPipe` (`CEILING_Z -
+    FILLET_RADIUS = 1778`) wins the nearest-hit comparison over the
+    flat wall's `StaticPlane` throughout its own footprint (e.g. at
+    `z=1900` the pipe hits at `4.9` uu against the plane's `34.0`); only
+    right at the tangent (`z≈1778`) do the two coincide. The recorded
+    car's own geometric wheel contact (raycasting its recorded poses
+    only, no simulation) drops within a few ticks of that height in two
+    separate climbs in the clip. This is not a missing- or
+    wrong-surface bug.
+  - **2. The wall span sheds less than gravity (the actual cause).**
+    Below the fillet, on the flat vertical span, the recording's
+    climbing speed decays at essentially `g` (`1777 → 1470` uu/s over
+    `0.466` s, `≈-659` uu/s²) while the port's decays markedly slower
+    (`1475 → 1255` over the same span, `≈-472` uu/s²) — throttle is held
+    the whole climb, so some of the difference is plausibly
+    `RB-PHYSICS-001-FR-058`'s speed-dependent torque taper giving the
+    (already slower) port relatively more drive force than the
+    recording gets at its own higher speed, but this has not been
+    isolated from tire friction or grip differences. The extra retained
+    speed is what pushes the port's arrival at the fillet, its crest,
+    and its detachment later in real time than the recording's.
+  - **3. The lag compounds, it does not compound forever.** Followed
+    past the crest, the port does eventually cross the fillet, invert,
+    and fall the same qualitative way the recording does — both end the
+    traced window within `0.13` rad of the same upside-down orientation
+    — so this is a timing/position lag over one long maneuver, not a
+    permanently stuck state. Over the fixture's full ~`6.9` s arc the
+    accumulated lag reaches a `169.4` uu mean / `749.3` uu max car
+    position divergence (ball `11.9` uu mean / `27.7` uu max) —
+    substantially looser than the other wall-transition fixtures
+    (`boost-wall-entry`'s `1.02`/`8.4`), because small per-tick speed
+    differences integrate over a much longer, higher climb than any
+    prior fixture covers.
+  - **New fixture.** `wall-climb-crest.capture.jsonl` (`824` frames,
+    `t=13.142`–`20.000`), seeded on its first grounded, neutral frame,
+    with a ratchet test bounding the current divergence loosely (it is
+    an open residual, not a fixed maneuver, so the bound exists to catch
+    a further regression, not to pin today's figure as correct).
+  - **Non-goals (this requirement).** Isolating the exact mechanism
+    behind the sub-`g` deceleration on the flat wall span (the
+    speed-dependent torque taper vs. tire/lateral friction vs. a
+    residual grip difference); the other four wall-climb events in
+    `wall_curve02` (two throttle-only climbs, a boost run into the `+X`
+    wall, and one with boost engaged mid-climb), not yet excerpted;
+    `RB-PHYSICS-001-FR-084` finding 5; `RB-PHYSICS-001-FR-085`'s
+    findings I, J and K.
+  - **Acceptance criteria.** The fillet-selection hypothesis tested and
+    ruled out with a reproducible probe; the speed-decay discrepancy
+    measured and documented; one new fixture with a ratchet test
+    bounding (not fixing) the current divergence.
+  - **Verification plan.** `470` tests in the workspace (`+1` fixture
+    ratchet in `rb_verify_cli`).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -9079,6 +9143,18 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.108.0 (2026-09-09): `RB-PHYSICS-001-FR-088` added — a fourth capture
+  session's `wall_curve02` clip shows the port's wheels staying raycast-
+  down and its orientation frozen noticeably longer than the recording's
+  on a long, flat wall climb before it crests the wall-to-ceiling
+  fillet; a direct probe rules out wrong fillet selection (the port's
+  `raycast_static` correctly prefers the modeled `StaticQuarterPipe`
+  over the flat wall's `StaticPlane` throughout the fillet's footprint),
+  leaving the cause in a measured sub-`g` speed decay on the flat span
+  below it that compounds over the climb. Open, characterized: new
+  `wall-climb-crest` fixture (`824` frames) with a ratchet test bounding
+  the current divergence (`169.4` uu mean / `749.3` uu max car,
+  `11.9` uu mean ball — see the fixture's own entry).
 - 0.107.0 (2026-09-09): `RB-PHYSICS-001-FR-087` added and implemented
   — the third capture session's `hittickjump01` clip (plugin 1.1) gives
   three real wheels-down hit-tick jumps; `FR-084` finding 4's `+67`

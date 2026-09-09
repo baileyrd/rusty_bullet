@@ -312,6 +312,17 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   uu above the recorded path and kept `~300` uu/s the real car scrapes
   off on the wall. The three recorded transitions end within `35` uu/s
   of the recording; `boost-wall-entry` `3.91 → 1.02` uu.
+  `RB-PHYSICS-001-FR-088` (open, characterized): a fourth capture
+  session's `wall_curve02` clip shows the port's wheels staying
+  raycast-down and its orientation frozen longer than the recording's
+  on a long, flat wall climb before both cars cross the wall-to-ceiling
+  fillet and fall the same way. A direct probe rules out wrong fillet
+  selection — `raycast_static` correctly prefers the modeled
+  `StaticQuarterPipe` throughout its footprint; the cause is a measured
+  sub-`g` climbing-speed decay on the flat span below it (`≈-472` uu/s²
+  port vs. `≈-659` recorded) that compounds over the climb. New
+  `wall-climb-crest` fixture with a ratchet test bounding the current
+  divergence.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

@@ -21,3 +21,9 @@ session.
 
 `jumpbeforehit02.jsonl` was uploaded alongside these and is byte-identical
 to `hittickjump01.jsonl`; it is not kept.
+
+## Fourth capture session
+
+| Clip | Frames | What it holds |
+|---|---|---|
+| `wall_curve02.jsonl` | 6825 | five wall-climb events; the first (a full-boost floor-to-`-X`-wall curve, climb to the ceiling fillet, crest, and fall) is excerpted as `wall-climb-crest.capture.jsonl` (`RB-PHYSICS-001-FR-088`, open); the other four (two throttle-only climbs, a boost run into the `+X` wall, and one with boost engaged mid-climb into the `-X` wall) are not yet excerpted |

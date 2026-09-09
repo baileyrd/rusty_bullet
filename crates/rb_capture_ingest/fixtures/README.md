@@ -113,3 +113,24 @@ README; no test reads them); `RB-PHYSICS-001-FR-085`'s entry
 records what each showed, including the two capture-side defects
 (analog axes recorded as zero throughout `hittickjump01`/`01b`; a dodge
 at `t=30.175` in `walldrive04` with no `jump` press recorded at all).
+
+## `wall-climb-crest.capture.jsonl`
+
+A **real, 824-frame excerpt** (`t=13.142s` through `t=20.000s`) of the
+owner's fourth capture session's `wall_curve02` clip (recorded with
+plugin 1.1): a full-boost floor-to-wall curve into the `-X` wall
+followed by a long, flat, throttle-held climb all the way up to the
+wall-to-ceiling fillet, over the crest, a flip past upside-down, wheel
+detachment, and the fall back into the arena. Seeds on its first
+grounded, neutral frame. `RB-PHYSICS-001-FR-088` (open) used this
+fixture to characterize a residual left by `RB-PHYSICS-001-FR-086`: the
+port sheds less speed than gravity alone predicts while climbing the
+flat wall (the recording matches gravity almost exactly there), so it
+reaches the ceiling fillet, crests, and detaches somewhat later than the
+recording — a timing lag that compounds over the full ~7-second arc into
+a `169` uu mean / `749` uu max position divergence, even though the
+qualitative maneuver (curve in, climb, cross the fillet, invert, detach,
+fall) matches — see
+`rb_verify_cli::tests::a_real_wall_climb_through_the_ceiling_fillet_diverges_the_open_fr_088_residual`.
+The whole clip is kept untrimmed under `raw/` as `wall_curve02.jsonl`
+(four more wall-climb events in it are not yet excerpted).

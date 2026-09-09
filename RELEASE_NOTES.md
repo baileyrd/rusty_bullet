@@ -25,6 +25,33 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The wall climb runs long, and the port lags behind it
+**2026-09-09** · `RB-PHYSICS-001-FR-088` (open, characterized)
+
+- A fourth capture session's `wall_curve02` clip: a full-boost curve
+  into a wall followed by a long, flat, throttle-held climb all the way
+  to the wall-to-ceiling fillet, the crest, a flip past upside-down, and
+  the fall. The port's wheels stay raycast-down and its orientation
+  frozen noticeably longer than the recording's before it, too, crosses
+  the fillet and detaches the same way.
+- Ruled out: the fillet geometry itself. A direct probe of
+  `raycast_static` confirms the modeled wall-to-ceiling
+  `StaticQuarterPipe` correctly wins the nearest-hit test over the flat
+  wall throughout its own footprint (`4.9` uu vs. `34.0` uu at
+  `z=1900`), coinciding with the flat wall only at the tangent.
+- The actual cause: on the flat wall span below the fillet, the
+  recording's climbing speed decays at essentially `g` while the port's
+  decays noticeably slower (throttle held the whole climb) — the extra
+  retained speed pushes the port's arrival at the fillet, its crest, and
+  its detachment later in time, and that lag compounds over the full
+  climb.
+- New `wall-climb-crest` fixture (824 frames) with a ratchet test
+  bounding the current divergence (`169.4`/`749.3` uu mean/max car,
+  `11.9`/`27.7` uu mean/max ball) — an open residual, not a fixed
+  maneuver.
+
+---
+
 ## The hit-tick jump lands clean
 **2026-09-09** · `RB-PHYSICS-001-FR-087`
 
