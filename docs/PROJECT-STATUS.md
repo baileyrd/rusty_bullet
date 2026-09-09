@@ -2393,6 +2393,20 @@
   descent's chassis scrape the port narrowly misses (`1521` vs `1412`),
   the slow push-out at the top of the climb. Tests `468` unchanged. Full
   workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-087` added and implemented — the third capture
+  session's `hittickjump01` clip, the first recorded with the rebuilt
+  plugin, gave three real wheels-down hit-tick jumps (a geometric
+  raycast of the recorded poses confirms all four wheels down 2-4 ticks
+  after each press). Reseeded and run through the port, the post-hit
+  suspension excess `RB-PHYSICS-001-FR-084` finding 4 measured
+  (`+67` uu/s, from `dodge-derailment`'s one coincidental sample) is
+  gone — `+7`/`+3`/`-3` uu/s across the three new samples — closed
+  incidentally by `RB-PHYSICS-001-FR-086`'s pushback fix, which was
+  aimed at the wall curve, not this. A `2`-`3` uu/s/tick residual
+  remains through the resulting climb (`FR-085` finding E's own,
+  already known). New `hit-tick-jump` fixture (`492` frames,
+  `18.2` uu / `19.9` uu mean car/ball) with a ratchet test. Workspace
+  tests `468 → 469`. Full workspace `fmt`/`clippy`/`test` green.
 - `RB-VERIFY-002` plugin 1.1 (spec 0.5.0): `RB-PHYSICS-001-FR-085`
   finding I's capture defects traced to the recorder, not the
   input device (keyboard and mouse for all six clips): plugin 1.0 wrote each
@@ -2918,6 +2932,13 @@
   `1839` (was `2130`); `−X` descent under boost `1891` / `1873` vs `1882`
   / `1885` (was `2086` / `2154`); `+X` backwards descent at `1520` `1521`
   vs `1412` (was `1582`).
+- `RB-PHYSICS-001-FR-087` fixture run (2026-09-09, this sandbox):
+  `hit-tick-jump` — `frames compared: 492, mean car
+  position/rotation/velocity distance: 18.23 uu / 0.08 rad / 45.44
+  uu/s, mean ball distance: 19.94 uu` (max `135.26 uu / 0.28 rad /
+  305.84 uu/s`, ball max `90.89 uu`). Post-hit `vz` excess measured
+  directly on the reseeded traces at the three hit ticks: `+7`, `+3`,
+  `-3` uu/s (was `+67` on `dodge-derailment`'s pre-`FR-086` sample).
 
 ## Risks and decisions needed
 

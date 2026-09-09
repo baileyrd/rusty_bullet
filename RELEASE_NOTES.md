@@ -25,6 +25,24 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The hit-tick jump lands clean
+**2026-09-09** · `RB-PHYSICS-001-FR-087`
+
+- The third capture session's first clip, recorded with the rebuilt
+  plugin, gave what two earlier sessions couldn't: three real hits
+  where the car's wheels raycast as down at the instant it touches the
+  ball, jump already pressed. `RB-PHYSICS-001-FR-084` finding 4's
+  post-hit suspension excess (`+67` uu/s, measured from one
+  coincidental hit-tick jump) is gone on all three — `+7`, `+3` and
+  `-3` uu/s — closed incidentally by `RB-PHYSICS-001-FR-086`'s
+  suspension-pushback fix, which targeted the wall curve, not this.
+- A small `2`-`3` uu/s/tick residual remains through the resulting
+  climb — the same one `RB-PHYSICS-001-FR-085` finding E already
+  found, not a new mechanism.
+- New `hit-tick-jump` fixture (492 frames) with a ratchet test.
+
+---
+
 ## The recorder takes the input it is handed
 **2026-09-06** · `RB-VERIFY-002` plugin 1.1
 

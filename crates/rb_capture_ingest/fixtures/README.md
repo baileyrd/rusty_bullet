@@ -89,6 +89,23 @@ goal mouth (where the recording and the port part ways by `~1000` uu —
 finding K, open). Seeds on its first frame. Car and ball both track to a
 few uu (see `rb_verify_cli::tests::isolated_replay_of_a_real_airborne_hit_tracks_car_and_ball_to_a_few_uu`).
 
+## `hit-tick-jump.capture.jsonl`
+
+A **real, 492-frame excerpt** (`t=43.808s` through `t=47.900s`) of the
+owner's third capture session's `hittickjump01` clip — the first
+recorded with the rebuilt plugin (`RB-VERIFY-002` 0.5.0) — cut around
+the cleanest of three real wheels-down hit-tick jumps a geometric probe
+of the recorded poses found in that clip: the ball starts at rest, the
+car presses jump `3` ticks before contact with all four wheels still
+raycasting as down, and the excerpt runs long enough to show the
+resulting arc without running into the recording's next, unrelated
+aerial hit. Seeds on its first grounded, neutral frame.
+`RB-PHYSICS-001-FR-087` used this fixture (and the other two hits,
+excerpted only for the investigation, not vendored) to close
+`RB-PHYSICS-001-FR-084` finding 4: the post-hit suspension excess that
+finding measured (`+67` uu/s) is gone, down to `+7` here — see
+`rb_verify_cli::tests::isolated_replay_of_a_real_wheels_down_hit_tick_jump_tracks_within_its_recorded_arc`.
+
 The whole clips these three are cut from (`groundjumpthrottle03`,
 `walldrive04`, `hittickjump01`/`hittickjump01b`, `curverun05`,
 `onewheellanding06`) are kept untrimmed under `raw/` (see its own

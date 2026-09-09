@@ -299,6 +299,13 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   records the `SetVehicleInput` hook's own `ControllerInput` per car
   and flushes each tick's line when the next begins, instead of
   reading `GetInput()` back at the tick's first firing.
+  `RB-PHYSICS-001-FR-087` closes `RB-PHYSICS-001-FR-084` finding 4:
+  the third capture session's first clip recorded with that plugin
+  gives three real wheels-down hit-tick jumps, and the port's post-hit
+  `vz` excess that finding measured (`+67` uu/s) is gone (`+7`/`+3`/
+  `-3` across the three) — incidentally closed by `FR-086`'s pushback
+  fix. A `2`-`3` uu/s/tick residual remains (`FR-085` finding E's own).
+  New `hit-tick-jump` fixture with a ratchet test.
   `RB-PHYSICS-001-FR-086` resolves the wall curve: `FILLET_RADIUS` is
   `270` uu (three capture fits), and the suspension pushback keeps only
   its velocity term — RocketSim's positional `erp` term rode the car `5`

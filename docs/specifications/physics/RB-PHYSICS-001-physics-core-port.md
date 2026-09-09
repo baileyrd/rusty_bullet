@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.106.0
+- Version: 0.107.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7312,8 +7312,9 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
       the workspace `457 → 459`. Full workspace `fmt`/`clippy`/`test`
       green.
   - **Non-goals (this requirement).** Does not change the pushback or
-    the suspension (finding 4 is open), the tire model (finding 5), or
-    any other reader of the wheel count (finding 3 is the stick gate
+    the suspension (finding 4 was open; resolved by `RB-PHYSICS-001-
+    FR-086`, see `RB-PHYSICS-001-FR-087`), the tire model (finding 5),
+    or any other reader of the wheel count (finding 3 is the stick gate
     only). Does not touch `RB-PHYSICS-001-FR-005`'s real-data
     calibration, no longer blocked on `PHASE-0-EXIT` (now closed), but
     not itself started.
@@ -7460,7 +7461,8 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     goal mouth / net interaction, outside `airborne-hit`'s cut.
   - **Non-goals (this requirement).** Finding F's mechanism, finding
     K, the dodge (`FR-083`), `FR-084` finding 4 (still without a
-    wheels-down hit-tick jump) and finding 5 (the clip's one-wheel
+    wheels-down hit-tick jump at the time; resolved by `FR-086`, see
+    `FR-087`) and finding 5 (the clip's one-wheel
     landings all follow dodges the port already misses).
   - **Acceptance criteria.** Findings A, C, D and E implemented with
     tests; the three fixtures vendored with ratchets; the
@@ -7532,11 +7534,62 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     port was `100–300` out; `boost-wall-entry` `3.91 → 1.02` uu mean,
     `63.6 → 8.4` max; the other fixtures within their ratchets
     (`dodge-derailment` `73.76 → 77.80`, the post-hit slam of `FR-084`
-    finding 4 moving with the pushback; `throttle-jump` and
+    finding 4 moving with the pushback and, `RB-PHYSICS-001-FR-087`
+    later confirmed, resolved by it; `throttle-jump` and
     `airborne-hit` unchanged); the pushback test re-pinned.
   - **Verification plan.** `468` tests in the workspace; the
     `boost-wall-entry` ratchet tightened `< 8 → < 3` uu mean, `< 90 → <
     20` max.
+- `RB-PHYSICS-001-FR-087` (wheels-down hit-tick jump — `FR-084` finding
+  4 resolved by `FR-086`; implemented): the third capture session's
+  `hittickjump01` clip (recorded with plugin 1.1, `RB-VERIFY-002` 0.5.0)
+  gave what `FR-084`'s own diagnosis and `FR-085`'s Non-goals both
+  named as missing: a real hit where the car's wheels raycast as down
+  at the instant it touches the ball, jump already pressed. A geometric
+  probe of the recorded poses (raycasting each tick's own position and
+  orientation against the ground, independent of any simulation) finds
+  three such hits (`t = 33.483`, `46.425`, `54.683`) where all four
+  wheels still read in contact 2–4 ticks after the press.
+  - **The slam is gone.** `FR-084` finding 4's own diagnosis, from the
+    one coincidental hit-tick jump in `dodge-derailment`, measured the
+    port gaining `+362` uu/s of `vz` on the hit tick against the
+    recording's `+295` — a `67` uu/s excess from the suspension
+    pushback firing on a wheel still in reach of a car the hit was
+    lifting. Reseeded from a grounded frame before each of the three
+    new hits and run to the hit tick and beyond, the same tick's excess
+    is now `+7`, `+3` and `-3` uu/s across the three — inside the
+    ordinary tick-to-tick noise the fixtures already carry, not a
+    distinct spike. `RB-PHYSICS-001-FR-086` made this change: it
+    dropped the pushback's positional (`erp`) term for the wall-curve
+    transition (finding F), and the same term was what fired on these
+    hit ticks. The fix was not targeted at finding 4 and closes it
+    anyway.
+  - **A small residual remains.** Once both cars are airborne the
+    port's `vz` still gains `2`–`3` uu/s more than the recording every
+    tick, growing to `+18` uu/s by six ticks out on the cleanest
+    sample. This is `RB-PHYSICS-001-FR-085` finding E's own residual
+    (`+2.7` uu/s from the wheels letting go one tick early) continuing
+    to accumulate through an extended climb, not a new mechanism — left
+    as read, the same as that finding.
+  - **New fixture.** `hit-tick-jump.capture.jsonl` (492 frames,
+    `t = 43.808`–`47.900`, the cleanest of the three: the ball starts
+    at rest, the car presses jump `3` ticks before contact with all
+    four wheels down, and the resulting arc runs long enough to show
+    the residual above without running into the recording's next,
+    unrelated aerial hit). Whole-run divergence: `18.23` uu / `0.08`
+    rad / `45.44` uu/s mean car, ball `19.94` uu mean (max `135.26` /
+    `0.28` / `305.84`, ball max `90.89`) — looser than the other
+    fixtures because the excerpt runs a full arc rather than an
+    isolated tick window, but on the same order as `dodge-derailment`.
+  - **Non-goals (this requirement).** The `2`–`3` uu/s residual itself
+    (`FR-085` finding E's, not reopened here), `FR-085`'s findings F
+    (already `FR-086`), K, I and J, `FR-084` finding 5 (still no
+    dodge-free one-wheel landing).
+  - **Acceptance criteria.** `FR-084` finding 4 and the `FR-085`/`086`
+    Non-goals bullets that named it updated to record the resolution;
+    one new fixture with a ratchet test.
+  - **Verification plan.** `469` tests in the workspace (`+1` fixture
+    ratchet in `rb_verify_cli`).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -9026,6 +9079,14 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.107.0 (2026-09-09): `RB-PHYSICS-001-FR-087` added and implemented
+  — the third capture session's `hittickjump01` clip (plugin 1.1) gives
+  three real wheels-down hit-tick jumps; `FR-084` finding 4's `+67`
+  uu/s post-hit suspension excess is gone (`FR-086`'s pushback fix,
+  aimed at the wall curve, closes it too), down to `+7`/`+3`/`-3` uu/s
+  across the three samples — a small `2`–`3` uu/s/tick residual remains
+  (`FR-085` finding E's own, not new). New `hit-tick-jump` fixture with
+  a ratchet test.
 - 0.106.0 (2026-09-06): `RB-PHYSICS-001-FR-086` added — `FR-085` finding
   F resolved: `FILLET_RADIUS` measured at `270` uu from three fits, and
   the suspension pushback's positional (`erp`) term dropped, which lets

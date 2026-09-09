@@ -226,6 +226,13 @@ mod tests {
         )
     }
 
+    fn hit_tick_jump_fixture() -> &'static str {
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../rb_capture_ingest/fixtures/hit-tick-jump.capture.jsonl"
+        )
+    }
+
     #[test]
     fn scores_a_real_replay_against_the_synthetic_capture_fixture() {
         let score = score_replay_against_capture(
@@ -494,5 +501,33 @@ mod tests {
         // ball distance ~4.8 uu (max ~21 uu). Bounded loosely above.
         assert!(score.cars.mean_position_distance < 10.0);
         assert!(score.mean_ball_distance < 10.0);
+    }
+
+    /// `RB-PHYSICS-001-FR-087`: a real wheels-down hit-tick jump —
+    /// jump pressed 3 ticks before contact with all four wheels still
+    /// down (a geometric raycast of the recorded pose, independent of
+    /// the port). `RB-PHYSICS-001-FR-084` finding 4's post-hit
+    /// suspension excess (`+67` uu/s on the hit tick, from the
+    /// `dodge-derailment` fixture's own coincidental hit-tick jump) is
+    /// gone: this hit reads `+7` uu/s. A small `2`-`3` uu/s/tick
+    /// residual remains through the resulting climb (`RB-PHYSICS-001-
+    /// FR-085` finding E's own, not new), which is most of this
+    /// fixture's own looser bound below — the excerpt runs a full arc,
+    /// not an isolated tick window.
+    #[test]
+    fn isolated_replay_of_a_real_wheels_down_hit_tick_jump_tracks_within_its_recorded_arc() {
+        let score = score_capture_against_candidate(
+            hit_tick_jump_fixture(),
+            DEFAULT_MAX_TIMESTAMP_DELTA_SECS,
+        )
+        .unwrap();
+
+        assert_eq!(score.frames_compared, 492);
+        assert_eq!(score.cars.pairs_compared, 492);
+        // Ratchet (2026-09-09): mean car position distance ~18.2 uu,
+        // mean ball distance ~19.9 uu (max ~135 / ~91). Bounded loosely
+        // above to catch a regression, not to pin the exact figure.
+        assert!(score.cars.mean_position_distance < 30.0);
+        assert!(score.mean_ball_distance < 30.0);
     }
 }
