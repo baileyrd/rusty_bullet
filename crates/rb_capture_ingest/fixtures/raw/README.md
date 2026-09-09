@@ -38,4 +38,4 @@ to `hittickjump01.jsonl`; it is not kept.
 
 | Clip | Frames | What it holds |
 |---|---|---|
-| `clean_dodge04.jsonl` | 3925 | nine ground jump-dodges on flat, open field, no walls; the first (a pure-left, `yaw=-1`, dodge) and the sixth (a pure-right, `yaw=+1`, mirrored dodge, different pre-dodge spin) were both traced for `RB-PHYSICS-001-FR-090` (open); the excerpt around the first is `clean-dodge.capture.jsonl`; the other 7 (2 traced only, not excerpted; 5 untouched) remain for later sessions |
+| `clean_dodge04.jsonl` | 3925 | nine ground jump-dodges on flat, open field, no walls; the first (a pure-left, `yaw=-1`, dodge) and the sixth (a pure-right, `yaw=+1`, mirrored dodge, different pre-dodge spin) were both traced for `RB-PHYSICS-001-FR-090` (partially implemented); the excerpt around the first is `clean-dodge.capture.jsonl`; the other 7 (2 traced only, not excerpted; 5 untouched) remain for later sessions |

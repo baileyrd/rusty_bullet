@@ -2416,6 +2416,28 @@
   signed construction). No fixture numbers changed; the exact cause of
   the curve-entry asymmetry itself is the new open question. Workspace
   tests `476` unchanged. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-090` partially implemented — fetching RocketSim's
+  current `Car.cpp` confirms this port's flip-direction formula matches
+  it exactly (`dodgeDir = (-pitch, yaw + roll, 0)`, `flipRelTorque =
+  (-dodgeDir.y, dodgeDir.x, 0)`), ruling out a porting error: the
+  recorded split is a genuine RocketSim-vs-real-game gap. Re-measured on
+  the very first torque tick (before `MAX_CAR_ANGULAR_SPEED` clamping
+  can contaminate the direction), the clip's two independent, oppositely
+  -signed pure-yaw dodges both show a fixed, sign-independent right-axis
+  contribution matching `FLIP_TORQUE_Y` to within `0.3%` of the
+  `FLIP_TORQUE_X`:`FLIP_TORQUE_Y` ratio, present despite very different
+  pre-existing spins (`-0.91` vs `+2.79` rad/s) — ruling out gyroscopic
+  coupling scaling with the spin. Fixed, narrowly: `apply_driven_forces`
+  now adds a fixed `+FLIP_TORQUE_Y` right-axis contribution whenever
+  `input.yaw` (not roll) supplies a *pure* side dodge's direction (no
+  pitch held); pure-roll-only and pitch+yaw-diagonal dodges, and the
+  separate wall-jump-dodge branch, are all deliberately untouched — no
+  real capture has exercised any of them. `clean-dodge` fixture: mean
+  rotation divergence drops `0.442 → 0.325` rad (`~26%`); mean position/
+  velocity move slightly the other way (`351.0 → 363.8` uu, `336.5 →
+  381.4` uu/s), plausibly a downstream landing-timing effect of the
+  corrected spin, not isolated. 3 new unit tests. Workspace tests
+  `476 → 479`. Full workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-090` added, open and characterized — a sixth
   capture session's `clean_dodge04` clip gives the first genuinely clean
   ground dodges this port has had (flat, open field, no wall, no
@@ -2705,9 +2727,18 @@
    than the recording over the same transition (the already-fixtured
    `boost-wall-entry` clip's materially identical curve shows the same
    asymmetry, just far smaller, `≈9%`, consistent with its own tiny
-   divergence). Next: isolate that curve-entry asymmetry and `FR-090`'s
-   axis-split mechanism, then `FR-084` finding 5 and `FR-085` findings
-   I/J.
+   divergence). `FR-090`'s own axis-split was then isolated and
+   partially fixed: RocketSim's current source confirms this port's
+   formula matches it exactly, so the split is a genuine RocketSim-vs-
+   real-game gap; measured unclamped on the first torque tick, two
+   independent pure-yaw dodges both show a fixed, sign-independent
+   right-axis contribution matching `FLIP_TORQUE_Y`, now added for a
+   pure yaw-triggered side dodge specifically (pure-roll and diagonal
+   dodges untouched, untested). Rotation divergence on `clean-dodge`
+   drops `~26%`; position/velocity move slightly the other way, a
+   downstream landing-timing effect not yet isolated. Next: isolate that
+   landing-timing residual and the curve-entry asymmetry from `FR-088`,
+   then `FR-084` finding 5 and `FR-085` findings I/J.
 
 ## Validation
 
@@ -3093,6 +3124,18 @@
   wall curve (`t≈28.84`–`29.03`, same boost/steer/handbrake profile):
   recording `2300 → 1834` uu/s (`-2440` uu/s²), port `2300 → 1790` uu/s
   (`-2671` uu/s², `≈9%` more) — same-direction, much smaller.
+- `RB-PHYSICS-001-FR-090` axis-fix probe (2026-09-09, this sandbox):
+  first-torque-tick local `(forward, right)` deltas, computed directly
+  from each dodge's own recorded rotation before any clamping — left
+  dodge `(1.5332, 1.3167)`, mirrored right dodge `(-1.5331, 1.3166)`.
+  Forward flips sign with the dodge; right does not, and its magnitude
+  matches `FLIP_TORQUE_Y`'s share of the `FLIP_TORQUE_X`:`FLIP_TORQUE_Y`
+  ratio (`1.161`) to within `0.3%` of the measured `1.165`/`1.164`.
+  Post-fix `clean-dodge` score: `frames compared: 279, mean car
+  position/rotation/velocity distance: 363.78 uu / 0.325 rad / 381.35
+  uu/s` (max `777.65 uu / 0.564 rad / 477.13 uu/s`; ball unaffected,
+  `0.044`/`0.061` uu) — rotation down from `0.442` pre-fix, position and
+  velocity up slightly from `350.96`/`336.49`.
 
 ## Risks and decisions needed
 

@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.111.0
+- Version: 0.112.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7757,7 +7757,7 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   - **Verification plan.** `475` tests in the workspace (`+4` unit tests
     in `rb_physics_bullet`, `+1` fixture ratchet in `rb_verify_cli`).
 - `RB-PHYSICS-001-FR-090` (the flip torque's real local-frame axis — a
-  cleaner isolation of `FR-083`'s dodge residual; open, characterized):
+  cleaner isolation of `FR-083`'s dodge residual; partially implemented):
   a sixth capture session's `clean_dodge04` clip records nine ground
   dodges on flat, open field with no wall in reach — the first genuinely
   clean dodges this port has had to work from, every earlier fixture
@@ -7800,36 +7800,77 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `MAX_CAR_ANGULAR_SPEED = 5.5` for the flip's duration — confirmed
     already by `FR-080`'s own isolated capture. This is purely a
     direction/axis-split question.
-  - **An unconfirmed lead, not a fix.** The observed split
-    (`4.09` / `3.67`, magnitude ratio `1.115`) sits close to, but not
-    exactly on, `FLIP_TORQUE_X` / `FLIP_TORQUE_Y` (`260` / `224` =
-    `1.161`) — suggestive that the real torque may not scale down to a
-    single axis for single-axis stick input the way this port's
-    `normalize_dodge_direction` does, but not close enough to treat as
-    confirmed, and it contradicts well-established Rocket League
-    community knowledge that a pure side dodge looks like a clean roll,
-    not a diagonal flip. Speculatively changing the formula to chase a
-    number this close without understanding *why* risks trading an
-    understood gap for an un-understood wrong one, which this project's
-    own history of measured, verified changes (`FR-086`, `FR-089`)
-    argues against.
-  - **New fixture.** `clean-dodge.capture.jsonl` (`279` frames,
-    `t=6.275`–`8.6`, the first dodge and its landing), with a ratchet
-    test bounding the current divergence (`351.0` uu mean position, max
-    `706.7`; `0.44` rad mean rotation, max `1.46`) — wide on purpose,
-    an open residual, not a fixed maneuver.
-  - **Non-goals (this requirement).** Identifying the exact mechanism
-    behind the `4.09`/`3.67` split; the clip's other 7 dodges (2 traced
-    for this finding, 6 unexcerpted); any change to `normalize_dodge_
-    direction`, `apply_flip_torque`, or the `FLIP_TORQUE_X`/`FLIP_TORQUE_Y`
-    constants, none of which this finding has enough evidence to justify
-    touching yet.
+  - **Confirmed against RocketSim's own current source (ruling out a
+    porting error).** Fetching `Car.cpp`'s `_UpdateDoubleJumpOrFlip`
+    directly confirms `dodgeDir = (-pitch, yaw + roll, 0)` and
+    `flipRelTorque = (-dodgeDir.y, dodgeDir.x, 0) / tickTimeScale` —
+    exactly this port's own formula, symbol for symbol. RocketSim's own
+    model predicts the same pure-forward result this port computes; the
+    split the recording shows is a genuine RocketSim-vs-real-game gap,
+    not a translation mistake.
+  - **The actual mechanism, isolated (confirmed).** Re-measured on the
+    very *first* torque tick (the press tick's own recorded world-frame
+    angular-velocity delta, rotated into that tick's own recorded
+    orientation) — before `MAX_CAR_ANGULAR_SPEED` clamping can
+    contaminate the direction (the raw magnitude crosses `5.5` only
+    three ticks later): the left dodge's local `(forward, right)` delta
+    is `(1.5332, 1.3167)`; the mirrored right dodge's is
+    `(-1.5331, 1.3166)`. Forward flips sign with the dodge, exactly
+    matching `-norm_dodge_roll`'s own sign; right does *not* flip sign
+    and lands at the *same* magnitude both times, despite the two
+    dodges having different pre-existing yaw spins (`-0.91` and `+2.79`
+    rad/s) and entirely different world headings — ruling out both a
+    gyroscopic/precession artifact (which would scale with the
+    pre-existing spin, not reproduce identically despite it) and simple
+    measurement noise. The forward:right ratio (`1.5332:1.3167 =
+    1.165`) matches `FLIP_TORQUE_X`:`FLIP_TORQUE_Y` (`260:224 = 1.161`)
+    to within `0.3%` — consistent with a fixed, sign-independent
+    `+FLIP_TORQUE_Y` contribution to the right-axis torque whenever yaw
+    (not roll) supplies a pure side dodge's direction, on top of the
+    existing sign-correct `FLIP_TORQUE_X` one.
+  - **The fix (implemented, narrowly scoped).** `apply_driven_forces`
+    adds a fixed `+1.0` to the dodge's `rel_torque.right` component
+    whenever `input.yaw` (not `input.roll`) supplies a *pure* side
+    dodge's direction (`dodge_pitch` at or below `DODGE_DEADZONE`, so a
+    diagonal dodge's own pitch-driven right-axis torque is untouched).
+    Scoped to exactly what was measured: a pure-roll-only side dodge, a
+    pitch+yaw diagonal, and the separate wall-jump-dodge branch are all
+    deliberately left unchanged — no real capture has exercised any of
+    them to say whether the same bias applies there too. Three new unit
+    tests cover the fix directly and its two guard rails (a roll-only
+    dodge unaffected; a pitch+yaw diagonal matching the equivalent
+    pitch+roll diagonal exactly, not carrying an extra bias).
+  - **A residual remains, not further isolated.** Re-scored against
+    `clean-dodge.capture.jsonl`: mean rotation divergence drops
+    `0.442 → 0.325` rad (`~26%`, this fixture's own namesake metric,
+    directly reflecting the corrected axis) but mean car position and
+    velocity divergence move slightly the *other* way (`351.0 → 363.8`
+    uu, `336.5 → 381.4` uu/s) — plausibly a downstream effect of the
+    corrected spin changing this maneuver's landing timing or
+    orientation later in its long, already-chaotic tail, not itself
+    decomposed. The ball is unaffected either way (`0.044`/`0.061` uu).
+  - **Updated fixture.** `clean-dodge.capture.jsonl` (`279` frames,
+    `t=6.275`–`8.6`, the first dodge and its landing) keeps its existing
+    ratchet test, bounds and comment updated to the post-fix numbers
+    above — wide on purpose, since this chaotic double-flip-to-landing
+    maneuver was never going to track tightly regardless of the axis
+    fix.
+  - **Non-goals (this requirement).** Whether the same yaw-only bias
+    also applies to a pure-roll-only side dodge or a pitch+yaw diagonal
+    (no real capture of either exists yet); the separate wall-jump-dodge
+    branch's own `rel_torque` construction, untouched; isolating the
+    downstream landing-timing effect the fix's own position/velocity
+    numbers hint at; the clip's other 7 dodges (2 traced for this
+    finding, 6 unexcerpted).
   - **Acceptance criteria.** The local-body-frame decomposition method
-    documented and reproduced across two independent dodges; one new
-    fixture with a ratchet test bounding (not fixing) the current
-    divergence.
-  - **Verification plan.** `476` tests in the workspace (`+1` fixture
-    ratchet in `rb_verify_cli`).
+    documented and reproduced across two independent dodges; the
+    mechanism confirmed against RocketSim's own current source and
+    isolated on an unclamped first-tick measurement; a narrowly-scoped
+    fix implemented and unit-tested; the existing fixture's ratchet
+    numbers updated to reflect the change, not re-bounded to hide it.
+  - **Verification plan.** `479` tests in the workspace (`+3` unit tests
+    in `rb_physics_bullet`; the existing `clean-dodge` fixture ratchet
+    updated, no new fixture).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -9319,6 +9360,25 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.112.0 (2026-09-09): `RB-PHYSICS-001-FR-090` moved from open,
+  characterized to partially implemented: fetching RocketSim's current
+  `Car.cpp` confirms this port's flip-direction formula matches it
+  exactly, ruling out a porting error — the split the recording shows is
+  a genuine RocketSim-vs-real-game gap. Re-measured on the very first
+  torque tick, before `MAX_CAR_ANGULAR_SPEED` clamping can contaminate
+  it, two independent, oppositely-signed pure-yaw dodges both show a
+  fixed, sign-independent right-axis torque contribution matching
+  `FLIP_TORQUE_Y` to within `0.3%` of the `FLIP_TORQUE_X`:`FLIP_TORQUE_Y`
+  ratio — present despite very different pre-existing spins, ruling out
+  gyroscopic coupling. Fixed, narrowly: a pure side dodge (no pitch)
+  whose direction comes from yaw now gets a fixed `+FLIP_TORQUE_Y`
+  right-axis contribution on top of its existing sign-correct
+  `FLIP_TORQUE_X` one; pure-roll and diagonal dodges are untouched,
+  untested against a real capture. Mean rotation divergence on the
+  `clean-dodge` fixture drops `0.442 → 0.325` rad; position/velocity
+  divergence move slightly the other way, plausibly a downstream
+  landing-timing effect, left open. 3 new unit tests; the fixture's own
+  ratchet numbers updated to match.
 - 0.111.0 (2026-09-09): `RB-PHYSICS-001-FR-088` refined (still open,
   characterized): re-traced tick-by-tick with `drive_speed_taper`
   evaluated directly, the flat wall span's sub-`g` decay is now

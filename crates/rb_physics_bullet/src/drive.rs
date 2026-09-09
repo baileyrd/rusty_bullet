@@ -1489,8 +1489,8 @@ pub fn apply_driven_forces(
                 }
             } else if *double_jump_available {
                 let dodge_pitch = input.pitch.unwrap_or(0.0).clamp(-1.0, 1.0);
-                let dodge_roll = input.roll.unwrap_or(0.0).clamp(-1.0, 1.0)
-                    + input.yaw.unwrap_or(0.0).clamp(-1.0, 1.0);
+                let dodge_yaw = input.yaw.unwrap_or(0.0).clamp(-1.0, 1.0);
+                let dodge_roll = input.roll.unwrap_or(0.0).clamp(-1.0, 1.0) + dodge_yaw;
                 if dodge_pitch.abs() > DODGE_DEADZONE || dodge_roll.abs() > DODGE_DEADZONE {
                     // Dodge: a directional flip instead of a plain vertical
                     // double jump — forward/back from pitch (translate along
@@ -1548,8 +1548,37 @@ pub fn apply_driven_forces(
                     // so the first step is applied here, now. Flip-cancel
                     // (the `pitch` argument) can't fire on this tick: a
                     // dodge's own pitch is the opposite sign of its torque.
+                    //
+                    // RB-PHYSICS-001-FR-090: RocketSim's own formula above
+                    // (confirmed against its current source) gives a
+                    // yaw-only side dodge zero right-axis torque — but the
+                    // `clean_dodge04` capture's two independent, oppositely-
+                    // signed pure-yaw dodges both show a real right-axis
+                    // spin the port doesn't, measured on the very first
+                    // torque tick (before `MAX_CAR_ANGULAR_SPEED` clamping
+                    // can contaminate it) via each car's own recorded
+                    // rotation: local (forward, right) deltas of
+                    // `(1.5332, 1.3167)` and `(-1.5331, 1.3166)` — forward
+                    // flips sign with the dodge as expected, right does not,
+                    // landing at the same magnitude both times and matching
+                    // `FLIP_TORQUE_X`:`FLIP_TORQUE_Y`'s own ratio (`1.161`)
+                    // to within 0.3%. Scoped narrowly to what was actually
+                    // measured — a pure side dodge (no pitch) whose
+                    // direction comes from yaw: adds a fixed, sign-
+                    // independent `FLIP_TORQUE_Y` contribution on top of
+                    // the existing sign-correct `FLIP_TORQUE_X` one. Diagonal
+                    // (pitch+yaw) and pure-roll-only side dodges are
+                    // untested against a real capture and deliberately left
+                    // unchanged — see this requirement's own Non-goals.
+                    let yaw_side_dodge_bias = if dodge_pitch.abs() <= DODGE_DEADZONE
+                        && dodge_yaw.abs() > DODGE_DEADZONE
+                    {
+                        1.0
+                    } else {
+                        0.0
+                    };
                     let flip = DodgeFlip {
-                        rel_torque: (-norm_dodge_roll, dodge_forward),
+                        rel_torque: (-norm_dodge_roll, dodge_forward + yaw_side_dodge_bias),
                         elapsed: 0.0,
                     };
                     apply_flip_torque(car, &flip, pitch, tick_scale);
@@ -3608,6 +3637,115 @@ mod tests {
             c.angular_velocity.x
         );
         assert!(flip.is_some());
+    }
+
+    #[test]
+    fn a_yaw_only_dodge_also_spins_about_right_matching_the_real_capture() {
+        // RB-PHYSICS-001-FR-090: two independent, oppositely-signed pure-
+        // yaw dodges in the `clean_dodge04` capture both show a real
+        // right-axis spin RocketSim's own dodgeDir formula predicts as
+        // zero — measured on the very first torque tick, before
+        // MAX_CAR_ANGULAR_SPEED clamping, at a magnitude matching
+        // FLIP_TORQUE_Y and independent of the dodge's own left/right
+        // sign. Left (yaw = -1) and right (yaw = +1) both get the same
+        // fixed +FLIP_TORQUE_Y / 120 right-axis kick on top of their own
+        // sign-correct forward-axis one.
+        let mut left = car();
+        let left_input = ControllerInput {
+            jump: true,
+            yaw: Some(-1.0),
+            ..Default::default()
+        };
+        airborne_dodge(&mut left, &left_input, 1.0 / 60.0);
+        assert!(
+            (left.angular_velocity.y - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
+            "expected +FLIP_TORQUE_Y / 120 spin about the right axis on a \
+             left yaw dodge's press tick, got {}",
+            left.angular_velocity.y
+        );
+
+        let mut right = car();
+        let right_input = ControllerInput {
+            jump: true,
+            yaw: Some(1.0),
+            ..Default::default()
+        };
+        airborne_dodge(&mut right, &right_input, 1.0 / 60.0);
+        assert!(
+            (right.angular_velocity.y - FLIP_PITCH_STEP_PER_TICK).abs() < 1e-3,
+            "expected the same +FLIP_TORQUE_Y / 120 right-axis spin \
+             (unsigned, unlike the forward-axis one) on a right yaw \
+             dodge's press tick, got {}",
+            right.angular_velocity.y
+        );
+    }
+
+    #[test]
+    fn a_roll_only_dodge_gets_no_extra_right_axis_spin() {
+        // RB-PHYSICS-001-FR-090's fix is scoped to yaw specifically — the
+        // real capture only ever exercised yaw-triggered side dodges, so
+        // a pure roll-only dodge (no yaw at all) is left exactly as
+        // RocketSim's own formula computes it, matching
+        // `dodge_gives_lateral_velocity_and_spin_when_rolled_in_the_air`.
+        let mut c = car();
+        let input = ControllerInput {
+            jump: true,
+            roll: Some(1.0),
+            ..Default::default()
+        };
+        airborne_dodge(&mut c, &input, 1.0 / 60.0);
+        assert_eq!(
+            c.angular_velocity.y, 0.0,
+            "expected no right-axis spin from a roll-only dodge, got {}",
+            c.angular_velocity.y
+        );
+    }
+
+    #[test]
+    fn a_diagonal_pitch_and_yaw_dodge_gets_no_extra_right_axis_bias() {
+        // The fix is scoped to a *pure* side dodge (no pitch held) — a
+        // diagonal dodge already has its own real, pitch-driven right-axis
+        // torque, and no real capture has exercised a pitch+yaw diagonal
+        // to say whether it also carries this bias, so it's left
+        // untouched (RB-PHYSICS-001-FR-090's own Non-goals). Compared
+        // directly against the equivalent pitch+roll diagonal (already
+        // validated, untouched by this fix) rather than a hand-derived
+        // number, since both scenarios share the same same-tick ordinary
+        // air-control pitch torque this press tick also fires (ordinary
+        // pitch lock only takes effect from the *next* tick on) — cancelling
+        // that out of the comparison instead of re-deriving it.
+        let mut pitch_and_yaw = car();
+        airborne_dodge(
+            &mut pitch_and_yaw,
+            &ControllerInput {
+                jump: true,
+                pitch: Some(-1.0),
+                yaw: Some(-1.0),
+                ..Default::default()
+            },
+            1.0 / 60.0,
+        );
+
+        let mut pitch_and_roll = car();
+        airborne_dodge(
+            &mut pitch_and_roll,
+            &ControllerInput {
+                jump: true,
+                pitch: Some(-1.0),
+                roll: Some(-1.0),
+                ..Default::default()
+            },
+            1.0 / 60.0,
+        );
+
+        assert!(
+            (pitch_and_yaw.angular_velocity.y - pitch_and_roll.angular_velocity.y).abs() < 1e-3,
+            "expected a pitch+yaw diagonal's right-axis spin ({}) to match \
+             the equivalent pitch+roll diagonal's ({}), not carry an extra \
+             yaw-only bias on top",
+            pitch_and_yaw.angular_velocity.y,
+            pitch_and_roll.angular_velocity.y
+        );
     }
 
     #[test]

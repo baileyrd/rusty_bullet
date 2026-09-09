@@ -355,6 +355,19 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   transition; the already-fixtured `boost-wall-entry` clip's materially
   identical curve shows the same asymmetry, just far smaller (`≈9%`),
   consistent with its own tiny divergence. No fixture numbers changed.
+  `RB-PHYSICS-001-FR-090` (partially implemented): fetching RocketSim's
+  current source confirms this port's flip-direction formula matches it
+  exactly, ruling out a porting error — the split is a genuine RocketSim-
+  vs-real-game gap. Re-measured on the unclamped first torque tick, two
+  independent, oppositely-signed pure-yaw dodges both show a fixed,
+  sign-independent right-axis contribution matching `FLIP_TORQUE_Y` to
+  within `0.3%` of the `FLIP_TORQUE_X`:`FLIP_TORQUE_Y` ratio. Fixed,
+  narrowly: a pure side dodge (no pitch) whose direction comes from yaw
+  now gets a fixed `+FLIP_TORQUE_Y` right-axis contribution; pure-roll
+  and diagonal dodges, and the wall-jump-dodge branch, are untouched.
+  Rotation divergence on `clean-dodge` drops `~26%`; position/velocity
+  move slightly the other way, a downstream landing-timing effect left
+  open. 3 new unit tests.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

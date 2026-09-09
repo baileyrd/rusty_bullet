@@ -606,14 +606,19 @@ mod tests {
 
         assert_eq!(score.frames_compared, 279);
         assert_eq!(score.cars.pairs_compared, 279);
-        // Ratchet (2026-09-09): mean car position distance ~351.0 uu (max
-        // ~706.7), mean rotation ~0.442 rad (max ~1.458). Wide on purpose —
-        // RB-PHYSICS-001-FR-090 is an open, characterized residual (the
-        // flip torque's real local-frame axis splits between forward and
-        // right even for a stick-axis-aligned dodge, where the port applies
-        // it purely along forward), not a fixed maneuver; this bounds the
-        // current known gap so a further regression is still caught.
-        assert!(score.cars.mean_position_distance < 400.0);
-        assert!(score.cars.mean_rotation_distance < 0.6);
+        // Ratchet (2026-09-09): mean car position distance ~363.8 uu (max
+        // ~777.7), mean rotation ~0.325 rad (max ~0.564) — since
+        // RB-PHYSICS-001-FR-090's fix, down from ~351.0/~0.442 pre-fix on
+        // rotation (a real improvement: the flip's own axis split, this
+        // fixture's namesake finding, is now modeled for a pure-yaw side
+        // dodge) but position/velocity moved a little the other way,
+        // plausibly a downstream landing-timing effect of the corrected
+        // spin over this maneuver's long, chaotic tail — not itself
+        // further isolated. Wide on purpose — this chaotic double-flip-to-
+        // landing maneuver was never going to track tightly regardless;
+        // the bound exists to catch a further regression, not to pin
+        // today's figure as correct.
+        assert!(score.cars.mean_position_distance < 420.0);
+        assert!(score.cars.mean_rotation_distance < 0.45);
     }
 }

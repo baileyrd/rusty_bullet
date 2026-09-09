@@ -80,6 +80,34 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The dodge's real axis, run to ground
+**2026-09-09** · `RB-PHYSICS-001-FR-090` (partially implemented)
+
+- Fetched RocketSim's own current source directly: its flip-direction
+  formula matches this port's, symbol for symbol. The split the
+  `clean_dodge04` capture showed isn't a translation mistake — it's a
+  genuine gap between RocketSim's own model and the real game.
+- Re-measured on the very first torque tick, before the game's angular-
+  speed cap can bend the direction: two independent, oppositely-signed
+  pure-yaw dodges both carry a fixed, sign-independent spin about the
+  car's own right axis, right where `FLIP_TORQUE_Y` would put it — the
+  same magnitude both times, despite very different spins already on
+  the car before either dodge. That rules out a coincidence of momentum
+  and points at something built into the yaw-triggered dodge itself.
+- Fixed, narrowly: a pure side dodge — no pitch held — whose direction
+  comes from yaw now picks up that same fixed right-axis kick the
+  recording shows, on top of the flip's existing forward-axis one.
+  Pure-roll dodges, diagonal dodges, and the separate wall-jump dodge
+  are all left exactly as they were — no real capture has tested any of
+  them for the same thing yet.
+- Rotation divergence on the `clean-dodge` fixture drops by about a
+  quarter. Position and velocity divergence move slightly the other
+  way instead — most likely the corrected spin changing exactly when
+  and how the car lands, later in this maneuver's already long, chaotic
+  tail. That residual isn't chased down here.
+
+---
+
 ## The dodge finally shows its real axis
 **2026-09-09** · `RB-PHYSICS-001-FR-090` (open, characterized)
 
