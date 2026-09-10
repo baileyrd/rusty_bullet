@@ -378,6 +378,23 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   both curve-entry fixtures, ruling it out as the reason one loses `24%`
   more and the other `9%`; the narrower cause stays open. No fixture
   numbers changed.
+  `RB-PHYSICS-001-FR-091` (open, characterized): `RB-PHYSICS-001-FR-084`/
+  `FR-085` finding 5 revisited. A direct geometric scan (raycasting every
+  recorded pose against the arena, independent of any simulation, cross-
+  referenced against each car's own input history) across all 7 vendored
+  raw clips disproves `FR-085`'s premise that every one-wheel landing in
+  `onewheellanding06` follows a dodge — several land `3`–`11+` seconds
+  after the nearest dodge press; that Non-goals bullet is corrected.
+  Tracing the cleanest dodge-free candidate to a tick-level trace instead
+  found a capture-side artifact: the recording's own `angular_velocity`
+  jumps `3`–`8` rad/s in a single tick while the car is provably airborne
+  (no wall/ball/ground within reach, orientation quaternion moving
+  smoothly across the same tick), confirmed directly in the raw JSON and
+  present `23`/`6`/`3`/`1` times across four jump/dodge-heavy clips and
+  `0` times across three pure-driving clips. New `dodge-free-landing`
+  fixture (`258` frames) with a ratchet test worded not to attribute its
+  divergence to either a landing-model bug or the artifact. Finding 5
+  itself remains open.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

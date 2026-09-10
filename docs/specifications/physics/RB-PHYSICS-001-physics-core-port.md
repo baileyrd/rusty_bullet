@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.113.0
+- Version: 0.114.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7466,8 +7466,11 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     K (at the time; resolved by `FR-089`), the dodge (`FR-083`), `FR-084`
     finding 4 (still without a
     wheels-down hit-tick jump at the time; resolved by `FR-086`, see
-    `FR-087`) and finding 5 (the clip's one-wheel
-    landings all follow dodges the port already misses).
+    `FR-087`) and finding 5 (isolating a dodge-free one-wheel landing in
+    this clip to test the suspension model alone — corrected by
+    `RB-PHYSICS-001-FR-091`: not every one-wheel landing here follows a
+    dodge after all, though a different capture defect blocks a clean
+    isolation anyway).
   - **Acceptance criteria.** Findings A, C, D and E implemented with
     tests; the three fixtures vendored with ratchets; the
     `dodge-derailment` ratchet tightened `< 120 → < 85`; F, I, J and K
@@ -7896,6 +7899,82 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
   - **Verification plan.** `479` tests in the workspace (`+3` unit tests
     in `rb_physics_bullet`; the existing `clean-dodge` fixture ratchet
     updated, no new fixture).
+- `RB-PHYSICS-001-FR-091` (a dodge-free one-wheel landing, and a capture
+  artifact that blocks it — `FR-084`/`FR-085` finding 5; open,
+  characterized): finding 5 was carried since `FR-085` as "the clip's
+  one-wheel landings all follow dodges the port already misses" — a
+  premise, not something actually checked frame-by-frame. Re-examined
+  directly with the same independent-of-simulation method `FR-087` used
+  for hit-tick jumps (`wheels::raycast_wheels` against each recorded
+  pose's own position and orientation, no port state involved) plus each
+  car's own recorded input history, scanning all `7` clips with vendored
+  raw footage for a `0`-wheel to `1`/`2`-wheel transition with no jump-
+  and-dodge input in the preceding several seconds.
+  - **The premise was wrong.** `onewheellanding06` alone has several
+    landings occurring `3`–`11+` seconds after the nearest dodge press —
+    clearly independent of any dodge residual, contrary to the prior
+    characterization. `RB-PHYSICS-001-FR-085`'s own Non-goals bullet
+    (which stated the premise) is corrected in place, not silently
+    reworded.
+  - **What blocks a clean isolation instead: a capture-side data
+    artifact.** The chosen dodge-free candidate (a plain ground jump,
+    ordinary air-control tilt — not a dodge — then a one-wheel-first
+    landing) scores a real divergence (mean position `22.2` uu, mean
+    rotation `0.144` rad over the excerpt), but tracing it tick-by-tick
+    found the recording's own `angular_velocity` jumping `3`–`8` rad/s in
+    a single tick at `t = 39.958`, while the car is still `~69` uu off
+    the ground with no wall, ball, or ground within reach — no possible
+    physical cause — and with the recorded orientation quaternion itself
+    changing smoothly across that same tick (ruling out a real rotation
+    event masquerading as this). Confirmed present in the raw JSON
+    directly, bypassing all Rust parsing, so not a tooling bug on this
+    port's side. At the same tick, `PhysicsWorld::car_wheels` shows the
+    simulated car with zero wheels in contact throughout `t = 39.9`–
+    `40.1` — it has not reached the ground yet — so the divergence this
+    fixture measures cannot be attributed to a landing/suspension-model
+    bug versus this artifact; the two are entangled.
+  - **The artifact is pervasive, and non-uniform.** The same direct-JSON
+    scan across the `7` vendored raw clips with real recorded data finds
+    `23` occurrences in `onewheellanding06.jsonl` (jump/dodge-heavy), `6`
+    in `hittickjump01b.jsonl`, `3` in `hittickjump01.jsonl`, `1` in
+    `walldrive04.jsonl`, and `0` in the three clips that are mostly pure
+    ground driving (`curverun05.jsonl`, `groundjumpthrottle03.jsonl`,
+    `wall_curve02.jsonl`) — the defect tracks jump/dodge/flip events
+    specifically, not the recording session or plugin version generally.
+    Plausible, not confirmed: a connection to `RB-PHYSICS-001-FR-085`'s
+    already-documented finding I (plugin 1.0's per-tick input read
+    landing stale for a car whose own `SetVehicleInput` firing hadn't
+    yet run that tick) — both are timing defects in the same recorder
+    generation, but finding I is about `ControllerInput` fields, not
+    `angular_velocity`, and no mechanism connecting the two has been
+    traced.
+  - **New fixture.** `dodge-free-landing.capture.jsonl` (`258` frames,
+    `t = 38.75`–`40.8917`, sliced from `onewheellanding06.jsonl`): a
+    grounded neutral seed, a plain ground-jump press (no dodge), an
+    ordinary air-control tilt during the resulting arc, the one-wheel-
+    first landing, and full settle. Vendored with a ratchet test whose
+    comment states plainly that the bound exists to catch a regression,
+    not to attribute the divergence to either a landing-model bug or the
+    artifact.
+  - **Non-goals (this requirement).** Confirming the artifact's exact
+    root cause in the plugin 1.0 recorder (only its tick and its
+    non-uniform distribution are established); a plugin-1.1 re-capture of
+    a similar maneuver, which would be the actual way to isolate finding
+    5 cleanly; the clip's other one-wheel landings (several dodge-free
+    candidates were found in the scan and not all examined); whether the
+    artifact appears in `clean-dodge04`'s own dodges (not checked, since
+    that clip predates this scan's method).
+  - **Acceptance criteria.** The prior "all follow a dodge" premise
+    checked directly against recorded data and corrected where it was
+    wrong; the artifact's presence demonstrated with a concrete tick, its
+    non-physical nature ruled in three independent ways (position,
+    absence of any contactable surface, and the orientation quaternion's
+    own smooth path), and its distribution measured across every
+    available clip; one new fixture with a ratchet test that does not
+    overclaim what it measures; finding 5 left open, honestly, rather
+    than forced to a premature close.
+  - **Verification plan.** `480` tests in the workspace (`+1` fixture
+    ratchet in `rb_verify_cli`).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -9385,6 +9464,27 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.114.0 (2026-09-10): `RB-PHYSICS-001-FR-091` added — `FR-084`/`FR-085`
+  finding 5 revisited (open, characterized). Directly scanned all 7
+  vendored raw clips (geometric wheel-contact raycast against recorded
+  poses, independent of any simulation, cross-referenced against each
+  car's own recorded input) for a dodge-free one-wheel landing:
+  `FR-085`'s premise that every one-wheel landing in `onewheellanding06`
+  follows a dodge was wrong — several land `3`–`11+` seconds after the
+  nearest dodge press. Chasing the cleanest candidate down to a tick-
+  level trace found a different blocker instead: the recording's own
+  `angular_velocity` jumps `3`–`8` rad/s in a single tick while the car
+  is provably airborne (no wall/ball/ground within reach, and the
+  recorded orientation quaternion itself moves smoothly across the same
+  tick) — a capture-side artifact, not a physics-model gap, confirmed in
+  the raw JSON directly. Present `23`/`6`/`3`/`1` times across four
+  jump/dodge-heavy clips and `0` times across three pure-driving clips.
+  New `dodge-free-landing.capture.jsonl` fixture (`258` frames) with a
+  ratchet test worded not to attribute its divergence to either
+  explanation. `FR-085`'s own Non-goals bullet corrected in place.
+  Finding 5 remains open — a clean isolation now needs a plugin-1.1
+  re-capture, not just a dodge-free excerpt of what's already vendored.
+  480 tests in the workspace (`+1` fixture ratchet in `rb_verify_cli`).
 - 0.113.0 (2026-09-09): `RB-PHYSICS-001-FR-088` refined again (still
   open, characterized): instrumented `PhysicsWorld::car_wheels`
   tick-by-tick through both curve-entry clips. At `v≈2300` uu/s around

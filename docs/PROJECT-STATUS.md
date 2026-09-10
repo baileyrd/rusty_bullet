@@ -2375,6 +2375,26 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-091` added, open and characterized — `FR-084`/
+  `FR-085` finding 5 revisited. Directly scanned all 7 vendored raw clips
+  (geometric wheel-contact raycast against recorded poses, independent of
+  simulation, cross-referenced against each car's own input) for a
+  dodge-free one-wheel landing: `FR-085`'s premise that every one-wheel
+  landing in `onewheellanding06` follows a dodge was wrong — several land
+  `3`–`11+` seconds after the nearest dodge press; that Non-goals bullet
+  is corrected in place. Chasing the cleanest candidate to a tick-level
+  trace found a different blocker: the recording's own `angular_velocity`
+  jumps `3`–`8` rad/s in a single tick while the car is provably airborne
+  (no wall/ball/ground within reach, orientation quaternion moving
+  smoothly across the same tick) — a capture-side artifact, confirmed
+  directly in the raw JSON, present `23`/`6`/`3`/`1` times across four
+  jump/dodge-heavy clips and `0` times across three pure-driving clips.
+  New `dodge-free-landing.capture.jsonl` fixture (`258` frames) with a
+  ratchet test worded not to attribute its divergence to either
+  explanation. Finding 5 remains open — a clean isolation now needs a
+  plugin-1.1 re-capture, not just a dodge-free excerpt of what's already
+  vendored. Workspace tests `479 → 480`. Full workspace
+  `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-086` added and implemented — `FR-085` finding F, the
   wall-curve transition: `FILLET_RADIUS` `292 → 270` from three
   independent capture fits (the low-load ride along the fillet `263–270`,
@@ -2760,9 +2780,20 @@
    car's angular-speed cap can't keep pace with the fillet's own
    kinematic reorientation demand at this speed — but that mechanism
    is present at comparable magnitude in both curve-entry clips,
-   ruling it out as the reason one loses `24%` and the other `9%`. Next:
-   isolate that narrower asymmetry, the dodge's landing-timing residual,
-   then `FR-084` finding 5 and `FR-085` findings I/J.
+   ruling it out as the reason one loses `24%` and the other `9%`.
+   `RB-PHYSICS-001-FR-084`/`FR-085` finding 5 was then revisited as
+   `FR-091` (open): a direct scan disproved the premise that every
+   one-wheel landing in `onewheellanding06` follows a dodge, but tracing
+   the cleanest dodge-free candidate found a capture-side
+   `angular_velocity` discontinuity artifact contaminating the recording
+   itself mid-flight, blocking a clean isolation regardless — the
+   artifact recurs non-uniformly across the jump/dodge-heavy clips and
+   is absent from the pure-driving ones, plausibly (not confirmed)
+   related to `FR-085`'s finding I. Next: isolate `FR-088`'s narrower
+   curve-entry asymmetry, the dodge's landing-timing residual, then
+   `FR-085` findings I/J and, if a plugin-1.1 re-capture of a dodge-free
+   one-wheel landing becomes available, finish `FR-091`/finding 5 with
+   it.
 
 ## Validation
 
@@ -3173,6 +3204,27 @@
   check: `v / FILLET_RADIUS ≈ 2300 / 270 ≈ 8.5` rad/s against
   `MAX_CAR_ANGULAR_SPEED = 5.5` explains why the wheel keeps
   re-penetrating tick after tick rather than settling immediately.
+- `RB-PHYSICS-001-FR-091` dodge-free-landing scan and trace (2026-09-10,
+  this sandbox): a geometric raycast of every recorded pose across all 7
+  vendored raw clips (`onewheellanding06`, `hittickjump01`,
+  `hittickjump01b`, `walldrive04`, `curverun05`, `groundjumpthrottle03`,
+  `wall_curve02`), cross-referenced against each car's own recorded input
+  history, found multiple `0`-wheel-to-`1`/`2`-wheel landing transitions
+  occurring `3`–`11+` seconds after the nearest jump-and-dodge press.
+  `dodge-free-landing.capture.jsonl` (`258` frames, `t=38.75`–`40.8917`)
+  whole-run score: `frames compared: 258, mean car position/rotation
+  distance: 22.16 uu / 0.144 rad` (max `81.7` uu / `0.84` rad).
+  `PhysicsWorld::car_wheels(0)` read back tick-by-tick shows zero wheels
+  in contact throughout `t=39.9`–`40.1`. Direct inspection of the
+  recording's own `angular_velocity` field at `t=39.958` finds a
+  `3`–`8` rad/s single-tick jump with the car's recorded position still
+  `~69` uu off the ground and its recorded orientation quaternion
+  changing smoothly across the same tick. A direct Python scan of the
+  raw JSON (bypassing all Rust parsing) counts this same discontinuity
+  pattern `23` times in `onewheellanding06.jsonl`, `6` in
+  `hittickjump01b.jsonl`, `3` in `hittickjump01.jsonl`, `1` in
+  `walldrive04.jsonl`, and `0` times each in `curverun05.jsonl`,
+  `groundjumpthrottle03.jsonl`, and `wall_curve02.jsonl`.
 
 ## Risks and decisions needed
 

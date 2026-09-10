@@ -197,3 +197,37 @@ whether the same bias applies to a pure-roll or diagonal dodge, and the
 small downstream landing-timing residual the fix's own position/velocity
 numbers hint at all remain open. The whole clip is kept untrimmed under
 `raw/` as `clean_dodge04.jsonl`.
+
+## `dodge-free-landing.capture.jsonl`
+
+A **real, 258-frame excerpt** (`t=38.75s` through `t=40.8917s`) sliced
+from `onewheellanding06.jsonl` (the second capture session): a grounded,
+neutral seed, a plain ground-jump press with no dodge (`jump = true`,
+`pitch = yaw = roll = 0`), an ordinary air-control tilt during the
+resulting arc (stick input while `jump = false` — ordinary air control,
+not a dodge), a one-wheel-first landing, and full settle. Picked by
+`RB-PHYSICS-001-FR-091` to test `RB-PHYSICS-001-FR-084`/`FR-085` finding
+5 (the one-wheel-landing/suspension model) in isolation from the dodge
+residual (`FR-083`) — this excerpt genuinely has no dodge in it, a real
+correction to `FR-085`'s prior premise that every one-wheel landing in
+this clip followed one. Seeds on its first grounded, neutral frame. It
+does not settle the question: tracing this excerpt tick-by-tick found the
+recording's own `angular_velocity` jumping `3`–`8` rad/s in one tick at
+`t=39.958`, while the car is still airborne (`~69` uu up, no wall/ball/
+ground within reach) and its recorded orientation quaternion moves
+smoothly across that same tick — a capture-side artifact, not a real
+rotation event, confirmed directly in the raw JSON. `PhysicsWorld::
+car_wheels` shows the simulated car with zero wheels down through
+`t=39.9`–`40.1`, so this fixture's own divergence (`22.2` uu mean
+position, `0.144` rad mean rotation) cannot be attributed to a
+landing-model bug versus this artifact — see
+`rb_verify_cli::tests::a_dodge_free_one_wheel_landing_is_contaminated_by_a_capture_artifact`.
+The same artifact recurs `23` times across the whole `onewheellanding06.jsonl`
+clip, `6` times in `hittickjump01b.jsonl`, `3` in `hittickjump01.jsonl`,
+and once in `walldrive04.jsonl`, but not at all in the three clips that
+are mostly pure ground driving (`curverun05.jsonl`,
+`groundjumpthrottle03.jsonl`, `wall_curve02.jsonl`) — tied to jump/dodge/
+flip events specifically, not yet traced to a root cause in the plugin
+1.0 recorder. Finding 5 itself remains open; a clean isolation now needs
+a plugin-1.1 re-capture of a similar maneuver, not just a dodge-free
+excerpt of what's already vendored.

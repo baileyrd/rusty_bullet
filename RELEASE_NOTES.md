@@ -6,6 +6,38 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## A dodge-free landing, and a glitch in the recording
+**2026-09-10** · `RB-PHYSICS-001-FR-091` (open, characterized)
+
+- `RB-PHYSICS-001-FR-084`/`FR-085` finding 5 revisited: the premise
+  carried since `FR-085` — "every one-wheel landing in `onewheellanding06`
+  follows a dodge" — was never actually checked frame by frame. Directly
+  scanned every recorded pose in all 7 vendored raw clips (a geometric
+  wheel-contact raycast, independent of any simulation) cross-referenced
+  against each car's own recorded input history, and found several
+  one-wheel landings `3`–`11+` seconds after the nearest dodge press —
+  the premise was wrong, and `FR-085`'s own Non-goals bullet is corrected
+  in place.
+- Tracing the cleanest dodge-free candidate down to a tick-level trace
+  found a different blocker instead: the recording's own
+  `angular_velocity` jumps `3`–`8` rad/s in a single tick while the car
+  is provably airborne — no wall, ball, or ground within reach — with its
+  recorded orientation quaternion moving smoothly across that same tick.
+  Confirmed directly in the raw JSON, bypassing all Rust parsing: a
+  capture-side artifact, not a physics-model bug.
+- The artifact is pervasive but not uniform: `23` occurrences in the
+  jump/dodge-heavy `onewheellanding06.jsonl`, `6` in `hittickjump01b`,
+  `3` in `hittickjump01`, `1` in `walldrive04`, and `0` across the three
+  clips that are mostly pure ground driving — tracking jump/dodge/flip
+  events specifically, not yet traced to a root cause in the recorder.
+- New `dodge-free-landing.capture.jsonl` fixture (`258` frames) with a
+  ratchet test worded not to attribute its divergence to either a
+  landing-model bug or the artifact. Finding 5 itself remains open — a
+  clean isolation now needs a plugin-1.1 re-capture, not just a
+  dodge-free excerpt of what's already vendored.
+
+---
+
 ## The car sinks into the wall curve as recorded
 **2026-09-06** · `RB-PHYSICS-001-FR-086`
 

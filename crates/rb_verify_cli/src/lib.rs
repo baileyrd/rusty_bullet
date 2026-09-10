@@ -254,6 +254,13 @@ mod tests {
         )
     }
 
+    fn dodge_free_landing_fixture() -> &'static str {
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../rb_capture_ingest/fixtures/dodge-free-landing.capture.jsonl"
+        )
+    }
+
     #[test]
     fn scores_a_real_replay_against_the_synthetic_capture_fixture() {
         let score = score_replay_against_capture(
@@ -620,5 +627,34 @@ mod tests {
         // today's figure as correct.
         assert!(score.cars.mean_position_distance < 420.0);
         assert!(score.cars.mean_rotation_distance < 0.45);
+    }
+
+    #[test]
+    fn a_dodge_free_one_wheel_landing_is_contaminated_by_a_capture_artifact() {
+        let score = score_capture_against_candidate(
+            dodge_free_landing_fixture(),
+            DEFAULT_MAX_TIMESTAMP_DELTA_SECS,
+        )
+        .unwrap();
+
+        assert_eq!(score.frames_compared, 258);
+        assert_eq!(score.cars.pairs_compared, 258);
+        // Ratchet (2026-09-10): mean car position distance ~22.2 uu (max
+        // ~81.7), mean rotation ~0.144 rad (max ~0.84) over a plain ground
+        // jump -> ordinary air-control tilt (no dodge) -> one-wheel-first
+        // landing, picked to isolate RB-PHYSICS-001-FR-084 finding 5 (the
+        // port's one-wheel-landing/suspension model) away from dodge
+        // contamination. It does that — this excerpt has no dodge — but
+        // RB-PHYSICS-001-FR-091 found the recording itself glitches at
+        // t=39.958, mid-flight, ~69uu off the ground: recorded
+        // angular_velocity jumps 3-8 rad/s in one tick with no possible
+        // physical cause (no wall/ball/ground reachable) while the recorded
+        // orientation quaternion itself changes smoothly across the same
+        // tick, and the simulated car has zero wheels in contact throughout
+        // t=39.9-40.1. So this divergence cannot be attributed to a
+        // landing-model bug versus the capture defect; bounded loosely to
+        // catch a further regression, not to claim either conclusion.
+        assert!(score.cars.mean_position_distance < 40.0);
+        assert!(score.cars.mean_rotation_distance < 0.25);
     }
 }
