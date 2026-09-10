@@ -543,6 +543,17 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   data-provenance gap, not a physics bug, and now a general caveat: no
   currently-vendored fixture can calibrate this port's own
   boost-consumption model.
+  `RB-PHYSICS-001-FR-088` finding 10: the same unlimited-boost mismatch
+  found on a second, unrelated fixture. `RB-PHYSICS-001-FR-087`'s own
+  `hit-tick-jump.capture.jsonl` holds boost continuously for `3.53` s,
+  nearly its whole excerpted window; re-simulated and traced tick-by-
+  tick, the `vz` divergence grows to a peak of `+70.69` uu/s at the exact
+  tick the port's simulated boost first reads `0.00` (`3.0083` s into the
+  hold, matching the modeled `~3.003` s drain time almost exactly), then
+  flips sign and explodes past `-210` uu/s — consistent with this
+  fixture's own already-recorded `305.84` uu/s max whole-run divergence.
+  Retracts `FR-087`'s own "not a new mechanism... continuing to
+  accumulate" framing of that residual. No code change.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

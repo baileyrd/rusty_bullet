@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.123.0
+- Version: 0.124.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7587,7 +7587,11 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     sample. This is `RB-PHYSICS-001-FR-085` finding E's own residual
     (`+2.7` uu/s from the wheels letting go one tick early) continuing
     to accumulate through an extended climb, not a new mechanism — left
-    as read, the same as that finding.
+    as read, the same as that finding. **Correction (`RB-PHYSICS-001-
+    FR-088` finding 10):** traced further than "six ticks out," this
+    residual does not simply keep accumulating from finding E alone —
+    it is dominated, from partway through the clip onward, by the same
+    unlimited-boost mismatch finding 9 identifies. See finding 10.
   - **New fixture.** `hit-tick-jump.capture.jsonl` (492 frames,
     `t = 43.808`–`47.900`, the cleanest of the three: the ball starts
     at rest, the car presses jump `3` ticks before contact with all
@@ -7859,6 +7863,50 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
       *suspect* for boost-dependent divergence until confirmed otherwise
       — a general caveat, not specific to wall-climbing, now also
       recorded in `RB-VERIFY-002`.
+  - **10. The same root cause reaches a second, unrelated fixture:
+    `RB-PHYSICS-001-FR-087`'s "small residual" was actually this
+    (confirmed).** `FR-087`'s own `hit-tick-jump.capture.jsonl` holds
+    `input.boost = True` continuously from `t=43.8167` to `t=47.35`
+    (`3.53` s) — nearly its entire `43.808`–`47.900` excerpted window,
+    well past the `~3` s a real tank can sustain. Re-simulating from the
+    fixture's own seed and tracing `vz` alongside the port's own
+    simulated `boost_amount` tick-by-tick: the hit-tick spike `FR-087`
+    finding 4 already accounts for is untouched by this (`i=312`,
+    `t=46.4167`, `rec_vz=294.7` vs `sim_vz=187.4`, simulated boost still
+    `13.42`, well above zero). Immediately after it the divergence
+    shrinks to `+6.87` uu/s (`i=318`) and then grows — not linearly, as
+    the "continuing to accumulate" framing above assumed, but tracking
+    the simulated tank's own drain — to a peak of `+70.69` uu/s at
+    `i=361`, `t=46.8250`, the exact tick the port's simulated boost
+    first reads `0.00` (`46.8250 - 43.8167 = 3.0083` s of continuous
+    holding, matching the modeled `BOOST_USED_PER_SECOND ≈ 33.3`'s
+    `100 / 33.3 ≈ 3.003` s drain time almost exactly). From that tick on
+    the sign flips: the divergence shrinks back through zero (crossing
+    between `i=378`, `+4.94`, and `i=384`, `-20.76`) and then grows
+    increasingly negative, reaching `-210.83` at `i=426` (`t=47.3667`)
+    and holding in the `-203`-to-`-210` range through the rest of the
+    traced window — consistent with, and a plausible source of, this
+    fixture's own already-recorded `305.84` uu/s max whole-run velocity
+    divergence, previously attributed only to "the excerpt runs a full
+    arc" with no mechanism identified. This is finding 9's mechanism, on
+    a completely different fixture: the recorded car, boosting with no
+    real tank to drain, keeps applying boost-level force through the
+    climb, while the port's own car — correctly modeling a finite
+    standard-match tank — runs dry mid-climb and falls back on
+    `RB-PHYSICS-001-FR-058`'s throttle taper alone, which does not drive
+    vertical/airborne `vz` the way boost does, so it decelerates and
+    falls away from the still-boosted recording. `FR-087`'s own "not a
+    new mechanism... continuing to accumulate through an extended
+    climb" framing of this residual is **retracted**: the small `2`–`3`
+    uu/s per-tick effect it correctly attributes to `RB-PHYSICS-001-
+    FR-085` finding E is real for the few ticks right after the hit, but
+    the residual does not simply keep accumulating from that alone — it
+    is dominated, from the moment the simulated tank empties onward, by
+    this same unlimited-boost mismatch. No port bug: the port's finite
+    boost model is again the correct standard-match behavior;
+    `hit-tick-jump.capture.jsonl` is added to the "no currently-vendored
+    fixture can calibrate boost-consumption" caveat this finding's
+    Non-goals bullet already states.
   - **New fixture.** `wall-climb-crest.capture.jsonl` (`824` frames,
     `t=13.142`–`20.000`), seeded on its first grounded, neutral frame,
     with a ratchet test bounding the current divergence loosely (it is
@@ -7879,7 +7927,10 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     wall-climb events in `wall_curve02` (two throttle-only climbs, a
     boost run into the `+X` wall, and one with boost engaged mid-climb),
     not yet excerpted; `RB-PHYSICS-001-FR-084` finding 5;
-    `RB-PHYSICS-001-FR-085`'s findings I, J and K.
+    `RB-PHYSICS-001-FR-085`'s findings I, J and K; re-scoring
+    `hit-tick-jump.capture.jsonl`'s own ratchet bound now that finding 10
+    identifies why it was already loose (`FR-087` left it as-is
+    deliberately, and the mechanism does not change the recording).
   - **Acceptance criteria.** The fillet-selection hypothesis tested and
     ruled out with a reproducible probe; the speed-decay discrepancy
     measured and documented; the transition-tick-count hypothesis tested
@@ -7896,7 +7947,11 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     currently-vendored fixture can calibrate boost-consumption behavior)
     stated as a reusable finding, not scoped only to this one maneuver;
     one new fixture with a ratchet test bounding (not fixing) the current
-    divergence.
+    divergence; the same mechanism traced on a second, independent
+    fixture (`FR-087`'s `hit-tick-jump.capture.jsonl`) with exact tick
+    numbers pinning the simulated-tank-empty moment to the sign flip, and
+    `FR-087`'s own "not a new mechanism" framing of that residual
+    explicitly retracted rather than left standing.
   - **Verification plan.** `480` tests in the workspace, unchanged
     (documentation only; no fixture or code change this pass).
 - `RB-PHYSICS-001-FR-089` (the goal mouth's phantom fillet — `FR-085`
@@ -9965,6 +10020,26 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.124.0 (2026-09-10): `RB-PHYSICS-001-FR-088` finding 10 (the same
+  unlimited-boost mismatch found on a second, unrelated fixture):
+  `RB-PHYSICS-001-FR-087`'s own `hit-tick-jump.capture.jsonl` holds
+  boost continuously for `3.53` s, nearly its whole excerpted window.
+  Re-simulated and traced tick-by-tick, the port's `vz` divergence
+  grows to a peak of `+70.69` uu/s at the exact tick the port's own
+  simulated boost first reads `0.00` (`46.8250 - 43.8167 = 3.0083` s
+  into the hold, matching the modeled `100 / 33.3 ≈ 3.003` s drain time
+  almost exactly), then flips sign and explodes to `-210.83` uu/s and
+  beyond — consistent with this fixture's own already-recorded `305.84`
+  uu/s max whole-run divergence, previously attributed only to "the
+  excerpt runs a full arc." **Retracts** `FR-087`'s "not a new
+  mechanism... continuing to accumulate through an extended climb"
+  framing of this residual: the small `RB-PHYSICS-001-FR-085` finding E
+  effect it named is real for a few ticks after the hit, but the
+  residual is dominated from the tank-empty tick onward by finding 9's
+  unlimited-boost mismatch, on a fixture from a different capture
+  session than `wall-climb-crest`. No code change: same non-goal as
+  finding 9, extended to this fixture. Workspace tests unchanged at
+  `480`.
 - 0.123.0 (2026-09-10): `RB-PHYSICS-001-FR-088` finding 9 (root cause
   identified, not a port defect): the project owner confirmed the
   `wall_curve02` freeplay session (and, by extension, every other

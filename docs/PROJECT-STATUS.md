@@ -2375,6 +2375,26 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-088` finding 10 (the same unlimited-boost mismatch
+  found on a second, unrelated fixture) — `RB-PHYSICS-001-FR-087`'s own
+  `hit-tick-jump.capture.jsonl` holds boost continuously for `3.53` s,
+  nearly its entire `43.808`–`47.900` excerpted window. Re-simulated and
+  traced tick-by-tick, the port's `vz` divergence grows to a peak of
+  `+70.69` uu/s at `i=361`, `t=46.8250` — the exact tick the port's own
+  simulated boost first reads `0.00` (`3.0083` s into the hold, matching
+  the modeled `100 / 33.3 ≈ 3.003` s drain time almost exactly) — then
+  flips sign and explodes to `-210.83` uu/s by `i=426` and beyond,
+  consistent with this fixture's own already-recorded `305.84` uu/s max
+  whole-run velocity divergence (previously attributed only to "the
+  excerpt runs a full arc," no mechanism identified). **Retracts**
+  `FR-087`'s own "not a new mechanism... continuing to accumulate
+  through an extended climb" framing of that residual: the small `2`-`3`
+  uu/s `FR-085` finding E effect it named is real for a few ticks after
+  the hit, but the residual is dominated from the tank-empty tick onward
+  by finding 9's unlimited-boost mismatch, now confirmed on a second
+  fixture from a different capture session. No code change: same
+  non-goal as finding 9, extended to this fixture. Workspace tests
+  unchanged at `480`. Full workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-088` finding 9 (root cause identified, not a port
   defect) — the project owner confirmed the `wall_curve02` freeplay
   session (and every other vendored fixture from that same session) was
@@ -3031,8 +3051,15 @@
    contact-pattern lag too. Findings 7/8's "capture-fidelity bug"
    framing for `boost_amount` is retracted (it is accurate telemetry
    under unlimited boost, not a plugin defect) — corrected in
-   `RB-VERIFY-002` as well. No port bug; root cause identified. Next:
-   keep hunting the actual mechanism behind `FR-094`'s
+   `RB-VERIFY-002` as well. No port bug; root cause identified. Checked
+   whether this same unlimited-boost mismatch also explained a second,
+   previously-documented residual: `FR-087`'s own `hit-tick-jump`
+   fixture holds boost continuously for `3.53` s, and re-tracing it found
+   the identical signature — a growing divergence peaking the instant
+   simulated boost hits `0.00`, then a sign flip and explosion past
+   `-210` uu/s — confirming `FR-087`'s own "not a new mechanism" framing
+   of that residual was wrong too, now retracted (`FR-088` finding 10).
+   Next: keep hunting the actual mechanism behind `FR-094`'s
    `n=4`-corroborated sign-anti-correlation pattern, then `FR-085`
    findings I/J and, if a plugin-1.1 re-capture of a dodge-free one-wheel
    landing becomes available, finish `FR-091`/finding 5 with it.
@@ -3593,6 +3620,47 @@
   superseded** — it was wrong, not just incomplete. No port code change:
   the port's finite-boost model is correct standard-match behavior; the
   gap is a data-provenance mismatch, not a physics bug.
+- `RB-PHYSICS-001-FR-088` finding 10, same root cause on a second fixture
+  (2026-09-10, this sandbox): scanned every vendored `.capture.jsonl`
+  fixture for its longest continuous `input.boost = True` run, looking
+  for other clips exceeding the `~3` s a real standard-match tank
+  sustains. `hit-tick-jump.capture.jsonl` (`FR-087`'s own fixture) holds
+  boost from `t=43.8167` to `t=47.35` (`3.53` s) — nearly its whole
+  `43.808`–`47.900` excerpt. Re-simulated from the fixture's own seed
+  frame with `PhysicsWorld::from_frame` plus the exact `set_car_input`/
+  `step` loop `world::simulate_recorded` uses, tracing recorded-vs-
+  simulated `vz` and the port's own simulated `boost_amount` every tick:
+  the hit-tick spike `FR-087` finding 4 already accounts for is
+  untouched (`i=312`, `t=46.4167`, `rec_vz=294.7` vs `sim_vz=187.4`,
+  simulated boost still `13.42`). Immediately after, the divergence
+  shrinks to `+6.87` uu/s (`i=318`) then grows tick over tick — `+10.48,
+  +14.52, +30.73, +39.28, +48.68, +59.45, +61.03, +62.61, +64.21, +65.82,
+  +67.43` — peaking at `+69.05` (`i=360`, simulated boost `0.10`) and
+  `+70.69` (`i=361`, `t=46.8250`, simulated boost exactly `0.00` for the
+  first time — `46.8250 - 43.8167 = 3.0083` s into the hold, matching the
+  modeled `BOOST_USED_PER_SECOND ≈ 33.3`'s `100 / 33.3 ≈ 3.003` s drain
+  time almost exactly). From that tick the sign flips: the divergence
+  shrinks back through zero between `i=378` (`+4.94`, `t=46.9667`) and
+  `i=384` (`-20.76`, `t=47.0167`), then grows increasingly negative —
+  `-47.44, -74.96, -103.18, -131.98, -161.29, -191.02` — reaching
+  `-210.83` at `i=426` (`t=47.3667`) and holding roughly `-203` to `-210`
+  through the rest of the traced window (`i=486`, `t=47.8667`,
+  `-203.20`), consistent with (and a plausible source of) this fixture's
+  own already-recorded `305.84` uu/s max whole-run velocity divergence.
+  Mechanism: identical to finding 9 — the recorded car, with no real
+  tank to drain, keeps applying boost-level force through the climb; the
+  port's own car correctly drains its finite standard-match tank and
+  falls back on `RB-PHYSICS-001-FR-058`'s throttle taper alone, which
+  does not drive vertical/airborne `vz`, so it decelerates and falls away
+  from the still-boosted recording once the tank empties. This retracts
+  `FR-087`'s own "not a new mechanism... continuing to accumulate through
+  an extended climb" framing of its documented small residual: the small
+  `2`-`3` uu/s `FR-085` finding E effect it names is real for the few
+  ticks right after the hit, but the residual is dominated from the
+  tank-empty tick onward by this same unlimited-boost mismatch. No port
+  bug; no code change. Temp probe
+  `crates/rb_verify_cli/examples/hittickjump_boost_probe.rs` deleted
+  after use.
 - `RB-PHYSICS-001-FR-094` dodge-direction re-simulation (2026-09-10, this
   sandbox): `clean-dodge.capture.jsonl` re-seeded via
   `PhysicsWorld::from_frame` and stepped tick-by-tick with recorded

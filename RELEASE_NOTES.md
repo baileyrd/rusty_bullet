@@ -6,6 +6,31 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The unlimited-boost bug wasn't just in one recording
+**2026-09-10** · `RB-PHYSICS-001-FR-088` finding 10
+
+- After nailing down the unlimited-boost explanation on one recording,
+  checked whether it explained a *different*, previously-unsolved oddity
+  in a completely separate recording — a hit-and-jump clip that had its
+  own small, unexplained wobble on record since it was first added.
+- It's the same thing. That clip holds boost down for 3.5 seconds
+  straight, almost the whole recording — way past what a real match tank
+  can hold. Traced it tick by tick: the simulated car's tank runs dry at
+  almost exactly the 3-second mark you'd expect, and right at that
+  moment the small wobble turns into a real problem — the two cars'
+  vertical speeds go from close, to way apart, to *opposite direction*
+  apart, by over 200 units/second.
+- That means an earlier write-up calling this "just the same small
+  effect from before, still adding up" was wrong. It wasn't the old
+  effect adding up — a second, bigger, unrelated effect was hiding
+  behind it the whole time, and it only got caught by tracing further
+  than "a few ticks out." That earlier explanation is now corrected on
+  the record too.
+- Same bottom line as before: nothing to fix in the physics. This clip's
+  recording just wasn't playing by standard-match rules either, so it
+  can't be used to check anything boost-related — and now that's flagged
+  on both clips affected by this, not just one.
+
 ## Solved: the recordings had unlimited boost turned on
 **2026-09-10** · `RB-PHYSICS-001-FR-088` (root cause identified, not a
 port defect)
