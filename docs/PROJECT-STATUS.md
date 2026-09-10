@@ -2375,6 +2375,20 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-088` finding 12 — applied finding 7's own geometric
+  wheel-contact-pattern method (raycast the recorded pose directly, no
+  simulation) to finding 11's two boost-free climbs. Both show the same
+  simulated front/rear-wheel curve-entry lag finding 7 found on
+  `wall-climb-crest` (`1` tick late each); the `+X` climb also exits `1`
+  tick early, for a net `2`-tick (`≈5%`) shorter simulated dwell time in
+  `curve` contact overall. This gives finding 11's boost-independent,
+  port-loses-less asymmetry a plausible mechanism for the first time —
+  fewer/differently-timed ticks of `WheelState::extra_pushback`'s
+  hard-stop correction firing means less speed shed, in the observed
+  direction — but the magnitudes don't line up simply (`≈5%` dwell-time
+  gap vs. `48%` speed-loss gap), so this is qualitative, not yet a
+  quantitative closure. No code change. Workspace tests unchanged at
+  `480`. Full workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-088` finding 11 — **corrects finding 9's "nothing to
   fix here" conclusion.** Of the four un-excerpted `wall_curve02`
   wall-climb events, two are genuinely boost-free (no `input.boost=True`
@@ -3109,14 +3123,23 @@
    mechanism — most likely `FR-084` finding 5's own long-unisolated
    per-tick curve-loss driver — is also real, comparably large, and
    still unisolated; FR-088 is reopened from "root cause identified" to
-   "partially identified." Next: isolate finding 11's own mechanism
-   (apply finding 7's geometric wheel-contact-pattern method to the two
-   boost-free climbs, and check the other two un-excerpted events, one
-   with boost released before the curve and one with a brief mid-climb
-   boost re-engagement, as intermediate data points); then keep hunting
-   `FR-094`'s `n=4`-corroborated sign-anti-correlation pattern; `FR-085`
-   finding I (a documentation-only capture-defect note, already fully
-   explained — lowest priority); and, if a plugin-1.1 re-capture of a
+   "partially identified." Applied finding 7's own geometric
+   wheel-contact-pattern method to both boost-free climbs (finding 12):
+   the same simulated curve-entry lag finding 7 found on
+   `wall-climb-crest` (`1` tick late) reproduces on both, and the `+X`
+   climb also exits the curve `1` tick early, for a net `≈5%` shorter
+   simulated dwell time in curve contact — a plausible, directionally-
+   consistent mechanism for finding 11's asymmetry, but not yet a
+   quantitative one (`≈5%` dwell-time gap vs. `48%` speed-loss gap).
+   Next: an actual force/impulse accounting of the contact-pattern lag
+   (not just a tick count) to see whether it can close that magnitude
+   gap; the `-X` climb's own curve-exit timing (not captured in the
+   checked window); the other two un-excerpted `wall_curve02` events,
+   one with boost released before the curve and one with a brief
+   mid-climb boost re-engagement, as intermediate data points; then keep
+   hunting `FR-094`'s `n=4`-corroborated sign-anti-correlation pattern;
+   `FR-085` finding I (a documentation-only capture-defect note, already
+   fully explained — lowest priority); and, if a plugin-1.1 re-capture of a
    dodge-free one-wheel landing becomes available, finish `FR-091`/
    finding 5 with it.
 
@@ -3851,6 +3874,36 @@
   mechanism is real and still unisolated. Temp probes
   `crates/rb_verify_cli/examples/throttle_climb_probe.rs` and
   `throttle_climb_probe2.rs` deleted after use.
+- `RB-PHYSICS-001-FR-088` contact-pattern-lag check (2026-09-10, this
+  sandbox): applied finding 7's exact method to finding 11's two
+  boost-free climbs — for each tick, build a fresh
+  `PhysicsWorld::from_frame` from the recorded pose alone (no
+  simulation), a `StaticScene` from its own `ground`/`walls`/`curves`/
+  `corner_fillets`/`goal_walls`/`bounded_walls` fields, and call
+  `wheels::raycast_wheels` directly to classify each wheel
+  floor/curve/wall/airborne by `contact_normal.z`; compare against the
+  same classification from `PhysicsWorld::car_wheels` on the actual
+  simulated run. `+X` climb: simulated front wheels enter `curve`
+  contact at `t=25.5667` vs the recording's `t=25.5583` (`1` tick late);
+  simulated rear wheels likewise (`t=25.6250` vs `25.6167`); the
+  simulated car then reaches full `wall` contact on all four wheels at
+  `t=25.8583`, one tick *before* the recording's `t=25.8667` — recording
+  spends `37` ticks with any wheel in `curve` contact
+  (`t=25.5583`–`25.8583`), the port only `35`
+  (`t=25.5667`–`25.8500`). `-X` climb: the same `1`-tick entry lag holds
+  at every stage (one wheel touching, two wheels, all four); the printed
+  window ends before either car fully clears the curve, so the exit side
+  isn't checked here. Net: the same lag finding 7 found on
+  `wall-climb-crest` (there judged "real but small... not obviously
+  large enough to carry" the asymmetry) reproduces on two independent
+  boost-free climbs and gives finding 11 a directionally-consistent
+  mechanism — fewer curve-contact ticks, less `extra_pushback`
+  correction, less speed shed — but a `2`-tick/`37`-tick (`≈5%`) dwell
+  difference against a `48%` speed-loss gap means tick count alone
+  doesn't close the magnitude; the per-tick pushback's own depth/force
+  is not yet examined. Temp probe
+  `crates/rb_verify_cli/examples/boost_free_footprint_probe.rs` deleted
+  after use.
 
 ## Risks and decisions needed
 

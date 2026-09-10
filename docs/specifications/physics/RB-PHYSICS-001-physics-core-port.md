@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.126.0
+- Version: 0.127.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7978,42 +7978,89 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     against each other: the true size of the unlimited-boost effect on
     `wall-climb-crest` must be larger than the raw `24%` figure alone
     suggests, since it has to overcome this opposing boost-independent
-    tendency and still net out in the port-loses-more direction. Not yet
-    isolated further (no per-tick contact-pattern or geometric-footprint
-    breakdown run on these two new climbs); left open as the more
-    consequential half of finding 5's original question. Temp probes
+    tendency and still net out in the port-loses-more direction. A
+    per-tick geometric-footprint breakdown of these two climbs (finding
+    7's own method) is taken up next, in finding 12. Temp probes
     `crates/rb_verify_cli/examples/throttle_climb_probe.rs` and
     `throttle_climb_probe2.rs` deleted after use.
+  - **12. Finding 7's own contact-pattern lag, confirmed on both
+    boost-free climbs — and, for the first time, linked to a mechanism
+    that plausibly explains the speed-loss direction (open).** Applied
+    finding 7's exact method (raycast the recorded pose directly — a
+    fresh `PhysicsWorld::from_frame` per tick, no stepping — and classify
+    each wheel `floor`/`curve`/`wall`/`airborne` by its own contact
+    normal) to both of finding 11's boost-free climbs, alongside the same
+    classification run on the port's own simulated trajectory. On the
+    `+X` climb: the simulated front wheels enter `curve` contact `1` tick
+    after the recording's (`t=25.5667` vs `25.5583`) and the simulated
+    rear wheels do too (`t=25.6250` vs `25.6167`) — the same
+    late-entry lag finding 7 found on `wall-climb-crest`. But this climb
+    also shows an *early exit*: the simulated car reaches full `wall`
+    contact on all four wheels at `t=25.8583`, a full tick *before* the
+    recording does (`t=25.8667`) — an effect finding 7 did not report
+    (it only checked entry and a `1`-`2`-tick lag leaving the curve, not
+    a *reversal* to early). Net effect: the recording spends `37` ticks
+    with at least one wheel in `curve` contact (`t=25.5583`–`25.8583`),
+    the port only `35` (`t=25.5667`–`25.8500`) — `2` fewer ticks,
+    `≈5%` shorter. On the `-X` climb, the same late-entry pattern holds
+    at every stage (one wheel touching curve, two wheels, all four, each
+    `1` tick later in the simulated trajectory than the recording's); the
+    window captured here ends before either car fully clears the curve,
+    so the exit side isn't checked on this one. **This gives finding 11's
+    boost-independent asymmetry a plausible mechanism for the first
+    time**, rather than leaving it as a bare numeric observation: fewer
+    (and differently-timed) ticks spent in `curve` contact means fewer
+    ticks of `WheelState::extra_pushback`'s hard-stop correction firing
+    against the car, which is the same mechanism finding 7 identified as
+    "doing most of the work of shedding speed through the curve" for
+    `wall-climb-crest` — less of it firing means less speed shed, in
+    exactly the port-loses-less direction finding 11 measured. The
+    magnitudes don't line up simply, though: a `≈5%` shorter dwell time
+    on the `+X` climb goes with a `48%` speed-loss gap, an order of
+    magnitude larger — so raw tick-count difference alone is not a
+    sufficient explanation; the *depth* or *timing* of each individual
+    curve-tick's own penetration and correction magnitude likely matters
+    more than how many ticks there are, and that finer breakdown is not
+    yet done. Not yet checked: whether this same lag, run through an
+    actual force/impulse accounting (not just a tick count), reproduces
+    the `38%`-`48%` magnitude quantitatively; the `-X` climb's own exit
+    side; the remaining two un-excerpted `wall_curve02` events. Temp
+    probe `crates/rb_verify_cli/examples/boost_free_footprint_probe.rs`
+    deleted after use.
   - **New fixture.** `wall-climb-crest.capture.jsonl` (`824` frames,
     `t=13.142`–`20.000`), seeded on its first grounded, neutral frame,
     with a ratchet test bounding the current divergence loosely (it is
     an open residual, not a fixed maneuver, so the bound exists to catch
     a further regression, not to pin today's figure as correct).
-  - **Non-goals (this requirement).** Any code change: finding 11 shows a
-    real, boost-independent, port-loses-*less*-speed mechanism remains
-    unisolated, so a targeted fix is premature until that mechanism (not
-    just its existence) is pinned down; implementing boost-pad modeling
-    (not motivated by the boost mismatch specifically, though it remains
-    a real gap in the arena for other purposes); re-capturing
-    `wall_curve02` (or any other fixture) with standard, finite boost to
-    get genuinely usable boost-dependent verification data — an
-    owner-side task, not something this sandbox can do; quantifying
-    exactly how much of `wall-climb-crest`'s `24%`-vs-`9%` gap is the
-    unlimited-boost mismatch itself, the separately-confirmed `1`-`2`-tick
-    contact-pattern lag, and finding 11's own boost-independent
-    contributor now that all three are known to be in play simultaneously
-    (not separately decomposed); a per-tick geometric-footprint or
-    contact-pattern breakdown of finding 11's own two boost-free climbs
-    (the same method finding 7 used, not yet applied here); the other two
-    of the four un-excerpted `wall_curve02` wall-climb events (one with a
+  - **Non-goals (this requirement).** Any code change: finding 12 gives
+    finding 11's boost-independent asymmetry a plausible mechanism
+    (fewer/differently-timed curve-contact ticks, less accumulated
+    `extra_pushback` correction) but not a quantitative one — a `≈5%`
+    dwell-time difference does not obviously scale to a `48%` speed-loss
+    gap, so a targeted fix is premature until the actual force/impulse
+    accounting closes that gap, not just the qualitative direction;
+    implementing boost-pad modeling (not motivated by the boost mismatch
+    specifically, though it remains a real gap in the arena for other
+    purposes); re-capturing `wall_curve02` (or any other fixture) with
+    standard, finite boost to get genuinely usable boost-dependent
+    verification data — an owner-side task, not something this sandbox
+    can do; quantifying exactly how much of `wall-climb-crest`'s
+    `24%`-vs-`9%` gap is the unlimited-boost mismatch itself vs. findings
+    11/12's own boost-independent contributor, now that both are known to
+    be in play simultaneously (not separately decomposed); an actual
+    force/impulse accounting of finding 12's own contact-pattern lag (only
+    a tick-count breakdown was run, not the per-tick `extra_pushback`
+    magnitudes); the `-X` climb's own curve-exit timing (the checked
+    window ended before either car cleared the curve); the other two of
+    the four un-excerpted `wall_curve02` wall-climb events (one with a
     boost run on approach released before the curve, one with a brief
     boost re-engagement mid-climb — finding 11 only used the two fully
-    boost-free ones); `RB-PHYSICS-001-FR-084` finding 5 (finding 11 is
-    evidence toward it, not a resolution of it); `RB-PHYSICS-001-FR-085`'s
-    findings I, J and K; re-scoring `hit-tick-jump.capture.jsonl`'s own
-    ratchet bound now that finding 10 identifies why it was already loose
-    (`FR-087` left it as-is deliberately, and the mechanism does not
-    change the recording).
+    boost-free ones); `RB-PHYSICS-001-FR-084` finding 5 (findings 11/12
+    are evidence toward it, not a resolution of it); `RB-PHYSICS-001-
+    FR-085`'s findings I, J and K; re-scoring
+    `hit-tick-jump.capture.jsonl`'s own ratchet bound now that finding 10
+    identifies why it was already loose (`FR-087` left it as-is
+    deliberately, and the mechanism does not change the recording).
   - **Acceptance criteria.** The fillet-selection hypothesis tested and
     ruled out with a reproducible probe; the speed-decay discrepancy
     measured and documented; the transition-tick-count hypothesis tested
@@ -8038,7 +8085,10 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     incomplete, and corrected (not silently left standing) with two
     independent boost-free climbs from the same clip showing a real,
     comparably-sized, opposite-direction asymmetry that cannot be
-    boost-related.**
+    boost-related**; finding 7's own geometric contact-pattern method
+    re-applied to both boost-free climbs, confirming the same lag and
+    surfacing a mechanistic (if not yet quantitative) link to finding 11's
+    speed asymmetry.
   - **Verification plan.** `480` tests in the workspace, unchanged
     (documentation only; no fixture or code change this pass).
 - `RB-PHYSICS-001-FR-089` (the goal mouth's phantom fillet — `FR-085`
@@ -10118,6 +10168,24 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.127.0 (2026-09-10): `RB-PHYSICS-001-FR-088` finding 12: applied
+  finding 7's own geometric wheel-contact-pattern method (raycast the
+  recorded pose directly, no simulation) to finding 11's two boost-free
+  climbs. Both show the same simulated-front/rear-wheel curve-entry lag
+  finding 7 found on `wall-climb-crest` (`1` tick late on each); the `+X`
+  climb additionally shows an early exit (full wall contact reached `1`
+  tick *before* the recording's), for a net `2`-tick (`≈5%`) shorter
+  simulated dwell time in `curve` contact overall. This gives finding
+  11's boost-independent, port-loses-less asymmetry a plausible
+  mechanism for the first time: fewer/differently-timed ticks of
+  `WheelState::extra_pushback`'s hard-stop correction firing means less
+  speed shed, in the observed direction — but the magnitudes don't line
+  up simply (a `≈5%` dwell-time gap against a `48%` speed-loss gap), so
+  this is a qualitative link, not a quantitative explanation. No code
+  change; Non-goals/Acceptance criteria updated to scope the remaining
+  quantitative work. Workspace tests unchanged at `480`. Temp probe
+  `crates/rb_verify_cli/examples/boost_free_footprint_probe.rs` deleted
+  after use.
 - 0.126.0 (2026-09-10): `RB-PHYSICS-001-FR-088` finding 11 (correction to
   finding 9's "nothing to fix here"): two of the four un-excerpted
   `wall_curve02` wall-climb events are genuinely boost-free (no

@@ -578,6 +578,15 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   `FR-088`'s status corrected from "root cause identified" to "partially
   identified." No code change yet; the mechanism itself is still
   unisolated.
+  `RB-PHYSICS-001-FR-088` finding 12: applied finding 7's own geometric
+  wheel-contact-pattern method to both boost-free climbs. Both reproduce
+  the same simulated curve-entry lag finding 7 found on
+  `wall-climb-crest` (`1` tick late); the `+X` climb also exits `1` tick
+  early, for a net `≈5%` shorter simulated dwell time in `curve` contact.
+  Gives finding 11's asymmetry a plausible mechanism (fewer ticks of
+  `extra_pushback` correction, less speed shed) for the first time, but
+  not yet a quantitative one — the `≈5%` dwell-time gap doesn't obviously
+  scale to the `48%` speed-loss gap. No code change.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

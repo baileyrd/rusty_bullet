@@ -6,6 +6,31 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Found a plausible cause for that leftover mismatch (not proven yet)
+**2026-09-10** · `RB-PHYSICS-001-FR-088` finding 12
+
+- Last entry left a real, unexplained mismatch on the table: two
+  boost-free wall climbs where the simulation held onto more speed than
+  it should have, for reasons that had nothing to do with boost.
+- Went back to a technique used earlier in this investigation — instead
+  of just comparing speeds, directly checked which of the car's four
+  wheels were touching the curve at every single tick, using the
+  recording's own actual position and the simulation's own actual
+  position, completely independent of each other.
+- Found a small but consistent timing gap: the simulated car starts
+  touching the curve about one tick later than the real one did, on
+  both wheels checked. On one of the two climbs, it also finishes
+  touching the curve about one tick early. Small numbers, but they point
+  the right direction: less time in contact with the curve means less
+  of the strong corrective push that contact applies, which lines up
+  with the simulation losing less speed there.
+- Important caveat, stated plainly rather than glossed over: the timing
+  gap found here is small (about 5% less contact time) while the speed
+  mismatch is large (up to 48%). Those two numbers don't obviously add
+  up yet. This is a plausible piece of the explanation, not a solved
+  case — the next step is checking the actual force being applied
+  tick-by-tick, not just how many ticks are involved.
+
 ## The "unlimited boost explains it" story was incomplete
 **2026-09-10** · `RB-PHYSICS-001-FR-088` finding 11 (correction)
 
