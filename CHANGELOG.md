@@ -490,6 +490,26 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   despite `ω_z` spanning nearly `3×` — the sign-anti-correlation pattern
   now holds at `n=4`. Still no correct alternative formula identified;
   no fixture, test, or behavioral change.
+  `RB-PHYSICS-001-FR-088` finding 7 (still open, characterized):
+  geometrically bracketed the curve's own footprint (each wheel's
+  raycast contact normal via `wheels::raycast_wheels`, not a speed
+  threshold) on both `boost-wall-entry` and `wall-climb-crest`, recorded
+  and simulated alike. Ruled out transition tick-count as the
+  differentiator (`24` vs `24`, `25` vs `26` ticks — nowhere near the
+  `2.7×` gap). Confirmed a real but small per-tick contact-pattern lag
+  specific to `wall-climb-crest` (`1`-`2` ticks entering/exiting the
+  curve, byte-for-byte identical on `boost-wall-entry`). Found a bigger,
+  unconfirmed candidate instead: the port's own simulated boost is fully
+  drained before `wall-climb-crest` reaches its curve but not before
+  `boost-wall-entry`'s, and this crate's arena models no boost pads at
+  all — a real boost pickup along the longer climb would explain the
+  rest of the gap but can't be confirmed, because `boost_amount` reads a
+  frozen `100` for the entire duration of every capture fixture checked
+  (`wall-climb-crest`, `boost-wall-entry`, `clean-dodge`,
+  `dodge-derailment`) — a newly found, systemic capture-fidelity bug,
+  the same family as `RB-PHYSICS-001-FR-091`/`FR-092`'s already-known
+  stale fields but total rather than single-tick. No fixture, test, or
+  behavioral change.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

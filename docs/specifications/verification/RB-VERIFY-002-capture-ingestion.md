@@ -1,6 +1,6 @@
 # RB-VERIFY-002 — BakkesMod Offline Capture Ingestion
 
-- Version: 0.6.0
+- Version: 0.7.0
 - Status: In Progress (FR-001 — the BakkesMod-side plugin — built, loaded,
   and run against a real Rocket League + BakkesMod install; FR-002/NFR-001
   implemented and now also verified against that real capture, not just the
@@ -103,7 +103,17 @@ at high frequency alongside ball/car physics state to a capture file, and
   should be tuned against such a tick (see `RB-PHYSICS-001-FR-083`
   finding 6's own fixture caveat, and `RB-PHYSICS-001-FR-091`'s
   `angular_velocity` instance of the same symptom in derived physics
-  state rather than raw input).
+  state rather than raw input). A third, distinct shape of the same
+  underlying problem: `RB-PHYSICS-001-FR-088` finding 7 found
+  `CarState.boost_amount` reads a frozen constant `100` for the entire
+  duration of every capture fixture checked (`wall-climb-crest`,
+  `boost-wall-entry`, `clean-dodge`, `dodge-derailment`), including
+  clips that hold boost continuously for several seconds — not a
+  single-tick drop like finding I's or finding 6's, but a field that
+  appears to never update at all in the plugin used to record these
+  clips. Treat `boost_amount` as unusable for verification purposes
+  across every capture fixture recorded so far, on top of the existing
+  `pitch`/`yaw`/`roll`/`angular_velocity` caveats above.
 - `RB-VERIFY-002-FR-002` (implemented, verified): `rb_capture_ingest`
   parses a capture file into a chronologically ordered `Vec<PhysicsFrame>`,
   with input data attached via `rb_domain::CarState.input` (unlike
@@ -233,6 +243,16 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.7.0 (2026-09-10): FR-001's entry extended with `RB-PHYSICS-001-
+  FR-088` finding 7: `CarState.boost_amount` reads a frozen constant
+  `100` for the entire duration of every capture fixture checked
+  (`wall-climb-crest`, `boost-wall-entry`, `clean-dodge`,
+  `dodge-derailment`), including clips holding boost continuously for
+  several seconds — a third, distinct shape of capture-side staleness,
+  total rather than single-tick, found while investigating `FR-088`'s
+  wall-curve speed-loss asymmetry. Treat `boost_amount` as unusable for
+  verification across every capture fixture recorded so far. No code
+  change.
 - 0.6.0 (2026-09-10): FR-001's entry extended with `RB-PHYSICS-001-
   FR-092`'s finding: the very first capture session (predating plugin
   1.0's own versioning) independently shows a single `ControllerInput`

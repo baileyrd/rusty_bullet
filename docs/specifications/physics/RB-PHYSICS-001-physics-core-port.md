@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.120.0
+- Version: 0.121.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7716,26 +7716,102 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     (`boost-wall-entry`'s `1.02`/`8.4`), because small per-tick speed
     differences integrate over a much longer, higher climb than any
     prior fixture covers.
+  - **7. Both of finding 5's remaining candidates checked directly; one
+    ruled out, one confirmed real but small; a third, bigger candidate
+    found instead (still open).** Bracketed the curve's own geometric
+    footprint properly this time — not a speed threshold, but each
+    wheel's own raycast contact normal (`wheels::raycast_wheels`, the
+    exact function the port's own step loop calls): a normal within
+    `~0.14` rad of straight up (`z > 0.97`) is the flat floor, within
+    `~0.10` rad of horizontal (`z < 0.10`) is the flat wall, and anything
+    between is the curve itself. Applied this to the *recorded* poses
+    directly (no simulation, matching finding 1's own already-established
+    "read the recording's own geometry" method) and to the port's
+    simulated trajectory, tick by tick, on both fixtures.
+    - **Transition tick-count (ruled out).** The curve-footprint window's
+      own duration is nearly identical between recorded and simulated on
+      both fixtures: `boost-wall-entry` is `24` ticks either way (an
+      exact match, start and end tick both identical); `wall-climb-crest`
+      is `25` recorded vs `26` simulated — one tick longer, not the
+      `2.7×`-asymmetry-sized gap finding 5 was looking for. Whatever
+      differs, it isn't how *long* the transition takes.
+    - **Per-tick contact pattern (confirmed real, but small).**
+      `boost-wall-entry`'s per-tick wheel classification is *exactly*
+      identical between recorded and simulated for every one of the `28`
+      ticks checked around the transition — no lag anywhere.
+      `wall-climb-crest` is not: the simulated car's front wheels enter
+      the curve `1` tick later than the recording's (`t=17.1000` vs
+      `17.0917`), and its rear wheels linger in curve contact `2` ticks
+      longer leaving it (still `curve` at `t=17.2667` where the recording
+      is already fully `wall`). Finding 5's "subtler per-tick
+      contact-pattern difference" is real, confirmed directly — but a
+      `1`–`2`-tick lag on a `\~20`-tick transition is a small effect, not
+      obviously large enough on its own to carry a `24%`-vs-`9%` speed-loss
+      gap.
+    - **A third, larger candidate: no boost-pad modeling (open,
+      unconfirmed).** Instrumenting the port's own simulated boost
+      alongside speed through both windows found `boost-wall-entry`'s
+      simulated boost still at `~85`–`92%` throughout its transition, but
+      `wall-climb-crest`'s already at exactly `0%` for the *entire*
+      curve window — it fully drains (at the modeled
+      `BOOST_CONSUMPTION_RATE`, a full tank lasts `~3` s) partway through
+      the `~3.9` s of continuous holding between this fixture's own seed
+      and the curve, well before the port ever reaches it. Once boost
+      hits zero the port's only remaining acceleration is
+      `RB-PHYSICS-001-FR-058`'s throttle taper, markedly weaker than
+      boost — a plausible mechanism for most of the remaining gap. This
+      crate's arena has no boost-pad modeling anywhere (`grep` for
+      `boost_pad`/`BoostPad` across `rb_physics_bullet` turns up nothing),
+      so if the real game's climb crosses a boost pad partway up the wall
+      — very plausible on a run this long, and `boost-wall-entry`'s much
+      shorter clip would have no such opportunity — the recorded car
+      would stay topped up in a way this port structurally cannot
+      reproduce. This cannot be confirmed directly, though: see the next
+      finding.
+    - **A capture-fidelity bug, found along the way: `boost_amount` reads
+      a frozen constant, not real telemetry.** Checking the recorded
+      `boost_amount` field to test the above hypothesis found it reads
+      exactly `100` for *every* tick of `wall-climb-crest.capture.jsonl`
+      — and, checked further, for every tick of `boost-wall-entry`,
+      `clean-dodge`, and `dodge-derailment` too, regardless of maneuver.
+      A player holding boost continuously for several seconds without
+      the value ever moving is not a real gameplay fact; this is the same
+      family of capture-side staleness `RB-PHYSICS-001-FR-091`/`FR-092`
+      already found in other fields (`angular_velocity`, `pitch`), now
+      confirmed in `boost_amount` too, and total rather than single-tick
+      — the field appears to never update in the plugin used to record
+      these clips. This blocks directly verifying the boost-pad
+      hypothesis above against the recording's own numbers; only the
+      recorded position/velocity (independently trustworthy) support the
+      inference.
   - **New fixture.** `wall-climb-crest.capture.jsonl` (`824` frames,
     `t=13.142`–`20.000`), seeded on its first grounded, neutral frame,
     with a ratchet test bounding the current divergence loosely (it is
     an open residual, not a fixed maneuver, so the bound exists to catch
     a further regression, not to pin today's figure as correct).
-  - **Non-goals (this requirement).** Isolating what specific per-tick
-    difference (finding 5 rules out the shared pushback mechanism's own
-    magnitude, so it's something narrower — plausibly transition tick-
-    count or a subtler contact-pattern difference) makes this curve's
-    own speed-loss asymmetry `≈2.7×` `boost-wall-entry`'s smaller one;
-    the other four wall-climb events in `wall_curve02` (two
+  - **Non-goals (this requirement).** Implementing boost-pad modeling to
+    test finding 7's leading hypothesis directly (a substantial new
+    arena feature, out of scope for this documentation-only pass);
+    fixing the `boost_amount` capture-fidelity bug (a plugin-side issue,
+    not a port issue — see `RB-VERIFY-002`'s own capture-input-fidelity
+    discussion); the other four wall-climb events in `wall_curve02` (two
     throttle-only climbs, a boost run into the `+X` wall, and one with
     boost engaged mid-climb), not yet excerpted; `RB-PHYSICS-001-FR-084`
     finding 5; `RB-PHYSICS-001-FR-085`'s findings I, J and K.
   - **Acceptance criteria.** The fillet-selection hypothesis tested and
     ruled out with a reproducible probe; the speed-decay discrepancy
-    measured and documented; one new fixture with a ratchet test
-    bounding (not fixing) the current divergence.
-  - **Verification plan.** `470` tests in the workspace (`+1` fixture
-    ratchet in `rb_verify_cli`).
+    measured and documented; the transition-tick-count hypothesis tested
+    geometrically (not by speed threshold) on both fixtures and ruled
+    out; the per-tick contact-pattern hypothesis tested the same way and
+    confirmed real (though small) specifically on the fixture with the
+    larger asymmetry, absent on the one without; the boost-depletion
+    hypothesis measured directly in the port's own simulation and
+    reported as plausible-but-unconfirmed, with the specific
+    capture-fidelity bug blocking confirmation named and evidenced (not
+    just asserted); one new fixture with a ratchet test bounding (not
+    fixing) the current divergence.
+  - **Verification plan.** `480` tests in the workspace, unchanged
+    (documentation only; no fixture or code change this pass).
 - `RB-PHYSICS-001-FR-089` (the goal mouth's phantom fillet — `FR-085`
   finding K; implemented): a fifth capture session's `goal_shot03` clip
   (plugin 1.1) records a still car driving into a stationary ball,
@@ -9802,6 +9878,32 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.121.0 (2026-09-10): `RB-PHYSICS-001-FR-088` extended with finding 7
+  (still open, characterized): geometrically bracketed the curve's own
+  footprint (each wheel's raycast contact normal, not a speed
+  threshold) on both `boost-wall-entry` and `wall-climb-crest`, for the
+  recorded trajectory and the port's own simulated one alike.
+  Transition tick-count ruled out as the differentiator (`24` vs `24`
+  ticks, `25` vs `26` — nowhere near `2.7×`). Per-tick contact pattern
+  confirmed real but small: byte-for-byte identical on
+  `boost-wall-entry`, a genuine `1`-`2`-tick lag entering/exiting the
+  curve on `wall-climb-crest` only. A bigger, unconfirmed candidate
+  found instead: the port's own simulated boost is already fully
+  drained by the time `wall-climb-crest` reaches its curve (continuous
+  holding since the fixture's own seed exceeds a full tank's `~3` s
+  duration) while `boost-wall-entry`'s simulated boost still sits at
+  `~85`-`92%` at the same relative point — and this crate's arena has no
+  boost-pad modeling at all, so a real boost pickup along
+  `wall-climb-crest`'s much longer climb (unavailable to
+  `boost-wall-entry`'s shorter one) would explain the gap but can't be
+  implemented in this documentation-only pass. Confirming it against the
+  recording directly is blocked by a newly found capture-fidelity bug:
+  `boost_amount` reads a frozen `100` for the entire duration of every
+  fixture checked (`wall-climb-crest`, `boost-wall-entry`, `clean-dodge`,
+  `dodge-derailment`) — a third, total-not-single-tick shape of the same
+  capture-staleness family `RB-PHYSICS-001-FR-091`/`FR-092` already
+  found, now also recorded in `RB-VERIFY-002`. No fixture, test, or code
+  change. Workspace tests unchanged at `480`.
 - 0.120.0 (2026-09-10): `RB-PHYSICS-001-FR-094` extended further (still
   open, characterized) with two more independent pure-yaw dodges found
   by scanning the wider raw fixture corpus (not just

@@ -6,6 +6,51 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The wall-climb mystery wasn't the wall. It might be a boost pad we don't have
+**2026-09-10** · `RB-PHYSICS-001-FR-088` (still open, characterized)
+
+- Went back to the wall-curve speed-loss puzzle parked a few entries
+  ago: one clip loses `24%` of its speed driving through a floor-to-wall
+  curve, another materially identical one only loses `9%`, and nothing
+  found so far explains the gap between them.
+- Built a proper way to measure exactly when a wheel is touching the
+  curved part of the wall versus the flat floor or the flat wall —
+  reading the actual contact geometry, not guessing from speed. Used it
+  on both clips, for the real recording and for the port's own
+  simulation.
+- First finding: how *long* the car spends touching the curve is
+  basically identical between the recording and the simulation, on both
+  clips. That's not it.
+- Second finding: on the clip with the *small* gap, the simulation
+  matches the recording's contact pattern exactly, tick for tick, the
+  entire way through. On the clip with the *big* gap, the simulation's
+  wheels enter the curve a beat late and leave a couple beats late. Real,
+  but small — not obviously big enough to be the whole story.
+- Third, much bigger finding, almost by accident: checked the simulated
+  car's own boost level through both curves, and the big-gap clip's
+  simulated boost has completely run out by the time it reaches the
+  curve — it's been boosting continuously since the start of that
+  (much longer) recording, long enough to drain a full tank. The
+  small-gap clip's simulated boost still has plenty left over the same
+  span. This game has boost pads scattered around the arena; this port
+  doesn't model them at all. If the real driver crossed a boost pad partway
+  up that long climb — very plausible on a run this length — the real car
+  would have stayed topped up in a way nothing here can reproduce.
+- Tried to check that theory against the recording's own boost number
+  and hit a wall: the recorded boost field reads a flat, unmoving `100`
+  for the entire clip — and, checked further, for every other clip
+  already vendored too, no matter what the car was doing. That's not
+  real data; it's a capture bug, the same family as two already-known
+  stale-field bugs in this recording pipeline, just bigger (frozen for
+  the whole clip, not just one tick).
+- Net result: two smaller candidate explanations ruled out or shown to
+  be minor, and one bigger, genuinely plausible one surfaced that this
+  port structurally can't model yet (no boost pads) and can't verify
+  from the recording (the boost field is broken). No fix this round —
+  building boost-pad support is a real feature, not a quick patch — but
+  the mystery narrowed from "unexplained" to "probably missing boost
+  pads, can't prove it from this data."
+
 ## Two more dodges, one bug in the checking method itself
 **2026-09-10** · `RB-PHYSICS-001-FR-094` (still open, characterized)
 

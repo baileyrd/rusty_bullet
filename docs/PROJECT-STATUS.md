@@ -2375,6 +2375,23 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-088` extended with finding 7 (still open,
+  characterized) — geometrically bracketed the curve's own footprint
+  (each wheel's raycast contact normal, not a speed threshold) on both
+  `boost-wall-entry` and `wall-climb-crest`, recorded and simulated
+  alike. Transition tick-count ruled out (`24` vs `24`, `25` vs `26`
+  ticks — nowhere near the `2.7×` gap). Per-tick contact pattern
+  confirmed real but small: identical on `boost-wall-entry`, a genuine
+  `1`-`2`-tick lag entering/exiting the curve on `wall-climb-crest`
+  only. A bigger, unconfirmed candidate found instead: the port's own
+  simulated boost is fully drained by the time `wall-climb-crest`
+  reaches its curve while `boost-wall-entry`'s is not, and this crate's
+  arena models no boost pads at all — a real boost pickup along the
+  longer climb would explain the gap but can't be confirmed, because
+  `boost_amount` reads a frozen `100` for the entire duration of every
+  fixture checked, a newly found capture-fidelity bug (also recorded in
+  `RB-VERIFY-002`). No fixture, test, or behavioral change; workspace
+  tests unchanged at `480`. Full workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-094` extended once more (still open, characterized)
   — scanned the wider raw fixture corpus (not just `clean_dodge04`) and
   found two more independent pure-yaw dodges preceded by held air-control
@@ -2941,12 +2958,26 @@
    along the way, surfacing and fixing a seed-boundary re-simulation
    artifact (a still-held jump input misread as a fresh press when the
    seed cuts through it). Still no correct alternative formula
-   identified. Next: return to `FR-088`'s curve-entry asymmetry with a
-   properly geometric (not speed-threshold) isolation of the curve's own
-   footprint, or keep hunting the actual mechanism behind `FR-094`'s now
-   `n=4`-corroborated sign-anti-correlation pattern, then `FR-085`
-   findings I/J and, if a plugin-1.1 re-capture of a dodge-free one-wheel
-   landing becomes available, finish `FR-091`/finding 5 with it.
+   identified. `FR-088`'s curve-entry asymmetry was then revisited with
+   the properly geometric (not speed-threshold) isolation this Next
+   pointer called for: bracketing each fixture's curve footprint by
+   wheel raycast contact normal ruled out transition tick-count as the
+   differentiator (`24` vs `24`, `25` vs `26` ticks) and confirmed a
+   real but small per-tick contact-pattern lag specific to
+   `wall-climb-crest` (`1`-`2` ticks, absent on `boost-wall-entry`). A
+   bigger, unconfirmed candidate turned up instead: the port's own
+   simulated boost is fully drained before `wall-climb-crest` reaches
+   its curve but not before `boost-wall-entry`'s, and this crate's arena
+   has no boost-pad modeling at all — plausibly explaining the rest of
+   the gap via a real boost pickup the port structurally can't
+   reproduce, but unconfirmable, because `boost_amount` reads a frozen
+   `100` in every fixture checked (a newly found, systemic
+   capture-fidelity bug, not specific to this maneuver). Next: implement
+   boost-pad modeling to test that leading hypothesis directly, or keep
+   hunting the actual mechanism behind `FR-094`'s `n=4`-corroborated
+   sign-anti-correlation pattern, then `FR-085` findings I/J and, if a
+   plugin-1.1 re-capture of a dodge-free one-wheel landing becomes
+   available, finish `FR-091`/finding 5 with it.
 
 ## Validation
 
@@ -3429,6 +3460,29 @@
   own raycast hits), not a speed threshold — not reproduced here. No
   differentiator between the two fixtures' own asymmetry identified;
   parked for a later pass.
+- `RB-PHYSICS-001-FR-088` geometric-footprint and boost-depletion probe
+  (2026-09-10, this sandbox): both fixtures' curve footprints bracketed
+  via each wheel's own raycast contact normal
+  (`wheels::raycast_wheels`) classified `floor` (`z>0.97`), `wall`
+  (`z<0.10`), or `curve` (otherwise), applied to recorded poses directly
+  (no simulation) and to the port's own simulated trajectory.
+  `boost-wall-entry`: recorded curve window `idx=241..264` (`24` ticks,
+  `t=28.8584-29.0500`), simulated identical index-for-index and
+  tick-for-tick, every one of the `28` per-tick classifications checked
+  matching exactly. `wall-climb-crest`: recorded curve window
+  `idx=470..494` (`25` ticks, `t=17.0583-17.2583`), simulated
+  `idx=470..495` (`26` ticks) — front wheels enter the curve `1` tick
+  late (`t=17.1000` vs `17.0917`) and rear wheels exit `2` ticks late
+  (still `curve` at `t=17.2667` where recorded is already `wall`).
+  Instrumenting simulated boost and speed the same way: `boost-wall-entry`
+  sim boost `91.95%→85.29%` across the window (never fully drains);
+  `wall-climb-crest` sim boost already `0.00%` for the entire window
+  (drains within `~3` s of continuous holding since the fixture's own
+  seed at `t=13.142`, well before `t=17.0417`). Recorded `boost_amount`
+  read as a constant `100` for every tick checked in both fixtures — and,
+  checked further, for every tick of `clean-dodge` and `dodge-derailment`
+  too — confirming this field is not real telemetry in any capture
+  fixture recorded so far.
 - `RB-PHYSICS-001-FR-094` dodge-direction re-simulation (2026-09-10, this
   sandbox): `clean-dodge.capture.jsonl` re-seeded via
   `PhysicsWorld::from_frame` and stepped tick-by-tick with recorded
