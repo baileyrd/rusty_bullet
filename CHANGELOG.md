@@ -510,6 +510,23 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   the same family as `RB-PHYSICS-001-FR-091`/`FR-092`'s already-known
   stale fields but total rather than single-tick. No fixture, test, or
   behavioral change.
+  `RB-PHYSICS-001-FR-088` finding 8 (still open, characterized): the
+  boost-pad hypothesis checked directly and refuted. Sourced the real
+  arena's `34` boost-pad coordinates from the RLBot wiki, cross-checked
+  against RocketSim's own `RLConst.h` for pickup geometry
+  (`CYL_RAD_SMALL=144`, `CYL_RAD_BIG=208`, `CYL_HEIGHT=95`), and checked
+  every recorded tick of both fixtures' entire runs against all `34`
+  pads: zero geometric overlaps in either, across `824`+`271` frames.
+  Confirmed the `~3.9` s of continuous pre-curve boost-holding was real,
+  but re-traced recorded-vs-simulated speed and found both pinned at the
+  `2300` uu/s cap for the entire pre-curve approach regardless — throttle
+  taper alone sustains cap speed with zero boost on flat ground, so the
+  port's own drained tank produces no visible pre-curve symptom to
+  confirm or refute against the (separately broken) recorded number.
+  Boost depletion is now an unconfirmed, not refuted-nor-supported,
+  contributor; the confirmed `1`-`2`-tick per-tick contact-pattern lag
+  remains the only mechanism actually shown real, and it's small. No
+  fixture, test, or behavioral change.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

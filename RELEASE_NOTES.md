@@ -6,6 +6,38 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Went and checked the boost-pad theory. It doesn't hold up.
+**2026-09-10** · `RB-PHYSICS-001-FR-088` (still open, characterized)
+
+- Last entry's theory: the long wall-climb clip loses more speed than
+  the short one because the real driver crossed a boost pad partway up
+  the climb, and this simulation doesn't model boost pads at all, so it
+  can't. Plausible-sounding, worth testing before believing it.
+- Looked up the real, official coordinates of all 34 boost pads on the
+  standard field (cross-checked two independent sources so the numbers
+  could be trusted), then checked every single recorded position of the
+  car in both clips — not just during the climb, the *entire* recording
+  — against every one of those 34 locations. Zero hits. Not "close but
+  not quite" — the car's actual path never comes near a real pad at any
+  point in either clip.
+- That kills the theory outright. Also checked whether the recorded
+  player held the boost button the whole approach (they did — held for
+  nearly 4 seconds straight, no gaps), and then compared the real and
+  simulated car's speed the whole way up to the climb: both are pinned
+  at the exact same speed cap the entire time, boost or no boost. Turns
+  out a car sitting at top speed on flat ground looks identical whether
+  its tank is full or empty — so even confirming the tank ran dry
+  doesn't explain anything by itself; the effect (if there is one) can
+  only show up once something else, like the curve, actually pulls the
+  car below that cap.
+- So: a real, sourced theory, tested properly, and it doesn't survive
+  contact with the data. That's a genuine result, just not the one
+  hoped for. The mystery is back to "unexplained," though a little
+  narrower than before — it's not the curve-length timing, and it's not
+  a missing boost pad. What's left is a small, already-confirmed
+  timing quirk in exactly how the wheels touch the curve, which doesn't
+  look big enough on its own to be the whole story.
+
 ## The wall-climb mystery wasn't the wall. It might be a boost pad we don't have
 **2026-09-10** · `RB-PHYSICS-001-FR-088` (still open, characterized)
 

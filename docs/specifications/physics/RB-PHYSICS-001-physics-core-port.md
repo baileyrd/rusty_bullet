@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.121.0
+- Version: 0.122.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7780,24 +7780,61 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
       already found in other fields (`angular_velocity`, `pitch`), now
       confirmed in `boost_amount` too, and total rather than single-tick
       — the field appears to never update in the plugin used to record
-      these clips. This blocks directly verifying the boost-pad
-      hypothesis above against the recording's own numbers; only the
-      recorded position/velocity (independently trustworthy) support the
-      inference.
+      these clips. This blocked directly verifying the boost-pad
+      hypothesis above against the recording's own `boost_amount`
+      numbers — but not against the recording's own *position*, which
+      turned out to be enough. See the next finding.
+    - **The boost-pad hypothesis, checked directly and refuted.** Sourced
+      the real standard arena's `34` boost-pad coordinates (`6` big, `28`
+      small) from the RLBot wiki's own published list, cross-checked
+      against RocketSim's own `RLConst.h` for the numeric pickup geometry
+      (`CYL_RAD_SMALL = 144`, `CYL_RAD_BIG = 208`, `CYL_HEIGHT = 95`, all
+      uu) and confirmed the two independent fetches agree exactly on
+      every overlapping coordinate and that the full list is
+      front-to-back and left-to-right symmetric, as a real arena must be.
+      Checked every recorded tick of *both* fixtures' entire runs (not
+      just the curve window) against all `34` pads with the real
+      cylinder-overlap test (2D distance under the pad's own radius *and*
+      height difference under `95` uu): zero overlaps, in either fixture,
+      across `824` + `271` frames combined. The car's own recorded path
+      never geometrically crosses a real boost pad at all — finding 7's
+      leading hypothesis is refuted, not just unconfirmed. A further
+      check (recorded `input.boost` held `True` on `468` of `469` ticks
+      from the fixture's own start to the first curve tick, zero release
+      events) confirms the `~3.9` s of continuous holding finding 7 relied
+      on was real, so the port's own simulated boost genuinely does drain
+      to zero before the curve, on the modeled `33.3`/s consumption rate
+      — but re-tracing recorded-vs-simulated *speed* (not just boost) from
+      the fixture's own start found both already pinned at the `2300`
+      uu/s cap for the entire pre-curve approach, simulated boost at zero
+      included — `RB-PHYSICS-001-FR-058`'s throttle taper alone holds a
+      car at cap speed on flat ground with no boost at all, so the
+      simulated car's own drained tank produces no visible pre-curve
+      symptom to confirm or refute against the (separately unreadable)
+      recorded number. The divergence still opens exactly at the curve,
+      as originally found; boost depletion timing remains a live but now
+      *unconfirmed* (not supported, not refuted) contributor, and no
+      other mechanism has been identified. Finding 5's "subtler per-tick
+      contact-pattern difference" (finding 7's `1`-`2`-tick lag) is the
+      only mechanism actually confirmed real so far, and it is small.
   - **New fixture.** `wall-climb-crest.capture.jsonl` (`824` frames,
     `t=13.142`–`20.000`), seeded on its first grounded, neutral frame,
     with a ratchet test bounding the current divergence loosely (it is
     an open residual, not a fixed maneuver, so the bound exists to catch
     a further regression, not to pin today's figure as correct).
-  - **Non-goals (this requirement).** Implementing boost-pad modeling to
-    test finding 7's leading hypothesis directly (a substantial new
-    arena feature, out of scope for this documentation-only pass);
-    fixing the `boost_amount` capture-fidelity bug (a plugin-side issue,
-    not a port issue — see `RB-VERIFY-002`'s own capture-input-fidelity
-    discussion); the other four wall-climb events in `wall_curve02` (two
-    throttle-only climbs, a boost run into the `+X` wall, and one with
-    boost engaged mid-climb), not yet excerpted; `RB-PHYSICS-001-FR-084`
-    finding 5; `RB-PHYSICS-001-FR-085`'s findings I, J and K.
+  - **Non-goals (this requirement).** Implementing boost-pad modeling (no
+    longer motivated by this investigation now that finding 8 refutes
+    the specific hypothesis it would have tested here, though it remains
+    a real gap in the arena for other purposes); fixing the
+    `boost_amount` capture-fidelity bug (a plugin-side issue, not a port
+    issue — see `RB-VERIFY-002`'s own capture-input-fidelity discussion);
+    identifying the actual differentiator behind the `24%`-vs-`9%` curve
+    loss now that both the tick-count and boost-pad hypotheses are ruled
+    out and the confirmed per-tick contact-pattern lag is small; the
+    other four wall-climb events in `wall_curve02` (two throttle-only
+    climbs, a boost run into the `+X` wall, and one with boost engaged
+    mid-climb), not yet excerpted; `RB-PHYSICS-001-FR-084` finding 5;
+    `RB-PHYSICS-001-FR-085`'s findings I, J and K.
   - **Acceptance criteria.** The fillet-selection hypothesis tested and
     ruled out with a reproducible probe; the speed-decay discrepancy
     measured and documented; the transition-tick-count hypothesis tested
@@ -7805,11 +7842,12 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     out; the per-tick contact-pattern hypothesis tested the same way and
     confirmed real (though small) specifically on the fixture with the
     larger asymmetry, absent on the one without; the boost-depletion
-    hypothesis measured directly in the port's own simulation and
-    reported as plausible-but-unconfirmed, with the specific
-    capture-fidelity bug blocking confirmation named and evidenced (not
-    just asserted); one new fixture with a ratchet test bounding (not
-    fixing) the current divergence.
+    hypothesis checked against real, sourced boost-pad coordinates (not
+    asserted from absence of a feature) and reported as refuted, not
+    merely unconfirmed, with the specific capture-fidelity bug that
+    blocks a *direct* recorded-boost check named and evidenced separately
+    from that refutation, not conflated with it; one new fixture with a
+    ratchet test bounding (not fixing) the current divergence.
   - **Verification plan.** `480` tests in the workspace, unchanged
     (documentation only; no fixture or code change this pass).
 - `RB-PHYSICS-001-FR-089` (the goal mouth's phantom fillet — `FR-085`
@@ -9878,6 +9916,30 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.122.0 (2026-09-10): `RB-PHYSICS-001-FR-088` finding 8 (still open,
+  characterized): finding 7's own leading "no boost-pad modeling"
+  hypothesis checked directly and refuted. Sourced the real arena's `34`
+  boost-pad coordinates (RLBot wiki, cross-checked against RocketSim's
+  own `RLConst.h` for pickup geometry: `CYL_RAD_SMALL=144`,
+  `CYL_RAD_BIG=208`, `CYL_HEIGHT=95`) and checked every recorded tick of
+  both `wall-climb-crest` and `boost-wall-entry`'s entire runs against
+  all `34` pads with the real cylinder-overlap test: zero overlaps in
+  either fixture across `824`+`271` frames. The car's own path never
+  geometrically crosses a real pad. Also confirmed (via `input.boost`)
+  that the `~3.9` s of continuous holding finding 7 relied on was real
+  (`468`/`469` ticks, zero releases), so the port's simulated boost
+  genuinely does reach zero before the curve — but re-tracing
+  recorded-vs-simulated speed from the fixture's own start found both
+  already pinned at the `2300` uu/s cap for the entire pre-curve
+  approach regardless, since `RB-PHYSICS-001-FR-058`'s throttle taper
+  alone holds a car at cap speed with no boost on flat ground — so the
+  drained tank has no visible pre-curve symptom to confirm or refute
+  against the (separately broken) recorded `boost_amount`. Boost
+  depletion timing is now an unconfirmed, not a refuted-nor-supported,
+  contributor; the confirmed `1`-`2`-tick per-tick contact-pattern lag
+  (finding 7) remains the only mechanism actually shown real, and it is
+  small. No fixture, test, or code change. Workspace tests unchanged at
+  `480`.
 - 0.121.0 (2026-09-10): `RB-PHYSICS-001-FR-088` extended with finding 7
   (still open, characterized): geometrically bracketed the curve's own
   footprint (each wheel's raycast contact normal, not a speed

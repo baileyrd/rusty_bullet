@@ -2375,6 +2375,26 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-088` finding 8 (still open, characterized) — finding
+  7's own leading "no boost-pad modeling" hypothesis checked directly and
+  refuted. Sourced the real arena's `34` boost-pad coordinates (RLBot
+  wiki, cross-checked against RocketSim's own `RLConst.h` pickup
+  geometry) and checked every recorded tick of both fixtures' entire
+  runs against all `34` pads with the real cylinder-overlap test: zero
+  overlaps in either fixture, across `824`+`271` frames. The car's own
+  path never geometrically crosses a real pad. Also confirmed the
+  `~3.9` s of continuous pre-curve boost-holding was real (`input.boost`
+  held on `468`/`469` ticks, zero releases) — but re-tracing
+  recorded-vs-simulated speed from the fixture's own start found both
+  already pinned at the `2300` uu/s cap for the entire pre-curve
+  approach regardless of remaining boost, since throttle taper alone
+  sustains cap speed on flat ground with none — so the drained tank
+  produces no visible pre-curve symptom either way. Boost depletion
+  timing is now an unconfirmed, not refuted-nor-supported, contributor;
+  the confirmed `1`-`2`-tick per-tick contact-pattern lag remains the
+  only mechanism actually shown real, and it's small. No fixture, test,
+  or behavioral change; workspace tests unchanged at `480`. Full
+  workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-088` extended with finding 7 (still open,
   characterized) — geometrically bracketed the curve's own footprint
   (each wheel's raycast contact normal, not a speed threshold) on both
@@ -2972,9 +2992,20 @@
    the gap via a real boost pickup the port structurally can't
    reproduce, but unconfirmable, because `boost_amount` reads a frozen
    `100` in every fixture checked (a newly found, systemic
-   capture-fidelity bug, not specific to this maneuver). Next: implement
-   boost-pad modeling to test that leading hypothesis directly, or keep
-   hunting the actual mechanism behind `FR-094`'s `n=4`-corroborated
+   capture-fidelity bug, not specific to this maneuver). That boost-pad
+   hypothesis was then checked directly — sourcing the real arena's `34`
+   pad coordinates and testing the recorded path against every one of
+   them geometrically — and refuted: zero overlaps across either
+   fixture's entire run. Recorded and simulated speed also turned out to
+   already be pinned at the `2300` uu/s cap throughout the whole
+   pre-curve approach regardless of remaining boost (throttle taper alone
+   sustains it), so a drained tank leaves no distinguishing signal there
+   either. Boost depletion is now an unconfirmed, not
+   refuted-nor-supported, contributor; the confirmed `1`-`2`-tick
+   contact-pattern lag is the only mechanism shown real, and it's small.
+   Next: find the actual differentiator behind `FR-088`'s `24%`-vs-`9%`
+   gap now that two of three candidates are ruled out, or keep hunting
+   the actual mechanism behind `FR-094`'s `n=4`-corroborated
    sign-anti-correlation pattern, then `FR-085` findings I/J and, if a
    plugin-1.1 re-capture of a dodge-free one-wheel landing becomes
    available, finish `FR-091`/finding 5 with it.
@@ -3483,6 +3514,30 @@
   checked further, for every tick of `clean-dodge` and `dodge-derailment`
   too — confirming this field is not real telemetry in any capture
   fixture recorded so far.
+- `RB-PHYSICS-001-FR-088` boost-pad-hypothesis check (2026-09-10, this
+  sandbox): sourced the real standard arena's `34` boost-pad coordinates
+  from the RLBot wiki's own published list (`6` big, `28` small; two
+  independent fetches agree exactly on every overlapping coordinate, and
+  the full list is front-to-back/left-to-right symmetric), cross-checked
+  against RocketSim's own `RLConst.h` for the numeric pickup geometry
+  (`CYL_RAD_SMALL=144`, `CYL_RAD_BIG=208`, `CYL_HEIGHT=95` uu). Checked
+  every recorded tick of `wall-climb-crest` (`824` frames) and
+  `boost-wall-entry` (`271` frames) — their *entire* runs, not just the
+  curve window — against all `34` pads with the real cylinder-overlap
+  test (2D distance under the pad's own radius and height difference
+  under `95` uu): `0` overlaps found in either fixture. Separately
+  confirmed `input.boost` held `True` on `468`/`469` ticks from
+  `wall-climb-crest`'s own start to its first curve tick (zero release
+  events), matching the `~3.9` s of continuous holding the drained-tank
+  hypothesis assumed. Re-traced recorded-vs-simulated speed (not just
+  boost) from the fixture's own start: both pinned at the `2300` uu/s
+  cap for the entire pre-curve approach (`i=204`-`468`, `t=14.84`-
+  `17.04`), simulated boost reaching exactly `0.00` at `i=360`
+  (`t=16.1417`, `~0.9` s before the curve) with no corresponding dip in
+  simulated speed (`2300→2299.2`-ish, matching recorded almost exactly)
+  — `RB-PHYSICS-001-FR-058`'s throttle taper alone holds cap speed with
+  zero boost on flat ground, so a drained tank produces no distinguishing
+  pre-curve signal either way.
 - `RB-PHYSICS-001-FR-094` dodge-direction re-simulation (2026-09-10, this
   sandbox): `clean-dodge.capture.jsonl` re-seeded via
   `PhysicsWorld::from_frame` and stepped tick-by-tick with recorded
