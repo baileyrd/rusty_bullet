@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.114.0
+- Version: 0.115.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7009,7 +7009,10 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
      uu/s velocity step at `6.05`–`6.07` and the rotation that follows
      cannot be matched by any physics change on this fixture. That is the
      ratchet's floor here, and a note for `RB-VERIFY-001`/`ADR-0005` on
-     capture input fidelity.
+     capture input fidelity. (Corrected and delivered by
+     `RB-PHYSICS-001-FR-092`: the note belongs in `RB-VERIFY-002`, not
+     `RB-VERIFY-001`, and is now written; this finding's own math is
+     independently re-verified there too.)
   7. **RocketSim vs. RL: the recording's wheels keep acting one to two
      ticks longer after the jump than RocketSim's ray allows.** The
      sticky-force deficit of finding 2 persists through the tick that
@@ -7975,6 +7978,80 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     than forced to a premature close.
   - **Verification plan.** `480` tests in the workspace (`+1` fixture
     ratchet in `rb_verify_cli`).
+- `RB-PHYSICS-001-FR-092` (finding 6 confirmed, and connected to `FR-091`'s
+  capture-corruption pattern — documentation only): `FR-083` finding 6
+  flagged, in passing, that `dodge-derailment.capture.jsonl`'s second
+  dodge (`t = 6.05`) records `pitch = 0, yaw = +1` for a Δv that
+  decomposes as a forward-right diagonal, and promised "a note for
+  `RB-VERIFY-001`/`ADR-0005` on capture input fidelity" that was never
+  actually written. Revisited here: the note is written, finding 6's own
+  math is independently re-verified against the raw fixture data rather
+  than taken on faith, and the result is connected to `FR-091`'s newly-
+  established capture-corruption pattern instead of standing as an
+  unexplained, isolated caveat.
+  - **Finding 6's math re-verified directly.** Recomputed from the raw
+    fixture ticks, not from the spec prose: recorded `Δv = (-518.1,
+    466.2, -5.2)` at `t = 6.05`–`6.058`, decomposed using RocketSim's own
+    `forwardDir2D`/`rightDir2D = (-forwardDir2D.y, forwardDir2D.x)`
+    construction (not a naive 3D-axis projection, which gives a visibly
+    wrong right-component here because the car's roll from its *first*
+    dodge, three seconds earlier, has not fully settled) gives `354` uu/s
+    forward and `600` uu/s right — matching the spec's cited `352`/`601`
+    to within rounding, and matching a diagonal `pitch = -1, yaw = +1`
+    dodge's predicted ratio (`0.707 : 0.707 × 1.70` from `FR-059`'s own
+    side-dodge speed scale) to within `0.3%`. The recorded input was
+    wrong; the physics read from it was not.
+  - **Not a one-off dead axis.** The same car's `pitch` reads correctly
+    at `t = 4.242`–`4.692` (the *first* dodge and its landing, `pitch =
+    -1`) and again at `t = 4.992`–`5.175` (ordinary backward air-control
+    pitch, `pitch = +1`), in the same clip, on the same recorder build —
+    ruling out a stuck or permanently-broken pitch channel. The failure
+    is confined to the one tick (and its immediate neighbors) around the
+    second dodge's press, the same signature `FR-091`'s
+    `angular_velocity` artifact carries: an isolated, single-tick,
+    single-field corruption around a jump/dodge/flip event, not a
+    session-wide defect.
+  - **Extends the pattern, not just repeats it.** `dodge-derailment` is
+    cut from `test2.jsonl`, the very *first* capture session — recorded
+    before the "plugin 1.0"/"plugin 1.1" versioning `FR-085`'s finding I
+    and `FR-087`'s fix introduced. This defect (a `ControllerInput` field
+    dropped) predates that versioning and hits a different field
+    (`input.pitch`) than `FR-091`'s (`angular_velocity`), so the
+    single-tick capture-corruption pattern isn't specific to one plugin
+    build or one field — it has been present since the earliest capture
+    this project has, in whatever form its recording mechanism took at
+    the time. No mechanism connecting this occurrence to finding I's own
+    (ordering-dependent stale `GetInput()` reads) or `FR-091`'s own is
+    established; only the shared symptom (single-tick, event-adjacent,
+    field-specific) is.
+  - **The note, written.** `RB-VERIFY-002` (not `RB-VERIFY-001`, which
+    governs replay-derived input with its own, structurally different
+    "`pitch`/`yaw`/`roll` are always `None`" limitation — finding 6's own
+    "RB-VERIFY-001" reference was a mistake) and `ADR-0005` both now
+    record that a capture's recorded `ControllerInput` can drop a single
+    field on a single tick near a jump/dodge/flip event, independent of
+    the `GetInput()`-staleness mechanism finding I and `FR-087` already
+    fixed, and that no reconstruction is possible after the fact — a
+    consumer comparing a capture's own recorded Δv against its recorded
+    input should expect this failure mode near dodges specifically.
+  - **Non-goals (this requirement).** Fixing or reconstructing the
+    dropped tick (the underlying capture is historical, fixed data);
+    determining whether this occurrence shares finding I's or `FR-091`'s
+    own root cause, or is a third, distinct mechanism; auditing the
+    other five clips vendored before `FR-091`'s scan method existed for
+    the same `ControllerInput`-field-drop pattern (only `FR-091`'s own
+    `angular_velocity` scan was run project-wide; a matching scan for
+    dropped input fields has not been).
+  - **Acceptance criteria.** Finding 6's own decomposition independently
+    reproduced from raw fixture data using the correct (RocketSim 2D)
+    axis construction, not merely re-stated; the pitch channel shown
+    working correctly elsewhere in the same clip, ruling out a dead axis;
+    the promised `RB-VERIFY-002`/`ADR-0005` note actually written, with
+    the original `RB-VERIFY-001` reference corrected; no fixture or test
+    changes, since no new fixture data and no physics change are
+    involved.
+  - **Verification plan.** `480` tests in the workspace, unchanged
+    (documentation only).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -9464,6 +9541,25 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.115.0 (2026-09-10): `RB-PHYSICS-001-FR-092` added (documentation
+  only) — `FR-083` finding 6 revisited. Independently re-verified its
+  own decomposition math directly from the raw `dodge-derailment` fixture
+  data (using RocketSim's actual `forwardDir2D`/`rightDir2D` construction,
+  not a naive 3D-axis projection): the recorded `t = 6.05` dodge's Δv
+  really does match a diagonal `pitch = -1, yaw = +1` press to within
+  `0.3%`, confirming the recorded `pitch = 0` was wrong, not the physics
+  read from it. Confirmed the same car's `pitch` channel reads correctly
+  both earlier (the clip's first dodge) and later (ordinary air control)
+  in the same clip, ruling out a dead axis — this is a single-tick,
+  event-adjacent drop, the same signature `FR-091`'s `angular_velocity`
+  artifact carries, now found in a different field (`ControllerInput`,
+  not derived state) and in the very first capture session, predating
+  the plugin 1.0/1.1 versioning `FR-085`/`FR-087` introduced. Wrote the
+  "note for capture input fidelity" finding 6 promised but never
+  delivered, in `RB-VERIFY-002` and `ADR-0005` (correcting finding 6's
+  own mistaken `RB-VERIFY-001` reference — that spec's `pitch`/`yaw`/
+  `roll: None` limitation is a different, structural gap). No fixture,
+  test, or behavioral change; workspace tests unchanged at `480`.
 - 0.114.0 (2026-09-10): `RB-PHYSICS-001-FR-091` added — `FR-084`/`FR-085`
   finding 5 revisited (open, characterized). Directly scanned all 7
   vendored raw clips (geometric wheel-contact raycast against recorded

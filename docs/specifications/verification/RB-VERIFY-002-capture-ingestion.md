@@ -1,6 +1,6 @@
 # RB-VERIFY-002 — BakkesMod Offline Capture Ingestion
 
-- Version: 0.5.0
+- Version: 0.6.0
 - Status: In Progress (FR-001 — the BakkesMod-side plugin — built, loaded,
   and run against a real Rocket League + BakkesMod install; FR-002/NFR-001
   implemented and now also verified against that real capture, not just the
@@ -81,6 +81,29 @@ at high frequency alongside ball/car physics state to a capture file, and
   writes each tick's line once the next tick begins (`beginFrame` /
   `flushPending`); a car whose hook did not fire keeps its last input.
   Written against the SDK, not yet rebuilt and run by the owner.
+  **Capture input fidelity, more broadly (`RB-PHYSICS-001-FR-092`,
+  finding 6):** the very first capture session (plugin build predating
+  1.0's own versioning) independently shows the same class of defect in
+  a different shape — one recorded tick near a dodge press drops a
+  single `ControllerInput` field (`pitch`) to `0` while every other field
+  on that same tick, and that field on every other tick in the same
+  clip, reads correctly; re-derived directly from the raw fixture, the
+  car's actual Δv at that tick matches the *un-recorded* diagonal input,
+  not the recorded one. This is not finding I's own mechanism (a stale
+  previous-tick read via `GetInput()`) — the dropped value never appears
+  on any tick, not even a later one — so it is either a distinct defect
+  or an earlier variant of the same recorder limitation; no further
+  root-causing has been done, since the data is historical. **The
+  takeaway for any consumer of a capture's `ControllerInput`:** treat a
+  single field, on a single tick, as unreliable specifically around a
+  jump/dodge/flip event, on every capture session recorded so far
+  (1.0-predecessor, 1.0, and 1.1's own analog-axis read is still
+  unverified against a real capture — see Open questions); there is no
+  way to reconstruct the true value after the fact, and no fixture
+  should be tuned against such a tick (see `RB-PHYSICS-001-FR-083`
+  finding 6's own fixture caveat, and `RB-PHYSICS-001-FR-091`'s
+  `angular_velocity` instance of the same symptom in derived physics
+  state rather than raw input).
 - `RB-VERIFY-002-FR-002` (implemented, verified): `rb_capture_ingest`
   parses a capture file into a chronologically ordered `Vec<PhysicsFrame>`,
   with input data attached via `rb_domain::CarState.input` (unlike
@@ -189,6 +212,16 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
   one-tick jump tap and a dodge, ingested and traced — analog axes
   non-zero when the stick moves, the `jump` flag on the press tick, the
   flip's `pitch` on the tick the flip starts.
+- The single-tick, single-field `ControllerInput` drop `RB-PHYSICS-001-
+  FR-092` found in the very first capture session (predating plugin
+  1.0's own versioning) — whether it shares a root cause with finding
+  I's `GetInput()` staleness, with `RB-PHYSICS-001-FR-091`'s
+  `angular_velocity` artifact, or is a third distinct mechanism. Not
+  root-caused; the underlying capture is historical, so this is a
+  standing fidelity caveat (see FR-001's own entry above) rather than an
+  open bug to fix. Whether the same pattern recurs in the four other
+  clips vendored before `FR-091`'s scan method existed has not been
+  checked either.
 - Resolved: the hookable event name
   (`Function TAGame.Car_TA.SetVehicleInput`) is confirmed correct — it
   fired reliably across two real captures (9,358 and 2,818 lines), with the
@@ -200,6 +233,17 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.6.0 (2026-09-10): FR-001's entry extended with `RB-PHYSICS-001-
+  FR-092`'s finding: the very first capture session (predating plugin
+  1.0's own versioning) independently shows a single `ControllerInput`
+  field dropped on a single tick near a dodge press — a different shape
+  of defect than finding I's stale-read mechanism (the dropped value
+  never resurfaces on a later tick), re-derived directly from the raw
+  fixture rather than taken on faith. This was the "note for capture
+  input fidelity" `RB-PHYSICS-001-FR-083` finding 6 had promised for
+  `RB-VERIFY-001`, corrected to land here instead (`RB-VERIFY-001`
+  governs a structurally different, replay-side limitation). New Open
+  questions bullet; no code change.
 - 0.5.0 (2026-09-06): FR-001's plugin 1.1 — the input recorded per car
   from the `SetVehicleInput` hook's own `ControllerInput` argument, each
   tick's line flushed when the next tick begins, after

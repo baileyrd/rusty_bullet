@@ -6,6 +6,39 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Finding 6, run to ground and finally written up
+**2026-09-10** · `RB-PHYSICS-001-FR-092` (documentation only)
+
+- `RB-PHYSICS-001-FR-083` finding 6 flagged, in passing, that the
+  `dodge-derailment` fixture's second dodge records `pitch = 0` for a
+  velocity change that looks diagonal — and promised a capture-input-
+  fidelity note that never got written. Revisited here.
+- Re-derived finding 6's own math directly from the raw fixture ticks
+  instead of taking the old prose on faith: decomposed using RocketSim's
+  actual `forwardDir2D`/`rightDir2D` construction (a naive 3D-axis
+  projection gives a visibly wrong answer, thrown off by leftover roll
+  from the clip's first dodge), the recorded Δv matches a diagonal
+  `pitch = -1, yaw = +1` press to within `0.3%`. The recorded input was
+  wrong; the physics read from it was not.
+- Confirmed it isn't a dead axis: the same car's `pitch` reads correctly
+  both earlier (the clip's first dodge) and later (ordinary backward air
+  control) in the same clip. The failure is confined to one tick next to
+  the second dodge's press — the same signature `RB-PHYSICS-001-FR-091`'s
+  `angular_velocity` artifact carries, now showing up in a different
+  field (recorded input, not derived state) and in the very first
+  capture session, before the plugin 1.0/1.1 versioning even existed.
+- Wrote the note, finally: `RB-VERIFY-002` and `ADR-0005` now both record
+  that a capture's `ControllerInput` can drop a single field on a single
+  tick near a jump/dodge/flip event, with no way to reconstruct the true
+  value afterward. Finding 6's own draft cited `RB-VERIFY-001` for this
+  note — corrected here, since that spec governs a different, structural
+  limitation (replay-derived input has no `pitch`/`yaw`/`roll` at all).
+- No fixture, test, or behavioral change — this is a documentation and
+  characterization pass, not a fix (there is nothing to fix in already-
+  recorded historical data).
+
+---
+
 ## A dodge-free landing, and a glitch in the recording
 **2026-09-10** · `RB-PHYSICS-001-FR-091` (open, characterized)
 

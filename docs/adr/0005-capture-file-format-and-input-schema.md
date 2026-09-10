@@ -125,6 +125,21 @@ analog stick angle, and must not be reinterpreted as one). `jump`/`boost`/
   built-in way to tell old and new capture files apart — accepted per
   `RB-RESEARCH-O003`'s explicit "revisit once a second format revision is
   needed" trigger, not overlooked.
+- The schema records what the recorder read, not necessarily what the
+  player actually pressed. `RB-PHYSICS-001-FR-085` finding I found the
+  first recorder build's `GetInput()` read-back going stale by up to a
+  tick when a car's own `SetVehicleInput` hadn't yet fired that tick
+  (fixed by plugin 1.1, `RB-VERIFY-002` 0.5.0); `RB-PHYSICS-001-FR-092`
+  independently found a second, different failure mode in the very first
+  capture session (predating that versioning) — a single
+  `ControllerInput` field dropped to `0` on a single tick near a dodge
+  press, with no later tick ever carrying the true value, so it isn't
+  finding I's staleness. Neither defect is fixable in already-recorded
+  data or detectable from the schema alone (there is no field that would
+  flag a dropped read); a consumer must expect an occasional single-
+  field, single-tick miss near a jump/dodge/flip event on any capture
+  recorded so far, not just the pre-1.1 ones. See `RB-VERIFY-002`'s own
+  Open questions for the current state of each capture build.
 
 ## Validation and revisit triggers
 

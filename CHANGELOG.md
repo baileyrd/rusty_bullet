@@ -395,6 +395,22 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   fixture (`258` frames) with a ratchet test worded not to attribute its
   divergence to either a landing-model bug or the artifact. Finding 5
   itself remains open.
+  `RB-PHYSICS-001-FR-092` (documentation only): `RB-PHYSICS-001-FR-083`
+  finding 6 revisited. Its own decomposition math independently
+  re-derived directly from the raw `dodge-derailment` fixture data using
+  RocketSim's actual `forwardDir2D`/`rightDir2D` construction (a naive
+  3D-axis projection gives a visibly wrong answer here): the recorded
+  `t = 6.05` dodge's Δv matches a diagonal `pitch = -1, yaw = +1` press
+  to within `0.3%`, confirming the recorded `pitch = 0` was wrong, not
+  the physics read from it. The same car's `pitch` channel reads
+  correctly both earlier and later in the same clip, ruling out a dead
+  axis — a single-tick, event-adjacent drop, the same signature
+  `RB-PHYSICS-001-FR-091`'s `angular_velocity` artifact carries, now in
+  a different (`ControllerInput`) field and in the very first capture
+  session, predating the plugin 1.0/1.1 versioning. Wrote the "note for
+  capture input fidelity" finding 6 had promised but never delivered, in
+  `RB-VERIFY-002` and `ADR-0005` (correcting finding 6's own mistaken
+  `RB-VERIFY-001` reference). No fixture, test, or behavioral change.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

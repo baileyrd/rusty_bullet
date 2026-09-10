@@ -2375,6 +2375,24 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-092` added (documentation only) — `FR-083` finding 6
+  revisited. Finding 6's own decomposition math independently re-derived
+  from the raw `dodge-derailment` fixture data (using RocketSim's real
+  `forwardDir2D`/`rightDir2D` construction, not a naive 3D-axis
+  projection): `354`/`600` uu/s forward/right, matching the spec's cited
+  `352`/`601` and a diagonal `pitch=-1,yaw=+1` dodge's predicted ratio to
+  within `0.3%` — the recorded `pitch = 0` was wrong, the physics read
+  from it was not. The same car's `pitch` reads correctly earlier (the
+  clip's first dodge) and later (ordinary air control) in the same clip,
+  ruling out a dead axis: a single-tick, event-adjacent drop, the same
+  signature `FR-091`'s `angular_velocity` artifact carries, now in a
+  different field and in the very first capture session, predating the
+  plugin 1.0/1.1 versioning `FR-085`/`FR-087` introduced. Wrote the
+  "note for capture input fidelity" finding 6 promised but never
+  delivered, in `RB-VERIFY-002` and `ADR-0005` (correcting finding 6's
+  mistaken `RB-VERIFY-001` reference). No fixture, test, or behavioral
+  change; workspace tests unchanged at `480`. Full workspace
+  `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-091` added, open and characterized — `FR-084`/
   `FR-085` finding 5 revisited. Directly scanned all 7 vendored raw clips
   (geometric wheel-contact raycast against recorded poses, independent of
@@ -2789,11 +2807,18 @@
    itself mid-flight, blocking a clean isolation regardless — the
    artifact recurs non-uniformly across the jump/dodge-heavy clips and
    is absent from the pure-driving ones, plausibly (not confirmed)
-   related to `FR-085`'s finding I. Next: isolate `FR-088`'s narrower
-   curve-entry asymmetry, the dodge's landing-timing residual, then
-   `FR-085` findings I/J and, if a plugin-1.1 re-capture of a dodge-free
-   one-wheel landing becomes available, finish `FR-091`/finding 5 with
-   it.
+   related to `FR-085`'s finding I. `FR-083` finding 6 was then revisited
+   as `FR-092` (documentation only, complete): its own math re-derived
+   directly from the raw fixture confirms the recorded `pitch = 0` was
+   wrong, not the physics; the same single-tick, event-adjacent failure
+   signature as `FR-091`'s, now found in a `ControllerInput` field and in
+   the very first capture session, predating the plugin versioning — the
+   promised capture-input-fidelity note is finally written, in
+   `RB-VERIFY-002` (finding 6's own "`RB-VERIFY-001`" reference was a
+   mistake) and `ADR-0005`. Next: isolate `FR-088`'s narrower curve-entry
+   asymmetry, the dodge's landing-timing residual, then `FR-085` findings
+   I/J and, if a plugin-1.1 re-capture of a dodge-free one-wheel landing
+   becomes available, finish `FR-091`/finding 5 with it.
 
 ## Validation
 
@@ -3225,6 +3250,21 @@
   `hittickjump01b.jsonl`, `3` in `hittickjump01.jsonl`, `1` in
   `walldrive04.jsonl`, and `0` times each in `curverun05.jsonl`,
   `groundjumpthrottle03.jsonl`, and `wall_curve02.jsonl`.
+- `RB-PHYSICS-001-FR-092` finding-6 re-derivation (2026-09-10, this
+  sandbox): recomputed directly from `dodge-derailment.capture.jsonl`'s
+  raw ticks at `t = 6.05`–`6.058`, `Δv = (-518.1, 466.2, -5.2)`. Using
+  RocketSim's own `forwardDir2D`/`rightDir2D = (-forwardDir2D.y,
+  forwardDir2D.x)` construction on the recorded orientation at `t =
+  6.05` gives `354.1` uu/s forward and `600.4` uu/s right — a naive 3D
+  right-axis projection instead gives `539.4` uu/s, `~20%` off, because
+  the car's roll from its first dodge three seconds earlier had not
+  fully settled. `354.1 : 600.4 = 0.590`, matching a diagonal `pitch =
+  -1, yaw = +1` dodge's predicted `0.707 : 0.707 × 1.70 = 0.588` (`FR-
+  059`'s side-dodge speed scale) to within `0.3%`. `input.pitch` in the
+  same file reads `0` throughout `t = 6.05`–`7.0` (every tick of the
+  fixture past the dodge) but reads correctly (`-1`) at `t =
+  4.242`–`4.692`, the clip's first dodge and landing, and again (`+1`)
+  at `t = 4.992`–`5.175`, ordinary backward air control.
 
 ## Risks and decisions needed
 
