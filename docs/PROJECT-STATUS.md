@@ -2375,6 +2375,25 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-094` extended further (still open, characterized) —
+  three more specific direction hypotheses checked against both dodges
+  and ruled out: an orientation-snapshot-timing artifact (neither
+  dodge's own pre-press history has a tick whose orientation predicts
+  the recorded direction exactly — best matches still miss by `34.6°`
+  and `12.5°`), the coded formula's horizontal-projection step vs. the
+  car's true 3D right axis (identical to five decimal places, since the
+  car stays within `~0.01` rad of level — not applicable here), and an
+  orientation cached from the preceding ground jump (`34.6°`/`14.5°`
+  misses, inconsistent between the two dodges). A suggestive pattern
+  surfaced instead: the signed correction from predicted to recorded
+  direction is opposite in sign from the pre-existing spin's own sign on
+  both dodges (`+37.9°` vs. `ω_z≈-0.91` rad/s; `-35.1°` vs.
+  `ω_z≈+2.86` rad/s), though the magnitude doesn't track the spin's own
+  magnitude (over `3×` apart, yet nearly equal angles) — reported as
+  observed on `n=2`, not established as a mechanism. No correct
+  alternative formula identified; no fixture, test, or behavioral
+  change; workspace tests unchanged at `480`. Full workspace
+  `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-094` extended (still open, characterized) — a
   second, independent dodge in the same raw clip (`clean_dodge04`'s
   mirrored, pure `yaw=+1` press at `t=21.4417`, opposite pre-existing
@@ -2888,13 +2907,22 @@
    simulated-vs-recorded direction miss found, closely matching an
    independent `35.1°` orientation-only estimate — two independent dodges
    now show the same `~34`-`38°` gap, evidence of a real, reproducible
-   phenomenon rather than a one-off. Still no correct alternative formula
-   identified. Next: return to `FR-088`'s curve-entry asymmetry with a
-   properly geometric (not speed-threshold) isolation of the curve's own
-   footprint, or look for a correct alternative direction formula for
-   `FR-094`'s now-corroborated `~34`-`38°` miss, then `FR-085` findings
-   I/J and, if a plugin-1.1 re-capture of a dodge-free one-wheel landing
-   becomes available, finish `FR-091`/finding 5 with it.
+   phenomenon rather than a one-off. Three more specific hypotheses were
+   then checked against both dodges and ruled out — an orientation-
+   snapshot-timing artifact, the coded formula's horizontal projection
+   vs. the car's true 3D right axis, and an orientation cached from the
+   preceding ground jump — but turned up a suggestive, unconfirmed
+   pattern instead: the signed correction from predicted to recorded
+   direction is opposite in sign from the pre-existing spin's own sign on
+   both dodges, though its magnitude doesn't track the spin's magnitude.
+   Still no correct alternative formula identified. Next: return to
+   `FR-088`'s curve-entry asymmetry with a properly geometric (not
+   speed-threshold) isolation of the curve's own footprint, or check the
+   sign-anti-correlation pattern against a third real dodge (with a
+   third, independent pre-existing spin) to see if it holds or was
+   coincidence on `n=2`, then `FR-085` findings I/J and, if a plugin-1.1
+   re-capture of a dodge-free one-wheel landing becomes available, finish
+   `FR-091`/finding 5 with it.
 
 ## Validation
 
@@ -3417,6 +3445,28 @@
   of opposite sign, opposite pre-existing spin sign, and unrelated
   moments in the clip now both show a `~34`-`38°` translation-direction
   miss.
+- `RB-PHYSICS-001-FR-094` further hypothesis checks (2026-09-10, this
+  sandbox): orientation-snapshot-timing checked by scanning each dodge's
+  own pre-press history (up to 30 ticks back) for whichever tick's
+  orientation, run through the coded formula, best predicts the recorded
+  direction — first dodge's best match `14` ticks back still misses by
+  `34.585°` (vs. `37.883°` at the press tick itself); second dodge's best
+  match `25` ticks back (outside its own held-input window) still misses
+  by `12.512°` (vs. `35.111°` at the press tick). True-3D-right-axis
+  check: `right3d`'s own horizontal projection vs. `forward2d`-derived
+  `right2d` agree to five decimal places on both dodges (car's `up`
+  within `0.01` rad of `(0,0,1)` throughout — not a level/tilt artifact).
+  Ground-jump-cached-orientation check: using the orientation at each
+  dodge's own preceding ground-jump press (`23` ticks before the first
+  dodge at `t=6.2917`, `20` ticks before the second at `t=21.275`) gives
+  `34.585°` and `14.491°` misses respectively — inconsistent between the
+  two, not a match. Signed-correction check: `θ = atan2(rec) -
+  atan2(pred)` gives `+37.883°` (first dodge, `ω_z≈-0.91` rad/s) and
+  `-35.111°` (second dodge, `ω_z≈+2.86` rad/s) — opposite sign from the
+  pre-existing spin's own sign in both cases, magnitude not tracking
+  spin magnitude (`0.91` vs `2.86` rad/s, `>3×` apart, vs. `37.9°`/`35.1°`,
+  nearly equal) — reported as an `n=2` observation, not a confirmed
+  mechanism.
 
 ## Risks and decisions needed
 

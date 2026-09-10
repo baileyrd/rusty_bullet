@@ -6,6 +6,45 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Three more guesses ruled out, one curious pattern left standing
+**2026-09-10** · `RB-PHYSICS-001-FR-094` (still open, characterized)
+
+- With two dodges now confirmed to show the same `~34`-`38°`
+  translation-direction miss, the obvious next move was to try a few
+  more specific explanations before giving up on finding the actual
+  mechanism.
+- **Is it a timing/snapshot lag?** Maybe the game reads the car's
+  orientation for the flip a few ticks before the press, not at the
+  press itself — a stale orientation would rotate the predicted
+  direction by however much the car had spun since. Checked every tick
+  in each dodge's own recent history for whichever one's orientation
+  would have predicted the recorded direction exactly. Neither dodge has
+  one — the closest either gets is still `12.5°`-`34.6°` off, not zero.
+- **Is the horizontal-projection math throwing away real tilt?** The
+  coded formula flattens the car's facing direction to a 2D plane before
+  deriving the sideways direction; maybe the car's *actual* 3D sideways
+  axis, projected the same way, tells a different story. It doesn't —
+  both dodges have the car within a hair of level, so the two
+  constructions agree to five decimal places.
+- **Is it the direction from the original ground jump, not the flip
+  itself?** Tried using the car's orientation from when it first left
+  the ground, tens of ticks earlier, instead of the flip press. Gives
+  `34.6°` and `14.5°` on the two dodges respectively — not a match, and
+  not even consistent between them.
+- All three ruled out. But checking them surfaced something unplanned:
+  the *direction* of the miss (not just its size) flips sign to match
+  the *opposite* of whichever way the car was already spinning before
+  the press — every time, on both dodges. The *size* of the miss doesn't
+  scale with how fast the car was already spinning, though (one dodge
+  had `3×` the spin of the other, but nearly the same size of miss) — so
+  this isn't a simple "correction proportional to spin" relationship
+  either. Interesting, but it's one data point in each direction; it
+  needs a third dodge before it's worth trusting.
+- Still no fix, still no correct formula. What's different: three more
+  plausible-sounding explanations are now off the table, and there's a
+  concrete, checkable next step (a third dodge) instead of an open-ended
+  search.
+
 ## A second dodge, opposite spin, the same ~35° miss
 **2026-09-10** · `RB-PHYSICS-001-FR-094` (still open, characterized;
 now corroborated)

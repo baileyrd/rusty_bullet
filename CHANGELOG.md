@@ -456,6 +456,22 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   real, reproducible gap rather than a one-off artifact of the first
   dodge. Still no correct alternative formula identified; no fixture,
   test, or behavioral change.
+  Checked three more specific direction hypotheses against both dodges
+  for `RB-PHYSICS-001-FR-094` and ruled all out: an orientation-snapshot-
+  timing artifact (neither dodge's own pre-press history has a tick whose
+  orientation predicts the recorded direction exactly — best matches
+  still miss by `34.6°` and `12.5°`), the coded formula's horizontal-
+  projection step vs. the car's true 3D right axis (identical to five
+  decimal places, since the car stays within `~0.01` rad of level), and
+  an orientation cached from the preceding ground jump (`34.6°`/`14.5°`
+  misses, inconsistent between the two dodges). Found a suggestive,
+  unconfirmed pattern instead: the signed correction from predicted to
+  recorded direction is opposite in sign from the pre-existing spin's own
+  sign on both dodges (`+37.9°` vs. `ω_z≈-0.91` rad/s; `-35.1°` vs.
+  `ω_z≈+2.86` rad/s), though the magnitude doesn't track the spin's own
+  magnitude — reported as observed on `n=2`, not established as a
+  mechanism. Still no correct alternative formula identified; no
+  fixture, test, or behavioral change.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

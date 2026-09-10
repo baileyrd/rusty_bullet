@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.118.0
+- Version: 0.119.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -8218,23 +8218,59 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     unrelated moments in the clip is evidence this is a real,
     reproducible gap in the coded formula rather than a one-off artifact
     of the first dodge specifically.
+  - **Three more specific hypotheses checked and ruled out; one
+    suggestive pattern found instead.** Checked whether the miss is an
+    *orientation-snapshot timing* artifact — searching each dodge's own
+    pre-press history for whichever earlier tick's orientation, run
+    through the same formula, would have predicted the recorded
+    direction exactly. Neither dodge has one: the first dodge's best
+    match, `14` ticks before its own press, still misses by `34.6°` (barely
+    better than the press tick's own `37.9°`); the second's best match,
+    `25` ticks back — outside its own held-input window entirely — still
+    misses by `12.5°`, not zero. Checked whether the coded formula's
+    horizontal-projection step (`dodge_axes_2d`, deriving `right2d` by
+    rotating `forward2d` `90°` *within* the horizontal plane) throws away
+    real information versus the car's *true* 3D right axis's own
+    horizontal projection: on both dodges the car is within `~0.01` rad
+    of level (`up ≈ (0, 0, 1)` to three decimals), so the two constructions
+    agree to five decimal places — ruled out, not applicable here.
+    Checked whether the direction is cached from the *ground jump* that
+    preceded each dodge (`23` ticks earlier for the first dodge, `20` for
+    the second) rather than read fresh at the press: gives `34.6°` and
+    `14.5°` respectively — inconsistent between the two dodges, not a
+    match either. One pattern *did* emerge, unprompted, while checking
+    these: the *signed* correction from each dodge's predicted direction
+    to its recorded one is `+37.9°` (first dodge, pre-existing
+    `ω_z ≈ -0.91` rad/s) and `-35.1°` (second dodge, pre-existing
+    `ω_z ≈ +2.86` rad/s) — opposite sign in both cases from the
+    pre-existing spin's own sign. The correction's *magnitude* does not
+    track the pre-existing spin's magnitude, though (`0.91` vs `2.86`
+    rad/s, over `3×` apart, yet `37.9°` vs `35.1°`, nearly equal) — so this
+    is not a simple "correction proportional to spin" relationship either,
+    just a same-sign-anti-correlation pattern on `n = 2`, worth checking
+    against a third dodge before leaning on it.
   - **Non-goals (this requirement).** The correct alternative formula (a
-    stick-relative, velocity-relative, or pre-air-control-orientation
-    basis were all checked as simple hypotheses and ruled out; something
-    more specific may combine two of these, or the real mechanism may be
-    orthogonal to all of them); any other real dodge preceded by held
-    air-control input beyond the two already checked here (not checked);
-    any code change, since no correct alternative formula has been
-    identified to adopt; the `clean-dodge` fixture's own ratchet, left
-    exactly as `FR-090` set it (already loose enough to cover this).
+    stick-relative, velocity-relative, pre-air-control-orientation,
+    orientation-snapshot-timing, true-3D-right-axis, or ground-jump-cached
+    basis were all checked as hypotheses and ruled out; something more
+    specific may combine two of these, or the real mechanism may be
+    orthogonal to all of them); confirming the sign-anti-correlation
+    pattern (or finding it doesn't hold) on a third dodge; any other real
+    dodge preceded by held air-control input beyond the two already
+    checked here (not checked); any code change, since no correct
+    alternative formula has been identified to adopt; the `clean-dodge`
+    fixture's own ratchet, left exactly as `FR-090` set it (already loose
+    enough to cover this).
   - **Acceptance criteria.** The windowed growth diagnostic run and shown
     to contradict the "downstream"/"landing" framing directly, not
     merely asserted; the dodge tick's own recorded and simulated `Δv`
     compared with matching, verified-identical pre-dodge orientation
     ruling out a pose-tracking artifact, on *two* independent dodges of
-    opposite sign; three alternative direction hypotheses checked
-    numerically and ruled out on the first dodge, not just the one that
-    happened to fail; the open question re-scoped from "an unidentified
+    opposite sign; six alternative direction hypotheses checked
+    numerically and ruled out across the two dodges, not just the one
+    that happened to fail; the sign-anti-correlation-with-spin pattern
+    reported as observed-but-unconfirmed (`n = 2`), not overclaimed as a
+    mechanism; the open question re-scoped from "an unidentified
     downstream landing effect" to "the translation impulse's own
     direction, on the press tick, for a dodge preceded by held air
     control" — a narrower, more actionable question for a future pass.
@@ -9729,6 +9765,27 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.119.0 (2026-09-10): `RB-PHYSICS-001-FR-094` extended further (still
+  open, characterized) with three more specific direction hypotheses
+  checked against both dodges and ruled out: an orientation-snapshot-
+  timing artifact (searching each dodge's own pre-press history for a
+  tick whose orientation predicts the recorded direction exactly — the
+  first dodge's best match, `14` ticks back, still misses by `34.6°`; the
+  second's, `25` ticks back, still misses by `12.5°`); the coded
+  formula's horizontal-projection step vs. the car's true 3D right axis
+  (identical to five decimal places on both dodges, since the car is
+  within `~0.01` rad of level throughout — not applicable here); and an
+  orientation cached from the preceding ground jump rather than read
+  fresh at the press (`34.6°`/`14.5°` misses, inconsistent between the
+  two dodges). One suggestive pattern surfaced instead: the *signed*
+  correction from predicted to recorded direction is `+37.9°` on the
+  first dodge (pre-existing `ω_z ≈ -0.91` rad/s) and `-35.1°` on the
+  second (`ω_z ≈ +2.86` rad/s) — opposite sign from the pre-existing
+  spin's own sign in both cases, though the magnitude doesn't track the
+  spin's own magnitude (over `3×` apart, yet `37.9°` vs `35.1°`) —
+  reported as observed on `n = 2`, not established as a mechanism. Still
+  no correct alternative formula identified; no fixture, test, or code
+  change. Workspace tests unchanged at `480`.
 - 0.118.0 (2026-09-10): `RB-PHYSICS-001-FR-094` extended (still open,
   characterized) with a second, independent corroborating dodge —
   `clean_dodge04.jsonl`'s mirrored, pure `yaw = +1` press at `t =
