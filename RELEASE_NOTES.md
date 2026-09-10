@@ -6,6 +6,31 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## The "unlimited boost explains it" story was incomplete
+**2026-09-10** · `RB-PHYSICS-001-FR-088` finding 11 (correction)
+
+- Two entries back, "unlimited boost was on in the recording" looked
+  like it fully explained why the simulation and the recording disagreed
+  on a wall climb. Before moving on, went back and checked that
+  conclusion against cases where boost couldn't possibly be involved.
+- Found two more wall climbs in the same recording where the driver
+  never touched boost at all — plain, throttle-only runs up the same
+  kind of curve. If "it's all about boost" were the whole story, these
+  should track cleanly. They don't: the simulation still loses
+  noticeably less speed through the curve than the real recording does
+  — by as much as the original boost-related case, sometimes more.
+- And it's backwards from before: in the boosted case, the simulation
+  lost *more* speed than the recording. In these boost-free cases, the
+  simulation loses *less*. Two different effects, pulling in opposite
+  directions, both real.
+- So the record is being corrected, not just extended: unlimited boost
+  is real and does explain part of what was seen, but it was wrongly
+  treated as the whole explanation. There's a second, unrelated mismatch
+  in how the physics handles these curves, still not tracked down, and
+  it may be big enough that it's actually worth fixing in code — which
+  the last conclusion had ruled out entirely. That was premature, and
+  it's now been walked back.
+
 ## Checked back on the car that got stuck upside-down. Still stuck.
 **2026-09-10** · `RB-PHYSICS-001-FR-085` finding J (re-verified)
 

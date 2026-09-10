@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.125.0
+- Version: 0.126.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7939,30 +7939,81 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `hit-tick-jump.capture.jsonl` is added to the "no currently-vendored
     fixture can calibrate boost-consumption" caveat this finding's
     Non-goals bullet already states.
+  - **11. A second, boost-independent asymmetry found — in the opposite
+    direction — on two boost-free climbs in the same clip (correction to
+    finding 9's "nothing to fix here"; open).** Finding 9's Non-goals
+    listed "the other four wall-climb events in `wall_curve02`... not yet
+    excerpted." Two of those four are genuinely boost-free: geometrically
+    isolating every climb in the raw clip (each a span of rising `z`
+    while near a wall) found a `+X`-wall climb at `t≈25.5`–`25.9` and a
+    `-X`-wall climb at `t≈34.5`–`34.8`, neither with `input.boost = True`
+    anywhere in a `2.5` s lookback before or during the climb — a clean
+    remove of the boost confound entirely, on the identical clip and
+    identical curve geometry `wall-climb-crest` itself uses. Re-simulated
+    both from a seed on their own flat approach, tracking speed
+    tick-by-tick: on the first, the recording sheds `1406.8 → 1189.6`
+    uu/s from `t=25.5333` to `t=25.8583` (`0.325` s, `≈-668` uu/s²) while
+    the port sheds only `1407.6 → 1294.5` over the same span
+    (`≈-348` uu/s²) — the port loses `52%` of what the recording loses,
+    i.e. `48%` *less*. On the second, the recording sheds
+    `1483.0 → 1228.4` from `t=34.5083` to `t=34.7833` (`0.275` s,
+    `≈-926` uu/s²) against the port's `1483.6 → 1325.9`
+    (`≈-574` uu/s²) — `62%` of the recording's loss, `38%` less. Both
+    gaps are as large as or larger than `wall-climb-crest`'s own
+    originally-reported `24%`, and — critically — run the *opposite*
+    direction: here the *recording* sheds more speed through the curve
+    and the *port* retains more, whereas `wall-climb-crest` and
+    `boost-wall-entry` (both boost-held) showed the *port* shedding more.
+    This cannot be the unlimited-boost mechanism — there is no boost on
+    either side of this comparison. **Finding 9's "no port bug... nothing
+    in `rb_physics_bullet` to fix here" conclusion is corrected, not
+    retracted outright: unlimited boost is real, owner-confirmed, and
+    does explain why `wall-climb-crest` diverges more than
+    `boost-wall-entry`, but it is not the whole story.** A second,
+    boost-independent, opposite-direction mechanism — most likely
+    `RB-PHYSICS-001-FR-084` finding 5's own "not yet isolated" per-tick
+    curve-loss driver, now confirmed real and large on clean, boost-free
+    data rather than merely suspected — sits underneath it, and the
+    boosted fixtures' own asymmetry is the *net* of both effects working
+    against each other: the true size of the unlimited-boost effect on
+    `wall-climb-crest` must be larger than the raw `24%` figure alone
+    suggests, since it has to overcome this opposing boost-independent
+    tendency and still net out in the port-loses-more direction. Not yet
+    isolated further (no per-tick contact-pattern or geometric-footprint
+    breakdown run on these two new climbs); left open as the more
+    consequential half of finding 5's original question. Temp probes
+    `crates/rb_verify_cli/examples/throttle_climb_probe.rs` and
+    `throttle_climb_probe2.rs` deleted after use.
   - **New fixture.** `wall-climb-crest.capture.jsonl` (`824` frames,
     `t=13.142`–`20.000`), seeded on its first grounded, neutral frame,
     with a ratchet test bounding the current divergence loosely (it is
     an open residual, not a fixed maneuver, so the bound exists to catch
     a further regression, not to pin today's figure as correct).
-  - **Non-goals (this requirement).** Any code change: the root cause is
-    now understood to be a non-standard recording setting (unlimited
-    boost), not a port defect, so there is nothing in `rb_physics_bullet`
-    to fix here; implementing boost-pad modeling (never actually
-    motivated once finding 9 lands, though it remains a real gap in the
-    arena for other purposes); re-capturing `wall_curve02` (or any other
-    fixture) with standard, finite boost to get genuinely usable
-    boost-dependent verification data — an owner-side task, not
-    something this sandbox can do; quantifying how much of the `24%`-
-    vs-`9%` gap is the unlimited-boost mismatch itself versus the
-    separately-confirmed `1`-`2`-tick contact-pattern lag (plausibly
-    linked, per finding 9, but not separately measured); the other four
-    wall-climb events in `wall_curve02` (two throttle-only climbs, a
-    boost run into the `+X` wall, and one with boost engaged mid-climb),
-    not yet excerpted; `RB-PHYSICS-001-FR-084` finding 5;
-    `RB-PHYSICS-001-FR-085`'s findings I, J and K; re-scoring
-    `hit-tick-jump.capture.jsonl`'s own ratchet bound now that finding 10
-    identifies why it was already loose (`FR-087` left it as-is
-    deliberately, and the mechanism does not change the recording).
+  - **Non-goals (this requirement).** Any code change: finding 11 shows a
+    real, boost-independent, port-loses-*less*-speed mechanism remains
+    unisolated, so a targeted fix is premature until that mechanism (not
+    just its existence) is pinned down; implementing boost-pad modeling
+    (not motivated by the boost mismatch specifically, though it remains
+    a real gap in the arena for other purposes); re-capturing
+    `wall_curve02` (or any other fixture) with standard, finite boost to
+    get genuinely usable boost-dependent verification data — an
+    owner-side task, not something this sandbox can do; quantifying
+    exactly how much of `wall-climb-crest`'s `24%`-vs-`9%` gap is the
+    unlimited-boost mismatch itself, the separately-confirmed `1`-`2`-tick
+    contact-pattern lag, and finding 11's own boost-independent
+    contributor now that all three are known to be in play simultaneously
+    (not separately decomposed); a per-tick geometric-footprint or
+    contact-pattern breakdown of finding 11's own two boost-free climbs
+    (the same method finding 7 used, not yet applied here); the other two
+    of the four un-excerpted `wall_curve02` wall-climb events (one with a
+    boost run on approach released before the curve, one with a brief
+    boost re-engagement mid-climb — finding 11 only used the two fully
+    boost-free ones); `RB-PHYSICS-001-FR-084` finding 5 (finding 11 is
+    evidence toward it, not a resolution of it); `RB-PHYSICS-001-FR-085`'s
+    findings I, J and K; re-scoring `hit-tick-jump.capture.jsonl`'s own
+    ratchet bound now that finding 10 identifies why it was already loose
+    (`FR-087` left it as-is deliberately, and the mechanism does not
+    change the recording).
   - **Acceptance criteria.** The fillet-selection hypothesis tested and
     ruled out with a reproducible probe; the speed-decay discrepancy
     measured and documented; the transition-tick-count hypothesis tested
@@ -7971,19 +8022,23 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     confirmed real (though small) specifically on the fixture with the
     larger asymmetry, absent on the one without; the boost-pad hypothesis
     checked against real, sourced coordinates and reported as refuted;
-    the actual root cause obtained directly from the project owner
-    (unlimited boost enabled in the freeplay recording session) rather
-    than guessed at further, and the earlier "capture-fidelity bug"
-    mischaracterization of `boost_amount` explicitly retracted, not left
-    standing alongside the correction; the general caveat (no
-    currently-vendored fixture can calibrate boost-consumption behavior)
-    stated as a reusable finding, not scoped only to this one maneuver;
-    one new fixture with a ratchet test bounding (not fixing) the current
-    divergence; the same mechanism traced on a second, independent
-    fixture (`FR-087`'s `hit-tick-jump.capture.jsonl`) with exact tick
-    numbers pinning the simulated-tank-empty moment to the sign flip, and
-    `FR-087`'s own "not a new mechanism" framing of that residual
-    explicitly retracted rather than left standing.
+    the owner-confirmed unlimited-boost root cause obtained and
+    documented, and the earlier "capture-fidelity bug" mischaracterization
+    of `boost_amount` explicitly retracted, not left standing alongside
+    the correction; the general caveat (no currently-vendored fixture can
+    calibrate boost-consumption behavior) stated as a reusable finding,
+    not scoped only to this one maneuver; one new fixture with a ratchet
+    test bounding (not fixing) the current divergence; the same mechanism
+    traced on a second, independent fixture (`FR-087`'s
+    `hit-tick-jump.capture.jsonl`) with exact tick numbers pinning the
+    simulated-tank-empty moment to the sign flip, and `FR-087`'s own "not
+    a new mechanism" framing of that residual explicitly retracted rather
+    than left standing; **finding 9's own "nothing to fix here" conclusion
+    checked against boost-free data before being accepted as final, found
+    incomplete, and corrected (not silently left standing) with two
+    independent boost-free climbs from the same clip showing a real,
+    comparably-sized, opposite-direction asymmetry that cannot be
+    boost-related.**
   - **Verification plan.** `480` tests in the workspace, unchanged
     (documentation only; no fixture or code change this pass).
 - `RB-PHYSICS-001-FR-089` (the goal mouth's phantom fillet — `FR-085`
@@ -10063,6 +10118,26 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.126.0 (2026-09-10): `RB-PHYSICS-001-FR-088` finding 11 (correction to
+  finding 9's "nothing to fix here"): two of the four un-excerpted
+  `wall_curve02` wall-climb events are genuinely boost-free (no
+  `input.boost = True` in a `2.5` s lookback before or during either
+  climb). Re-simulated both: the recording sheds `48%`/`38%` more speed
+  through the curve than the port on the two, respectively — as large as
+  or larger than `wall-climb-crest`'s own `24%` gap, and in the *opposite*
+  direction (recording loses more, port loses less; the boosted fixtures
+  showed the port losing more). This cannot be the unlimited-boost
+  mechanism, since neither side is boosting. Finding 9's "no port
+  bug... nothing in `rb_physics_bullet` to fix here" conclusion is
+  corrected: unlimited boost is real and explains part of
+  `wall-climb-crest`'s divergence, but a second, boost-independent,
+  opposite-direction mechanism — most likely `RB-PHYSICS-001-FR-084`
+  finding 5's own long-unisolated per-tick curve-loss driver — sits
+  underneath it and is now confirmed real and comparably large on clean
+  data. FR-088's Non-goals and Acceptance criteria updated accordingly;
+  no code change yet (the mechanism itself, not just its existence, is
+  still unisolated). Workspace tests unchanged at `480`. Temp probes
+  `throttle_climb_probe.rs`/`throttle_climb_probe2.rs` deleted after use.
 - 0.125.0 (2026-09-10): `RB-PHYSICS-001-FR-085` finding J re-verified
   against today's code (post `FR-086` through `FR-093`): still true,
   and sharper than before. Re-simulating `onewheellanding06`'s first

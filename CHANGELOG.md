@@ -563,6 +563,21 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   fixture's own already-recorded `305.84` uu/s max whole-run divergence.
   Retracts `FR-087`'s own "not a new mechanism... continuing to
   accumulate" framing of that residual. No code change.
+  `RB-PHYSICS-001-FR-088` finding 11: **corrects finding 9's "nothing to
+  fix here" conclusion.** Two of the clip's four un-excerpted wall-climb
+  events are genuinely boost-free; re-simulated both, the recording
+  sheds `48%`/`38%` *more* speed through the curve than the port on each
+  — as large as or larger than `wall-climb-crest`'s own `24%` gap, and
+  in the *opposite* direction (boosted fixtures showed the port shedding
+  more). Since neither side is boosting, this cannot be the
+  unlimited-boost mechanism. Unlimited boost is real and explains part
+  of `wall-climb-crest`'s divergence, but a second, boost-independent,
+  opposite-direction mechanism — most likely `RB-PHYSICS-001-FR-084`
+  finding 5's own long-unisolated per-tick curve-loss driver — sits
+  underneath it, confirmed real and comparably large on clean data.
+  `FR-088`'s status corrected from "root cause identified" to "partially
+  identified." No code change yet; the mechanism itself is still
+  unisolated.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

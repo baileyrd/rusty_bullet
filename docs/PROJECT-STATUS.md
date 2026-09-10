@@ -2375,6 +2375,26 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-088` finding 11 — **corrects finding 9's "nothing to
+  fix here" conclusion.** Of the four un-excerpted `wall_curve02`
+  wall-climb events, two are genuinely boost-free (no `input.boost=True`
+  anywhere in a `2.5` s lookback before or during either climb).
+  Re-simulated both: the recording sheds `48%`/`38%` *more* speed
+  through the curve than the port, on each — as large as or larger than
+  `wall-climb-crest`'s own `24%` gap, and running the *opposite*
+  direction from the boosted fixtures (there, the port sheds more).
+  Since neither side is boosting, this cannot be the unlimited-boost
+  mechanism. Unlimited boost is real (owner-confirmed) and does explain
+  part of `wall-climb-crest`'s divergence, but a second,
+  boost-independent, opposite-direction mechanism — most likely
+  `RB-PHYSICS-001-FR-084` finding 5's own long-unisolated per-tick
+  curve-loss driver, now confirmed real and comparably large on clean,
+  boost-free data — sits underneath it, and is not yet isolated further.
+  FR-088's own status corrected from "root cause identified, not a port
+  defect" to "root cause partially identified": there may well be
+  something to fix in `rb_physics_bullet` after all, once this mechanism
+  is pinned down. No code change yet. Workspace tests unchanged at
+  `480`. Full workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-085` finding J re-verified against today's code —
   `onewheellanding06`'s first dodge hop still ends with the port
   permanently upside-down (`up.z = -1.000` from `t=6.7084` on, `z=40.1`,
@@ -3077,12 +3097,28 @@
    now sharper (a categorical upright-vs-permanently-inverted divergence,
    not numeric drift), confirmed not cleanly explained by `FR-094`'s own
    dodge-direction-miss mechanism because a preceding uncontrolled
-   one-wheel bounce already skews the entering orientation. Next: keep
-   hunting the actual mechanism behind `FR-094`'s `n=4`-corroborated
-   sign-anti-correlation pattern, then `FR-085` finding I (a documentation-
-   only capture-defect note, already fully explained — lowest priority)
-   and, if a plugin-1.1 re-capture of a dodge-free one-wheel landing
-   becomes available, finish `FR-091`/finding 5 with it.
+   one-wheel bounce already skews the entering orientation. Then checked
+   `FR-088`'s own "nothing to fix here" conclusion against boost-free
+   data before accepting it as final: two of `wall_curve02`'s four
+   un-excerpted wall-climb events are genuinely boost-free, and both
+   show the port shedding `38%`-`48%` less speed through the curve than
+   the recording — as large as `wall-climb-crest`'s own gap, and in the
+   opposite direction, so it cannot be boost-related. Corrected finding
+   9 accordingly (`FR-088` finding 11): unlimited boost is real and
+   explains part of the picture, but a second, boost-independent
+   mechanism — most likely `FR-084` finding 5's own long-unisolated
+   per-tick curve-loss driver — is also real, comparably large, and
+   still unisolated; FR-088 is reopened from "root cause identified" to
+   "partially identified." Next: isolate finding 11's own mechanism
+   (apply finding 7's geometric wheel-contact-pattern method to the two
+   boost-free climbs, and check the other two un-excerpted events, one
+   with boost released before the curve and one with a brief mid-climb
+   boost re-engagement, as intermediate data points); then keep hunting
+   `FR-094`'s `n=4`-corroborated sign-anti-correlation pattern; `FR-085`
+   finding I (a documentation-only capture-defect note, already fully
+   explained — lowest priority); and, if a plugin-1.1 re-capture of a
+   dodge-free one-wheel landing becomes available, finish `FR-091`/
+   finding 5 with it.
 
 ## Validation
 
@@ -3791,6 +3827,30 @@
   No code or fixture change. Temp probe
   `crates/rb_verify_cli/examples/onewheellanding_probe.rs` deleted after
   use.
+- `RB-PHYSICS-001-FR-088` boost-free wall-climb check (2026-09-10, this
+  sandbox): geometrically isolated every wall-climb event in
+  `wall_curve02.jsonl` (a span of rising `z` while near a wall boundary)
+  — five total, one already vendored as `wall-climb-crest`. Checked
+  `input.boost` in a `2.5` s lookback before and during each of the
+  other four: two show zero boost anywhere (`t≈25.5`–`25.9`, `+X` wall;
+  `t≈34.5`–`34.8`, `-X` wall), one shows a `2.27` s boost hold on
+  approach released before the climb, one shows negligible (`3`-tick)
+  boost. Re-simulated the two fully boost-free ones from a seed on their
+  flat approach: first, recording sheds `1406.8 → 1189.6` uu/s
+  (`t=25.5333→25.8583`, `≈-668` uu/s²) vs the port's `1407.6 → 1294.5`
+  (`≈-348` uu/s²) — port loses `52%` of the recording's loss (`48%`
+  less). Second, recording sheds `1483.0 → 1228.4`
+  (`t=34.5083→34.7833`, `≈-926` uu/s²) vs the port's `1483.6 → 1325.9`
+  (`≈-574` uu/s²) — `62%` of the recording's loss (`38%` less). Both
+  gaps meet or exceed `wall-climb-crest`'s own `24%`, and both run
+  opposite the direction seen on every previously-checked boosted
+  fixture (there, the port sheds *more*; here, the port sheds *less*) —
+  ruling out any boost-based explanation, since neither side is
+  boosting. Corrects `RB-PHYSICS-001-FR-088` finding 9's "nothing to fix
+  here" conclusion: a second, boost-independent, comparably-large
+  mechanism is real and still unisolated. Temp probes
+  `crates/rb_verify_cli/examples/throttle_climb_probe.rs` and
+  `throttle_climb_probe2.rs` deleted after use.
 
 ## Risks and decisions needed
 
