@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.122.0
+- Version: 0.123.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7817,23 +7817,68 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
       other mechanism has been identified. Finding 5's "subtler per-tick
       contact-pattern difference" (finding 7's `1`-`2`-tick lag) is the
       only mechanism actually confirmed real so far, and it is small.
+    - **The real cause, owner-confirmed: these captures were recorded
+      with unlimited boost enabled in freeplay.** The project owner
+      confirmed directly that the freeplay session these fixtures come
+      from had unlimited boost turned on — not a standard match setting.
+      This retroactively explains everything findings 7 and 8 were
+      circling without landing on: `boost_amount` reads a frozen `100`
+      in *every* vendored fixture checked (`wall-climb-crest`,
+      `boost-wall-entry`, `clean-dodge`, `dodge-derailment`) not because
+      the capture plugin fails to record it (finding 7's "capture-
+      fidelity bug" framing, and `RB-VERIFY-002`'s own note built on it,
+      are both **retracted** — see the correction there), but because it
+      is *accurate*: the recorded car genuinely never drains boost,
+      because the game itself never draws it down. `wall-climb-crest`'s
+      recorded car holding boost continuously for the full climb, and
+      still riding it through the curve at whatever force an
+      unlimited-boost car applies, while the port's own car — correctly
+      modeling *standard-match* finite boost — has already run dry
+      before the curve even starts, is not a mystery needing a
+      boost-pad or a subtler contact-pattern explanation at all: it is
+      exactly what comparing a real unlimited-boost recording against a
+      finite-boost simulation predicts. It also plausibly explains why
+      `boost-wall-entry`'s much shorter clip shows a much smaller gap
+      (`9%` vs `24%`): a shorter continuous hold gives the real/simulated
+      boost states less time to diverge before either car reaches its
+      own curve, and finding 7's confirmed `1`-`2`-tick contact-pattern
+      lag on `wall-climb-crest` alone (absent on `boost-wall-entry`) is
+      itself consistent with extra unlimited-boost recovery force
+      helping the recorded car push back out of the curve's own
+      pushback losses a beat faster than a dry-tank car can — plausibly
+      a downstream symptom of the same root cause, not an independent
+      mechanism, though this specific link is not separately verified
+      here. This does **not** identify a port bug: the port's finite
+      boost consumption is the *correct* standard-match behavior; the
+      mismatch is that these particular captures aren't standard-match
+      data for anything boost-dependent. **Non-goal, elevated to an
+      open item:** none of the currently-vendored fixtures can be used
+      to calibrate or verify this port's own boost-consumption model,
+      and any fixture where a car holds boost longer than a real
+      standard-match tank could sustain (`~3` s) should be treated as
+      *suspect* for boost-dependent divergence until confirmed otherwise
+      — a general caveat, not specific to wall-climbing, now also
+      recorded in `RB-VERIFY-002`.
   - **New fixture.** `wall-climb-crest.capture.jsonl` (`824` frames,
     `t=13.142`–`20.000`), seeded on its first grounded, neutral frame,
     with a ratchet test bounding the current divergence loosely (it is
     an open residual, not a fixed maneuver, so the bound exists to catch
     a further regression, not to pin today's figure as correct).
-  - **Non-goals (this requirement).** Implementing boost-pad modeling (no
-    longer motivated by this investigation now that finding 8 refutes
-    the specific hypothesis it would have tested here, though it remains
-    a real gap in the arena for other purposes); fixing the
-    `boost_amount` capture-fidelity bug (a plugin-side issue, not a port
-    issue — see `RB-VERIFY-002`'s own capture-input-fidelity discussion);
-    identifying the actual differentiator behind the `24%`-vs-`9%` curve
-    loss now that both the tick-count and boost-pad hypotheses are ruled
-    out and the confirmed per-tick contact-pattern lag is small; the
-    other four wall-climb events in `wall_curve02` (two throttle-only
-    climbs, a boost run into the `+X` wall, and one with boost engaged
-    mid-climb), not yet excerpted; `RB-PHYSICS-001-FR-084` finding 5;
+  - **Non-goals (this requirement).** Any code change: the root cause is
+    now understood to be a non-standard recording setting (unlimited
+    boost), not a port defect, so there is nothing in `rb_physics_bullet`
+    to fix here; implementing boost-pad modeling (never actually
+    motivated once finding 9 lands, though it remains a real gap in the
+    arena for other purposes); re-capturing `wall_curve02` (or any other
+    fixture) with standard, finite boost to get genuinely usable
+    boost-dependent verification data — an owner-side task, not
+    something this sandbox can do; quantifying how much of the `24%`-
+    vs-`9%` gap is the unlimited-boost mismatch itself versus the
+    separately-confirmed `1`-`2`-tick contact-pattern lag (plausibly
+    linked, per finding 9, but not separately measured); the other four
+    wall-climb events in `wall_curve02` (two throttle-only climbs, a
+    boost run into the `+X` wall, and one with boost engaged mid-climb),
+    not yet excerpted; `RB-PHYSICS-001-FR-084` finding 5;
     `RB-PHYSICS-001-FR-085`'s findings I, J and K.
   - **Acceptance criteria.** The fillet-selection hypothesis tested and
     ruled out with a reproducible probe; the speed-decay discrepancy
@@ -7841,13 +7886,17 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     geometrically (not by speed threshold) on both fixtures and ruled
     out; the per-tick contact-pattern hypothesis tested the same way and
     confirmed real (though small) specifically on the fixture with the
-    larger asymmetry, absent on the one without; the boost-depletion
-    hypothesis checked against real, sourced boost-pad coordinates (not
-    asserted from absence of a feature) and reported as refuted, not
-    merely unconfirmed, with the specific capture-fidelity bug that
-    blocks a *direct* recorded-boost check named and evidenced separately
-    from that refutation, not conflated with it; one new fixture with a
-    ratchet test bounding (not fixing) the current divergence.
+    larger asymmetry, absent on the one without; the boost-pad hypothesis
+    checked against real, sourced coordinates and reported as refuted;
+    the actual root cause obtained directly from the project owner
+    (unlimited boost enabled in the freeplay recording session) rather
+    than guessed at further, and the earlier "capture-fidelity bug"
+    mischaracterization of `boost_amount` explicitly retracted, not left
+    standing alongside the correction; the general caveat (no
+    currently-vendored fixture can calibrate boost-consumption behavior)
+    stated as a reusable finding, not scoped only to this one maneuver;
+    one new fixture with a ratchet test bounding (not fixing) the current
+    divergence.
   - **Verification plan.** `480` tests in the workspace, unchanged
     (documentation only; no fixture or code change this pass).
 - `RB-PHYSICS-001-FR-089` (the goal mouth's phantom fillet — `FR-085`
@@ -9916,6 +9965,28 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.123.0 (2026-09-10): `RB-PHYSICS-001-FR-088` finding 9 (root cause
+  identified, not a port defect): the project owner confirmed the
+  `wall_curve02` freeplay session (and, by extension, every other
+  vendored capture from the same session) was recorded with **unlimited
+  boost enabled** — not a standard match setting. This fully accounts
+  for finding 7's original observation without a boost-pad or other
+  mechanism: the recorded car never actually depletes boost, so it keeps
+  applying boost-level force through the curve long after the port's own
+  correctly-finite-boost simulation has run dry, explaining both the
+  `24%`-vs-`9%` asymmetry (a longer continuous hold compounds a bigger
+  real/simulated gap before either car's own curve) and plausibly
+  finding 7's confirmed `1`-`2`-tick contact-pattern lag (extra recovery
+  force pushing the recorded car out of the curve's pushback losses a
+  beat faster). **Retracts** finding 7/8's "capture-fidelity bug" framing
+  for `boost_amount`: reading a frozen `100` is accurate telemetry given
+  the unlimited-boost setting, not a plugin defect — `RB-VERIFY-002`'s
+  own note built on that framing is corrected in the same pass. No code
+  change: the port's finite boost model is the *correct* standard-match
+  behavior; the mismatch is that these specific captures aren't
+  standard-match data for anything boost-dependent — a new, general
+  caveat for every currently-vendored fixture, not specific to this one
+  maneuver. Workspace tests unchanged at `480`.
 - 0.122.0 (2026-09-10): `RB-PHYSICS-001-FR-088` finding 8 (still open,
   characterized): finding 7's own leading "no boost-pad modeling"
   hypothesis checked directly and refuted. Sourced the real arena's `34`

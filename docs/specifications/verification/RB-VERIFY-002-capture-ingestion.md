@@ -1,6 +1,6 @@
 # RB-VERIFY-002 — BakkesMod Offline Capture Ingestion
 
-- Version: 0.7.0
+- Version: 0.8.0
 - Status: In Progress (FR-001 — the BakkesMod-side plugin — built, loaded,
   and run against a real Rocket League + BakkesMod install; FR-002/NFR-001
   implemented and now also verified against that real capture, not just the
@@ -103,17 +103,26 @@ at high frequency alongside ball/car physics state to a capture file, and
   should be tuned against such a tick (see `RB-PHYSICS-001-FR-083`
   finding 6's own fixture caveat, and `RB-PHYSICS-001-FR-091`'s
   `angular_velocity` instance of the same symptom in derived physics
-  state rather than raw input). A third, distinct shape of the same
-  underlying problem: `RB-PHYSICS-001-FR-088` finding 7 found
-  `CarState.boost_amount` reads a frozen constant `100` for the entire
+  state rather than raw input). **Correction (`RB-PHYSICS-001-FR-088`
+  finding 9):** an earlier version of this entry described
+  `CarState.boost_amount` reading a frozen constant `100` for the entire
   duration of every capture fixture checked (`wall-climb-crest`,
-  `boost-wall-entry`, `clean-dodge`, `dodge-derailment`), including
-  clips that hold boost continuously for several seconds — not a
-  single-tick drop like finding I's or finding 6's, but a field that
-  appears to never update at all in the plugin used to record these
-  clips. Treat `boost_amount` as unusable for verification purposes
-  across every capture fixture recorded so far, on top of the existing
-  `pitch`/`yaw`/`roll`/`angular_velocity` caveats above.
+  `boost-wall-entry`, `clean-dodge`, `dodge-derailment`) as a third,
+  distinct shape of capture-side staleness (finding 7). That was wrong:
+  the project owner confirmed the freeplay session these fixtures come
+  from had **unlimited boost enabled** — not a standard match setting —
+  so a car that never drains its tank is exactly what the recording
+  should show; `boost_amount` pegged at `100` is accurate telemetry, not
+  a plugin defect. The practical caveat still holds, for a different
+  reason: `boost_amount` (and any boost-dependent physics behavior) in
+  every currently-vendored fixture reflects an unlimited-boost session,
+  so none of them can be used to calibrate or verify this port's own
+  finite-boost consumption model — a data-provenance gap, not a parsing
+  or plugin-fidelity one. A future capture session should record and
+  disclose whether unlimited boost was enabled, and any fixture where a
+  car holds boost longer than a real standard-match tank could sustain
+  (`~3` s) should be treated as suspect for boost-dependent divergence
+  until that is confirmed one way or the other.
 - `RB-VERIFY-002-FR-002` (implemented, verified): `rb_capture_ingest`
   parses a capture file into a chronologically ordered `Vec<PhysicsFrame>`,
   with input data attached via `rb_domain::CarState.input` (unlike
@@ -243,6 +252,17 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.8.0 (2026-09-10): **Correction** to the 0.7.0 entry below: FR-001's
+  entry no longer describes `boost_amount`'s frozen `100` reading as a
+  capture-side staleness bug. `RB-PHYSICS-001-FR-088` finding 9 (owner-
+  confirmed) established the freeplay session these fixtures come from
+  had unlimited boost enabled, so a never-draining `boost_amount` is
+  accurate telemetry, not a plugin defect — the earlier "third, distinct
+  shape of the same underlying problem" framing was wrong and is
+  retracted. The practical caveat survives for a different reason: every
+  currently-vendored fixture reflects a non-standard boost setting, so
+  none of them can calibrate or verify this port's own finite-boost
+  consumption model. No code change.
 - 0.7.0 (2026-09-10): FR-001's entry extended with `RB-PHYSICS-001-
   FR-088` finding 7: `CarState.boost_amount` reads a frozen constant
   `100` for the entire duration of every capture fixture checked

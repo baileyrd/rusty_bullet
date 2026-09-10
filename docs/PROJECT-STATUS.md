@@ -2375,6 +2375,25 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-088` finding 9 (root cause identified, not a port
+  defect) — the project owner confirmed the `wall_curve02` freeplay
+  session (and every other vendored fixture from that same session) was
+  recorded with **unlimited boost enabled**, not a standard match
+  setting. This fully accounts for finding 7's original observation
+  without needing a boost-pad or other mechanism: the recorded car never
+  actually depletes boost, so it keeps applying boost-level force
+  through the curve long after the port's correctly-finite-boost
+  simulation has run dry — explaining the `24%`-vs-`9%` asymmetry (a
+  longer continuous hold compounds a bigger real/simulated gap) and
+  plausibly finding 7's own confirmed `1`-`2`-tick contact-pattern lag
+  too. **Retracts** finding 7/8's "capture-fidelity bug" framing for
+  `boost_amount`: reading a frozen `100` is accurate telemetry given the
+  unlimited-boost setting, not a plugin defect — corrected in
+  `RB-VERIFY-002` too. No code change: the port's finite boost model is
+  the *correct* standard-match behavior; the mismatch is that these
+  captures aren't standard-match data for anything boost-dependent — a
+  new general caveat for every currently-vendored fixture. Workspace
+  tests unchanged at `480`. Full workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-088` finding 8 (still open, characterized) — finding
   7's own leading "no boost-pad modeling" hypothesis checked directly and
   refuted. Sourced the real arena's `34` boost-pad coordinates (RLBot
@@ -3000,15 +3019,23 @@
    already be pinned at the `2300` uu/s cap throughout the whole
    pre-curve approach regardless of remaining boost (throttle taper alone
    sustains it), so a drained tank leaves no distinguishing signal there
-   either. Boost depletion is now an unconfirmed, not
-   refuted-nor-supported, contributor; the confirmed `1`-`2`-tick
-   contact-pattern lag is the only mechanism shown real, and it's small.
-   Next: find the actual differentiator behind `FR-088`'s `24%`-vs-`9%`
-   gap now that two of three candidates are ruled out, or keep hunting
-   the actual mechanism behind `FR-094`'s `n=4`-corroborated
-   sign-anti-correlation pattern, then `FR-085` findings I/J and, if a
-   plugin-1.1 re-capture of a dodge-free one-wheel landing becomes
-   available, finish `FR-091`/finding 5 with it.
+   either. Boost depletion was, at that point, an unconfirmed, not
+   refuted-nor-supported, contributor. The project owner then confirmed
+   directly: the `wall_curve02` freeplay session (and every other
+   vendored fixture from it) was recorded with **unlimited boost
+   enabled** — not a standard match setting. That single fact resolves
+   `FR-088` outright: the recorded car never actually drains boost, so
+   it keeps applying boost-level force through the curve long after the
+   port's correctly-finite-boost simulation runs dry, explaining both
+   the `24%`-vs-`9%` asymmetry and plausibly the confirmed `1`-`2`-tick
+   contact-pattern lag too. Findings 7/8's "capture-fidelity bug"
+   framing for `boost_amount` is retracted (it is accurate telemetry
+   under unlimited boost, not a plugin defect) — corrected in
+   `RB-VERIFY-002` as well. No port bug; root cause identified. Next:
+   keep hunting the actual mechanism behind `FR-094`'s
+   `n=4`-corroborated sign-anti-correlation pattern, then `FR-085`
+   findings I/J and, if a plugin-1.1 re-capture of a dodge-free one-wheel
+   landing becomes available, finish `FR-091`/finding 5 with it.
 
 ## Validation
 
@@ -3538,6 +3565,34 @@
   — `RB-PHYSICS-001-FR-058`'s throttle taper alone holds cap speed with
   zero boost on flat ground, so a drained tank produces no distinguishing
   pre-curve signal either way.
+- `RB-PHYSICS-001-FR-088` root cause, owner-confirmed (2026-09-10, this
+  sandbox): the project owner stated directly that the `wall_curve02`
+  freeplay session (and, by extension, `boost-wall-entry`, `clean-dodge`,
+  and `dodge-derailment` — every fixture vendored from the same session)
+  was recorded with unlimited boost enabled. This is not a standard
+  match setting and was not previously known to this investigation.
+  Reconciled against everything already measured: `boost_amount` reading
+  a constant `100` in every one of those fixtures (previously
+  characterized as a capture-fidelity bug in findings 7/8 and in
+  `RB-VERIFY-002`) is exactly what unlimited boost predicts — the
+  recorded car never draws its tank down, so the field never moves. The
+  port's own simulated boost correctly draining under standard-match
+  `BOOST_CONSUMPTION_RATE` (`33.3`/s) while the recorded car's real boost
+  never drains at all is sufficient on its own to explain why
+  `wall-climb-crest`'s port loses more speed through its curve than
+  `boost-wall-entry`'s: a longer continuous hold (`~3.9` s vs a brief
+  burst) gives more time for the real (never-draining) and simulated
+  (draining) boost states to diverge before either car reaches its own
+  curve, and the confirmed `1`-`2`-tick per-tick contact-pattern lag
+  (specific to `wall-climb-crest`, absent on `boost-wall-entry`) is
+  plausibly a downstream symptom of the same cause (extra recorded-car
+  recovery force through the curve) rather than an independent
+  mechanism — not separately verified, but no longer needing a separate
+  explanation either. This closes findings 7/8's "capture-fidelity bug"
+  characterization of `boost_amount` as **retracted, not merely
+  superseded** — it was wrong, not just incomplete. No port code change:
+  the port's finite-boost model is correct standard-match behavior; the
+  gap is a data-provenance mismatch, not a physics bug.
 - `RB-PHYSICS-001-FR-094` dodge-direction re-simulation (2026-09-10, this
   sandbox): `clean-dodge.capture.jsonl` re-seeded via
   `PhysicsWorld::from_frame` and stepped tick-by-tick with recorded

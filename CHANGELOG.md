@@ -527,6 +527,22 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   contributor; the confirmed `1`-`2`-tick per-tick contact-pattern lag
   remains the only mechanism actually shown real, and it's small. No
   fixture, test, or behavioral change.
+  `RB-PHYSICS-001-FR-088` finding 9: root cause identified, not a port
+  defect. The project owner confirmed the `wall_curve02` freeplay
+  session (and every other vendored fixture from it) was recorded with
+  **unlimited boost enabled**, not a standard match setting — fully
+  explaining finding 7's original observation without a boost-pad or
+  other mechanism, since the recorded car never actually drains boost
+  and so keeps applying boost-level force through the curve long after
+  the port's correctly-finite-boost simulation runs dry. This retracts
+  findings 7/8's "capture-fidelity bug" characterization of
+  `boost_amount` reading a frozen `100`: it is accurate telemetry given
+  the unlimited-boost setting, not a plugin defect (`RB-VERIFY-002`
+  corrected in the same pass). No code change — the port's finite boost
+  model is correct standard-match behavior; the mismatch is a
+  data-provenance gap, not a physics bug, and now a general caveat: no
+  currently-vendored fixture can calibrate this port's own
+  boost-consumption model.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

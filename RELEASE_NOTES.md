@@ -6,6 +6,37 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Solved: the recordings had unlimited boost turned on
+**2026-09-10** · `RB-PHYSICS-001-FR-088` (root cause identified, not a
+port defect)
+
+- Asked the person who actually made these recordings. Answer: the
+  freeplay session had unlimited boost turned on. Not a standard match
+  setting — a training/practice toggle.
+- That one fact explains everything the last two entries were circling.
+  The recorded car never runs out of boost, because in that setting
+  boost never runs out — full stop. So of course it keeps accelerating
+  through the wall curve long after this simulation's own car (correctly
+  modeling a *normal* match, where boost is limited and drains) has gone
+  dry. It's not a missing feature, a subtle wheel-timing bug, or a data
+  corruption issue. It's two different games being compared: one with
+  real limits, one without.
+- This also means something uncomfortable had to be walked back: the
+  "the boost number never changes — must be a broken recording field"
+  conclusion from a few entries ago was wrong. It's not broken. A boost
+  meter that never drops is exactly what a truthful recording of
+  unlimited boost looks like. That correction is now on the record
+  everywhere the wrong version was written down, not just noted quietly
+  going forward.
+- Net result: this wasn't a bug in the physics port at all. The port's
+  own boost behavior is the *correct*, standard-rules behavior — it's
+  the practice-mode recording that's playing by different rules, and
+  nothing here can compare fairly against it for anything
+  boost-related. Useful lesson for next time: any future recording
+  session should note plainly whether unlimited boost (or any other
+  non-default setting) was on, so this kind of multi-pass investigation
+  doesn't have to be repeated to rediscover it.
+
 ## Went and checked the boost-pad theory. It doesn't hold up.
 **2026-09-10** · `RB-PHYSICS-001-FR-088` (still open, characterized)
 
