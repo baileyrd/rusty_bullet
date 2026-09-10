@@ -6,6 +6,36 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Finding 7 quietly closed itself
+**2026-09-10** · `RB-PHYSICS-001-FR-093` (documentation only)
+
+- `RB-PHYSICS-001-FR-083` finding 7 — "the recording's wheels keep
+  acting one to two ticks longer after the jump than RocketSim's ray
+  allows," worth `≈11` uu/s of `vx` on `dodge-derailment.capture.jsonl`,
+  "no reference value to adopt, so it is recorded and left." `FR-085`
+  finding E later re-measured the same symptom on a different clip and
+  found a smaller `+2.7` residual there — but nobody ever went back and
+  re-checked finding 7 on its own original fixture after that, or after
+  the two fixes that landed afterward.
+- Re-simulated `dodge-derailment.capture.jsonl` from its seed with
+  today's code, instrumenting the wheel raycast tick-by-tick at the
+  exact jump-exit event finding 7 named, and compared directly against
+  the recording.
+- The gap is gone. The simulated car's wheels lose contact between the
+  same two ticks the recording's own poses do (`z ≈ 32.3` still down,
+  `z ≈ 35.0` already up) — there is no longer a tick to count. The
+  velocity gap right at the transition is under `1` uu/s, not `11`.
+- Nothing in this pass touched wheel contact, suspension, or
+  air-throttle code. Finding 7 appears to have closed itself as a side
+  effect of two later, unrelated fixes — dropping the suspension
+  pushback's positional term and an incidental hit-tick suspension-excess
+  correction — neither of which was checking for this at the time.
+- `FR-085`'s own `+2.7` residual was measured on a different clip
+  (`onewheellanding06`) and was not re-checked here — whether it has
+  also closed is still open. No fixture, test, or behavioral change.
+
+---
+
 ## Finding 6, run to ground and finally written up
 **2026-09-10** · `RB-PHYSICS-001-FR-092` (documentation only)
 

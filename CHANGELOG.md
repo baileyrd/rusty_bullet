@@ -411,6 +411,22 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   capture input fidelity" finding 6 had promised but never delivered, in
   `RB-VERIFY-002` and `ADR-0005` (correcting finding 6's own mistaken
   `RB-VERIFY-001` reference). No fixture, test, or behavioral change.
+  `RB-PHYSICS-001-FR-093` (documentation only): `RB-PHYSICS-001-FR-083`
+  finding 7 re-measured on its own original fixture
+  (`dodge-derailment.capture.jsonl`). Re-simulated it from its seed with
+  today's code, instrumenting `PhysicsWorld::car_wheels` tick-by-tick at
+  the exact jump-exit event finding 7 named: the simulated
+  wheel-contact-loss tick now exactly coincides with the recording's own
+  (`z = 32.305`/`34.996` simulated vs `32.31`/`34.98` recorded), the
+  `vx` gap down to `<1` uu/s from finding 7's original `≈11` uu/s on this
+  fixture. No change in this pass touched wheel, suspension, or
+  air-throttle code — the gap closed itself as an apparent side effect of
+  `RB-PHYSICS-001-FR-086`'s dropped pushback term and/or
+  `RB-PHYSICS-001-FR-087`'s incidental suspension-excess fix, neither of
+  which re-checked finding 7. `RB-PHYSICS-001-FR-085` finding E's own
+  `+2.7` residual, measured on a different clip
+  (`onewheellanding06`), was not re-checked here. No fixture, test, or
+  behavioral change.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

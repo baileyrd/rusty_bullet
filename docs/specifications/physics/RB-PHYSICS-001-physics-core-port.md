@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.115.0
+- Version: 0.116.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7022,7 +7022,10 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
      per-tick gains themselves match (`+9.6, +9.8, +10.4, +10.9, +11.2,
      +11.5` recorded vs `+10.3, +10.4, +10.9, +11.4, +11.6` in the port).
      Worth `≈11` uu/s of `vx`; no reference value to adopt, so it is
-     recorded and left.
+     recorded and left. (Closed on this fixture, as an apparent side
+     effect of later, unrelated fixes: `RB-PHYSICS-001-FR-093` re-
+     simulated this exact event with today's code and found the gap
+     gone.)
   - **What each finding is worth.** Findings 1–4 are a few lines each,
     each measurable on its own tick: 1 on the flight's horizontal
     velocity and the hit tick (`5.783 → 5.758`), 2 on `vz` over the seven
@@ -7403,7 +7406,10 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     73.76` uu (ball `42.19 → 41.80`); the one-wheel-landing clip's
     isolated hops (`8.2`, `12.7`, `16.4` s) lose their `+11` — a `+2.7`
     residual remains, the port's wheels still letting go one tick
-    before the recording's.
+    before the recording's. (Not re-checked since; `RB-PHYSICS-001-
+    FR-093` re-measured this same symptom on `dodge-derailment` instead —
+    its own original fixture — and found it closed there, but did not
+    revisit this clip.)
   - **F. The floor-to-wall curve sheds speed the port does not
     (open).** `walldrive04` at `2300` into the `+X` curve: recorded
     `2300 → 1839` by the top of the curve, gravity explains `→ 2227`,
@@ -8050,6 +8056,85 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     the original `RB-VERIFY-001` reference corrected; no fixture or test
     changes, since no new fixture data and no physics change are
     involved.
+  - **Verification plan.** `480` tests in the workspace, unchanged
+    (documentation only).
+- `RB-PHYSICS-001-FR-093` (finding 7 re-measured on its own original
+  fixture, found closed — documentation only): `FR-083` finding 7 ("the
+  recording's wheels keep acting one to two ticks longer after the jump
+  than RocketSim's ray allows... `≈11` uu/s [of `vx`]; no reference value
+  to adopt, so it is recorded and left") was measured on
+  `dodge-derailment.capture.jsonl`, the fixture `FR-083`'s whole diagnosis
+  traces. `FR-085` finding E later re-measured the same "wheels let go
+  early" symptom on a *different* clip — `onewheellanding06`'s isolated
+  hops — finding it reduced there to "a `+2.7` residual... the port's
+  wheels still letting go one tick before the recording's." Neither
+  re-measurement was ever repeated on `dodge-derailment` itself, and
+  neither `FR-086` (the dropped suspension pushback) nor `FR-087` (the
+  incidental hit-tick suspension-excess fix), both landing after, checked
+  either clip again. Re-simulated `dodge-derailment.capture.jsonl` from
+  its seed with today's code (`PhysicsWorld::from_frame` plus the same
+  per-tick `set_car_input`/`step` loop `world::simulate_recorded` uses,
+  instrumented with `PhysicsWorld::car_wheels` at each tick) and compared
+  directly against the recording, tick by tick, at the exact jump-exit
+  event finding 7 named there.
+  - **On its own original fixture, the gap is closed.** The simulated
+    car's wheels lose contact between the tick landing at `z = 32.305`
+    (still `4` wheels down) and the next at `z = 34.996` (`0` wheels
+    down) — the recording's own poses land at `32.31` and `34.98` at the
+    same two ticks. Both cross whatever the raycast threshold is within
+    the same tick pair; there is no longer a one-tick gap to measure on
+    `dodge-derailment`. The `vx` gap right at the transition is `+0.6`
+    uu/s (`385.704` sim vs `385.10` recorded), not the `≈11` uu/s `FR-083`
+    originally found here; over the next `13` ticks of pure air-throttle
+    climb before the dodge fires, the gap grows only to `+0.97` uu/s
+    (`4.227` uu/s simulated gain over the window vs `4.14` recorded) —
+    ordinary per-tick noise, not a distinguishable mechanism.
+  - **Not fixed by anything aimed at it.** No change in this pass touched
+    wheel contact, suspension, or the jump/air-throttle code paths;
+    finding 7 closed itself, on this fixture, as a side effect of
+    `FR-086`'s dropped pushback term and/or `FR-087`'s incidental
+    suspension-excess fix, each already credited elsewhere for closing a
+    different residual "incidentally." Which of the two (or both, or
+    something else entirely) actually did it is not isolated here.
+  - **The fixture's own whole-run score is unaffected, and untightened on
+    purpose.** `dodge-derailment.capture.jsonl` measures `78.331` uu mean
+    car position today (re-run with the same `0.02` s tolerance the
+    existing ratchet test uses) — inside its `< 85` bound, close to but
+    not identical to the `~74` the test's own comment cites from
+    `FR-085`'s time, the small drift plausibly downstream of unrelated
+    later changes touching shared code paths, not investigated. Finding
+    7's own contribution to this fixture's whole-run figure was always a
+    few uu at most, swamped by the later dodge and landing residuals
+    `FR-083` finding 5 and the still-unnamed landing-touch gap (below)
+    dominate; closing finding 7 was not expected to, and did not, move
+    the whole-run number in any way large enough to justify re-tightening
+    the existing ratchet.
+  - **Non-goals (this requirement).** `FR-085`'s own `+2.7` residual on
+    `onewheellanding06`'s isolated hops — a different clip, not
+    re-measured here; whether it has also closed since, or whether
+    `dodge-derailment`'s closure is fixture-specific, is open. The
+    *separate* "second residual of the same kind" `RB-PHYSICS-001-FR-082`
+    step (b)'s own entry named (a landing-*touch* gap at `t ≈
+    5.575`–`5.583` on `dodge-derailment` itself, the wheels touching down
+    a tick apart in the other direction, entangled with the later dodge's
+    own residual) — not finding 7 itself, not re-examined here, still
+    open. Also open: whether this closure generalizes to any other
+    jump/fixture beyond the two checked; which specific later fix
+    actually closed it; a new fixture or regression test to lock the
+    closed tick-alignment in place — the existing `dodge-derailment`
+    ratchet already covers this fixture's whole-run behavior and a
+    one-off per-tick assertion would be more machinery than the finding
+    needs.
+  - **Acceptance criteria.** Finding 7's original number on its own
+    fixture (`FR-083`'s `≈11` uu/s on `dodge-derailment`) shown
+    superseded by direct re-simulation, not merely cited; `FR-085`'s own
+    `+2.7` figure correctly attributed to a different clip rather than
+    conflated with this one; today's tick-by-tick re-measurement shown
+    directly, not inferred from the whole-run score; the fixture's
+    current whole-run number re-measured and reported honestly (including
+    that it drifted slightly from what the existing test comment cites,
+    without being fixed here); no fixture, test, or code change, since
+    there was nothing left to change.
   - **Verification plan.** `480` tests in the workspace, unchanged
     (documentation only).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
@@ -9541,6 +9626,22 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.116.0 (2026-09-10): `RB-PHYSICS-001-FR-093` added (documentation
+  only) — `RB-PHYSICS-001-FR-083` finding 7 re-measured on its own
+  original fixture (`dodge-derailment.capture.jsonl`) by re-simulating
+  it from its seed with today's code and instrumenting
+  `PhysicsWorld::car_wheels` tick-by-tick at the exact jump-exit event
+  finding 7 named. Found closed: the simulated wheel-contact-loss tick
+  now exactly coincides with the recording's own (`z = 32.305`/`34.996`
+  simulated vs `32.31`/`34.98` recorded), down from finding 7's original
+  `≈11` uu/s gap on this fixture to `<1` uu/s of ordinary noise. No
+  change in this pass touched wheel contact, suspension, or air-throttle
+  code — the gap closed itself as an apparent side effect of `FR-086`'s
+  dropped pushback term and/or `FR-087`'s incidental suspension-excess
+  fix, neither of which re-checked finding 7 when they landed. Distinct
+  from `FR-085` finding E's own `+2.7` residual, measured on a different
+  clip (`onewheellanding06`) and not re-checked here. No fixture, test,
+  or behavioral change; workspace tests unchanged at `480`.
 - 0.115.0 (2026-09-10): `RB-PHYSICS-001-FR-092` added (documentation
   only) — `FR-083` finding 6 revisited. Independently re-verified its
   own decomposition math directly from the raw `dodge-derailment` fixture

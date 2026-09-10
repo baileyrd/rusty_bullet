@@ -2375,6 +2375,21 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-093` added (documentation only) — `FR-083` finding
+  7 re-measured on its own original fixture (`dodge-derailment`), found
+  closed. Re-simulated the fixture from its seed with today's code,
+  instrumenting `PhysicsWorld::car_wheels` tick-by-tick at the exact
+  jump-exit event finding 7 named: the simulated wheel-contact-loss tick
+  now exactly coincides with the recording's own (`z = 32.305`/`34.996`
+  simulated vs `32.31`/`34.98` recorded), the `vx` gap down to `<1` uu/s
+  from finding 7's original `≈11` uu/s on this fixture. No change in this
+  pass touched wheel, suspension, or air-throttle code — closed itself as
+  an apparent side effect of `FR-086`'s dropped pushback term and/or
+  `FR-087`'s incidental suspension-excess fix, neither of which
+  re-checked finding 7. Distinct from `FR-085` finding E's own `+2.7`
+  residual, measured on a different clip (`onewheellanding06`) and not
+  re-checked here. No fixture, test, or behavioral change; workspace
+  tests unchanged at `480`. Full workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-092` added (documentation only) — `FR-083` finding 6
   revisited. Finding 6's own decomposition math independently re-derived
   from the raw `dodge-derailment` fixture data (using RocketSim's real
@@ -2815,10 +2830,18 @@
    the very first capture session, predating the plugin versioning — the
    promised capture-input-fidelity note is finally written, in
    `RB-VERIFY-002` (finding 6's own "`RB-VERIFY-001`" reference was a
-   mistake) and `ADR-0005`. Next: isolate `FR-088`'s narrower curve-entry
-   asymmetry, the dodge's landing-timing residual, then `FR-085` findings
-   I/J and, if a plugin-1.1 re-capture of a dodge-free one-wheel landing
-   becomes available, finish `FR-091`/finding 5 with it.
+   mistake) and `ADR-0005`. `FR-083` finding 7 was then revisited as
+   `FR-093` (documentation only, complete on its own fixture): a direct
+   re-simulation of `dodge-derailment` with today's code shows the
+   simulated wheel-contact-loss tick now exactly matching the recording's
+   own at the jump-exit event finding 7 named — closed, apparently by
+   `FR-086`/`FR-087`'s own later, unrelated fixes, neither of which ever
+   re-checked it; `FR-085` finding E's own `+2.7` residual, measured on a
+   different clip, was not re-verified. Next: isolate `FR-088`'s narrower
+   curve-entry asymmetry, the dodge's landing-timing residual, then
+   `FR-085` findings I/J and, if a plugin-1.1 re-capture of a dodge-free
+   one-wheel landing becomes available, finish `FR-091`/finding 5 with
+   it.
 
 ## Validation
 
@@ -3265,6 +3288,24 @@
   fixture past the dodge) but reads correctly (`-1`) at `t =
   4.242`–`4.692`, the clip's first dodge and landing, and again (`+1`)
   at `t = 4.992`–`5.175`, ordinary backward air control.
+- `RB-PHYSICS-001-FR-093` finding-7 re-simulation (2026-09-10, this
+  sandbox): `dodge-derailment.capture.jsonl` re-seeded via
+  `PhysicsWorld::from_frame` and stepped tick-by-tick with the recorded
+  input (the same loop `world::simulate_recorded` uses), instrumented
+  with `PhysicsWorld::car_wheels(0)` at each tick. At the fixture's first
+  ground jump: sim wheels in contact `4 → 0` between the tick landing at
+  `sim_z = 32.305` (`rec_z = 32.31`) and the next at `sim_z = 34.996`
+  (`rec_z = 34.98`) — the same tick pair the recording's own vx-gain
+  pattern implies. `vx` at that transition: `385.704` sim vs `385.10`
+  recorded (`+0.6` uu/s); over the next `13` ticks of pure air-throttle
+  climb before the dodge fires, `sim_vx` gains `4.227` uu/s against the
+  recording's `4.14` (`+0.97` uu/s cumulative, at `t = 4.3167`). Whole-run
+  score on this fixture today (`0.02` s tolerance, matching the existing
+  ratchet test): `frames_compared = 347`, mean car position `78.331` uu
+  (max `440.745`), mean rotation `0.1247` rad (max `0.4434`), mean ball
+  `41.217` uu (max `182.382`) — inside the existing `< 85` uu / `< 50` uu
+  ratchet, close to but not identical to the `~74`/`~42` the test's own
+  comment cites from `FR-085`'s time.
 
 ## Risks and decisions needed
 
