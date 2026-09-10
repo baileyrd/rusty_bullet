@@ -6,6 +6,35 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## A second dodge, opposite spin, the same ~35° miss
+**2026-09-10** · `RB-PHYSICS-001-FR-094` (still open, characterized;
+now corroborated)
+
+- Last entry found that a real recorded dodge's translation impulse
+  points `38°` away from what the port's own coded formula predicts, on
+  one specific dodge in `clean-dodge.capture.jsonl`. The obvious worry
+  with a finding like that: is it real, or is it something quirky about
+  that one dodge?
+- The same raw clip has a second, mirrored dodge later on — same player,
+  same session, but the opposite stick direction and a completely
+  different, opposite-signed spin already on the car going in. Checked
+  it the same way: re-simulated from a seed close to its own press tick
+  (not the start of the 21-second clip, so ~21 seconds of unrelated
+  drift from everything that happened earlier couldn't creep into the
+  comparison), and confirmed the simulated and recorded cars still agree
+  on orientation going into the press.
+- The port's own simulated dodge, run on this second press, misses the
+  recorded direction by `33.6°` — matching an independent estimate
+  (`35.1°`) computed straight from the recorded data the same way the
+  first dodge was checked, with the same simpler alternative directions
+  checked and ruled out again.
+- Two dodges, opposite stick direction, opposite pre-existing spin,
+  unrelated moments in the clip — and both show the same `~34`-`38°`
+  gap. That's not proof of a single root cause, but it's real evidence
+  this is a genuine, reproducible gap in the coded formula, not a fluke
+  of the first dodge. Still no correct alternative formula identified,
+  so still no code change here.
+
 ## Not the landing — the dodge itself, and by 38°
 **2026-09-10** · `RB-PHYSICS-001-FR-094` (open, characterized)
 

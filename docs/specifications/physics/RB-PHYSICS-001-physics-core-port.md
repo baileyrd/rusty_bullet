@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.117.0
+- Version: 0.118.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -8198,22 +8198,42 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     direction departs from the orientation-based formula, or is
     unrelated, is not established here — only that the departure is
     real, precisely quantified, and present on the press tick itself.
+  - **A second, independent dodge corroborates this.** `FR-090`'s own
+    "sixth dodge" — the same clip's mirrored, pure `yaw = +1` press at
+    `t = 21.4417`, carrying a very different pre-existing spin
+    (`ω_z ≈ +2.86` rad/s, vs. the first dodge's `≈ -0.91` rad/s) — was
+    checked the same way, this time re-simulated from a seed close to
+    the press (`t = 21.2`, not the clip's own `t = 0`, so ~21 s of
+    unrelated upstream drift from the rest of this long raw clip
+    couldn't swamp the comparison). The simulated and recorded cars
+    again share essentially identical orientation entering the press
+    tick (`angle_to = 0.0257` rad, `≈ 1.5°` — not a pose-tracking
+    artifact). The port's own simulated `Δv` direction for this dodge
+    (`24.7°`) differs from the recorded `Δv` direction (`-8.9°`) by
+    `33.6°`, closely matching an independent orientation-only estimate
+    (`35.1°`, using the same three-hypothesis check as the first dodge:
+    `+forward2d` `54.9°` off, sign-flipped `-right2d` `144.9°` off,
+    neither closer). A `≈ 34-38°` translation-direction miss on two
+    dodges of opposite sign, opposite pre-existing spin sign, and
+    unrelated moments in the clip is evidence this is a real,
+    reproducible gap in the coded formula rather than a one-off artifact
+    of the first dodge specifically.
   - **Non-goals (this requirement).** The correct alternative formula (a
     stick-relative, velocity-relative, or pre-air-control-orientation
     basis were all checked as simple hypotheses and ruled out; something
     more specific may combine two of these, or the real mechanism may be
-    orthogonal to all of them); whether the clip's second, mirrored dodge
-    (`FR-090`'s own "sixth dodge") or any other real dodge preceded by
-    held air-control input shows the same signature (not checked); any
-    code change, since no correct alternative formula has been
+    orthogonal to all of them); any other real dodge preceded by held
+    air-control input beyond the two already checked here (not checked);
+    any code change, since no correct alternative formula has been
     identified to adopt; the `clean-dodge` fixture's own ratchet, left
     exactly as `FR-090` set it (already loose enough to cover this).
   - **Acceptance criteria.** The windowed growth diagnostic run and shown
     to contradict the "downstream"/"landing" framing directly, not
     merely asserted; the dodge tick's own recorded and simulated `Δv`
     compared with matching, verified-identical pre-dodge orientation
-    ruling out a pose-tracking artifact; three alternative direction
-    hypotheses checked numerically and ruled out, not just the one that
+    ruling out a pose-tracking artifact, on *two* independent dodges of
+    opposite sign; three alternative direction hypotheses checked
+    numerically and ruled out on the first dodge, not just the one that
     happened to fail; the open question re-scoped from "an unidentified
     downstream landing effect" to "the translation impulse's own
     direction, on the press tick, for a dodge preceded by held air
@@ -9709,6 +9729,23 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.118.0 (2026-09-10): `RB-PHYSICS-001-FR-094` extended (still open,
+  characterized) with a second, independent corroborating dodge —
+  `clean_dodge04.jsonl`'s mirrored, pure `yaw = +1` press at `t =
+  21.4417`, carrying an unrelated pre-existing spin sign
+  (`ω_z ≈ +2.86` rad/s vs. the first dodge's `≈ -0.91` rad/s). Seeded a
+  re-simulation close to the press (`t = 21.2`, not the clip's own
+  `t = 0`) to avoid ~21 s of unrelated upstream drift; confirmed matching
+  simulated/recorded orientation entering the tick (`angle_to ≈ 0.026`
+  rad) and found the port's own simulated `Δv` direction `33.6°` off the
+  recorded one — closely matching an orientation-only estimate (`35.1°`)
+  computed the same way as the first dodge, with the same two simpler
+  hypotheses (`+forward2d`, sign-flipped `-right2d`) checked and ruled
+  out. A `~34-38°` direction miss on two dodges of opposite sign, opposite
+  spin sign, and unrelated moments in the clip is now measured evidence
+  of a real, reproducible gap rather than a one-off artifact of the first
+  dodge. No correct alternative formula identified; no fixture, test, or
+  code change. Workspace tests unchanged at `480`.
 - 0.117.0 (2026-09-10): `RB-PHYSICS-001-FR-094` added (open,
   characterized) — `RB-PHYSICS-001-FR-090`'s own unexplained "downstream
   landing-timing" residual on `clean-dodge.capture.jsonl` re-examined

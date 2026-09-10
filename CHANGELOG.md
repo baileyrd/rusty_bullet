@@ -443,6 +443,19 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   pre-existing spin before the press, noted as context rather than an
   established cause. No correct alternative formula identified; no
   fixture, test, or behavioral change.
+  Corroborated `RB-PHYSICS-001-FR-094` on a second, independent dodge in
+  the same raw clip (`clean_dodge04.jsonl`'s mirrored, pure `yaw=+1`
+  press, opposite pre-existing spin sign from the first dodge).
+  Re-simulated from a seed close to its own press tick (not the clip's
+  own `t=0`, avoiding ~21 s of unrelated upstream drift), confirmed
+  matching simulated/recorded orientation entering the tick, and found a
+  `33.6°` simulated-vs-recorded direction miss, closely matching an
+  independent orientation-only `35.1°` estimate computed the same way as
+  the first dodge. Two dodges of opposite sign and opposite spin sign now
+  both show a `~34`-`38°` translation-direction miss — evidence of a
+  real, reproducible gap rather than a one-off artifact of the first
+  dodge. Still no correct alternative formula identified; no fixture,
+  test, or behavioral change.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

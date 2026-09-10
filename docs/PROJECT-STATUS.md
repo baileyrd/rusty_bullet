@@ -2375,6 +2375,20 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-094` extended (still open, characterized) — a
+  second, independent dodge in the same raw clip (`clean_dodge04`'s
+  mirrored, pure `yaw=+1` press at `t=21.4417`, opposite pre-existing
+  spin sign from the first dodge) checked the same way, re-simulated
+  from a seed close to its own press tick to avoid ~21 s of unrelated
+  upstream drift. Matching simulated/recorded orientation entering the
+  tick (`angle_to ≈ 0.026` rad) and a `33.6°` simulated-vs-recorded
+  direction miss, closely corroborating an orientation-only `35.1°`
+  estimate computed the same way as the first dodge. Two dodges of
+  opposite sign and opposite spin sign both showing a `~34`-`38°` miss is
+  now measured evidence of a real, reproducible gap, not a one-off
+  artifact. No correct alternative formula identified; no fixture, test,
+  or behavioral change; workspace tests unchanged at `480`. Full
+  workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-094` added (open, characterized) — `FR-090`'s own
   unexplained "downstream landing-timing" residual on `clean-dodge`
   re-examined with a windowed growth diagnostic and a tick-by-tick
@@ -2867,13 +2881,20 @@
    the divergence opens immediately at the dodge tick, not downstream,
    and the mechanism is the translation impulse's own direction missing
    by `38°` from the coded formula's prediction, not a landing-timing
-   effect. No correct alternative formula found yet. Next: return to
-   `FR-088`'s curve-entry asymmetry with a properly geometric (not
-   speed-threshold) isolation of the curve's own footprint, or isolate
-   `FR-094`'s `38°` direction miss further (starting with the clip's
-   mirrored second dodge), then `FR-085` findings I/J and, if a
-   plugin-1.1 re-capture of a dodge-free one-wheel landing becomes
-   available, finish `FR-091`/finding 5 with it.
+   effect. No correct alternative formula found yet. `FR-094` was then
+   corroborated on the clip's own mirrored second dodge (opposite sign,
+   opposite pre-existing spin): re-simulated from a seed close to its own
+   press tick, matching orientation confirmed, and a `33.6°`
+   simulated-vs-recorded direction miss found, closely matching an
+   independent `35.1°` orientation-only estimate — two independent dodges
+   now show the same `~34`-`38°` gap, evidence of a real, reproducible
+   phenomenon rather than a one-off. Still no correct alternative formula
+   identified. Next: return to `FR-088`'s curve-entry asymmetry with a
+   properly geometric (not speed-threshold) isolation of the curve's own
+   footprint, or look for a correct alternative direction formula for
+   `FR-094`'s now-corroborated `~34`-`38°` miss, then `FR-085` findings
+   I/J and, if a plugin-1.1 re-capture of a dodge-free one-wheel landing
+   becomes available, finish `FR-091`/finding 5 with it.
 
 ## Validation
 
@@ -3376,6 +3397,26 @@
   `~9` ticks (`t=6.375`-`6.475`, `jump=false` throughout) before the
   actual double-jump press, during which recorded `ω_z` climbed from `0`
   to `≈-0.91` rad/s from ordinary air control.
+- `RB-PHYSICS-001-FR-094` second-dodge corroboration (2026-09-10, this
+  sandbox): the raw `clean_dodge04.jsonl` clip's mirrored second dodge
+  (pure `yaw=+1` press at `t=21.4417`, `ω_z≈+2.86` rad/s pre-existing
+  spin, opposite sign from the first dodge's `≈-0.91` rad/s) re-simulated
+  from a seed at `t=21.2` (not the clip's own `t=0`, to avoid ~21 s of
+  unrelated upstream drift swamping the comparison). Simulated and
+  recorded orientation at the press tick match closely (`angle_to =
+  0.025727` rad, `≈1.47°`). Simulated `v0=(176.007,-1123.671,300.825)` →
+  `v1=(823.983,-825.066,295.424)`, `dv=(647.976,298.605,-5.401)`,
+  angle `24.74°`; recorded `dv=(608.310,-94.760,-5.430)`, angle `-8.85°`
+  — a `33.60°` gap between the port's own simulated dodge direction and
+  the recorded one, closely matching an independent orientation-only
+  estimate (`35.11°`, predicted `+right2d=(0.8968,0.4424)` from the
+  recorded orientation vs. recorded `dv` normalized to
+  `(0.98808,-0.15392)`) computed the same way as the first dodge, with
+  `+forward2d` (`54.89°`/`54.9°` off) and sign-flipped `-right2d`
+  (`144.89°`/`144.9°` off) again both ruled out. Two independent dodges
+  of opposite sign, opposite pre-existing spin sign, and unrelated
+  moments in the clip now both show a `~34`-`38°` translation-direction
+  miss.
 
 ## Risks and decisions needed
 
