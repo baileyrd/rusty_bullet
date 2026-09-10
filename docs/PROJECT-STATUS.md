@@ -2375,6 +2375,20 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-085` finding J re-verified against today's code —
+  `onewheellanding06`'s first dodge hop still ends with the port
+  permanently upside-down (`up.z = -1.000` from `t=6.7084` on, `z=40.1`,
+  no wheel ever down again) while the recording recovers upright
+  (`up.z = 1.000`, driving at `z≈17`) — unresolved by any of `FR-086`
+  through `FR-093`. Sharper than the original finding: this is a
+  categorical divergence (upright vs. permanently inverted), not just
+  numeric drift. Checked whether `RB-PHYSICS-001-FR-094`'s dodge-
+  direction-miss mechanism explains it: it doesn't cleanly, because the
+  dodge follows an uncontrolled one-wheel bounce and the entering
+  orientation already diverges before the press, unlike `FR-094`'s four
+  cleanly-isolated dodges. Left open under `FR-094`'s existing
+  Non-goals. No code or fixture change. Workspace tests unchanged at
+  `480`. Full workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-088` finding 10 (the same unlimited-boost mismatch
   found on a second, unrelated fixture) — `RB-PHYSICS-001-FR-087`'s own
   `hit-tick-jump.capture.jsonl` holds boost continuously for `3.53` s,
@@ -3059,10 +3073,16 @@
    simulated boost hits `0.00`, then a sign flip and explosion past
    `-210` uu/s — confirming `FR-087`'s own "not a new mechanism" framing
    of that residual was wrong too, now retracted (`FR-088` finding 10).
-   Next: keep hunting the actual mechanism behind `FR-094`'s
-   `n=4`-corroborated sign-anti-correlation pattern, then `FR-085`
-   findings I/J and, if a plugin-1.1 re-capture of a dodge-free one-wheel
-   landing becomes available, finish `FR-091`/finding 5 with it.
+   Re-verified `FR-085` finding J against today's code: still true and
+   now sharper (a categorical upright-vs-permanently-inverted divergence,
+   not numeric drift), confirmed not cleanly explained by `FR-094`'s own
+   dodge-direction-miss mechanism because a preceding uncontrolled
+   one-wheel bounce already skews the entering orientation. Next: keep
+   hunting the actual mechanism behind `FR-094`'s `n=4`-corroborated
+   sign-anti-correlation pattern, then `FR-085` finding I (a documentation-
+   only capture-defect note, already fully explained — lowest priority)
+   and, if a plugin-1.1 re-capture of a dodge-free one-wheel landing
+   becomes available, finish `FR-091`/finding 5 with it.
 
 ## Validation
 
@@ -3748,6 +3768,29 @@
   (`ω_z≈+2.8631`), `+32.877°` (`ω_z≈-2.7699`), `-32.795°`
   (`ω_z≈+1.0370`) — opposite sign from `ω_z`'s own sign on all four,
   magnitude clustering `32.8°`-`37.9°` despite `ω_z` spanning nearly `3×`.
+- `RB-PHYSICS-001-FR-085` finding J re-verification (2026-09-10, this
+  sandbox): re-simulated `onewheellanding06` (raw corpus, not a vendored
+  fixture) from a seed at `t=4.0` with `PhysicsWorld::from_frame` plus
+  the exact `set_car_input`/`step` loop `world::simulate_recorded` uses,
+  tracking each car's up-axis `z`-component (`+1` upright, `-1`
+  inverted) and wheel contact every `0.1` s past the fixture's first
+  hop. Recorded input at the press (`t=4.575`) is `pitch=-1, yaw=0`, one
+  tick after an uncontrolled one-wheel bounce (recorded velocity jumps
+  from near-zero to `(51.7, 93.7, -11.9)` uu/s the tick before). The
+  recording's `up.z` climbs from `≈-0.28` at the press to `1.000` by
+  `t=6.7084` (upright, `z≈17`, driving); the port's instead reaches
+  exactly `-1.000` at `t=6.7084` and holds there unchanged through the
+  rest of the traced window (`t` up to `7.9084`, `z=40.1`, no wheel ever
+  in contact again) — reproducing finding J's original "lands on its
+  roof and stays" claim exactly, unresolved by any of `FR-086` through
+  `FR-093`. Checked the entering orientation for a clean `FR-094`-style
+  isolation: already diverges before the press (`up.z≈-0.28` recorded
+  vs `-0.32` simulated the tick after the bounce), unlike `FR-094`'s
+  four dodges' near-exact orientation match — the preceding bounce is a
+  confound this occurrence doesn't let `FR-094`'s method isolate from.
+  No code or fixture change. Temp probe
+  `crates/rb_verify_cli/examples/onewheellanding_probe.rs` deleted after
+  use.
 
 ## Risks and decisions needed
 

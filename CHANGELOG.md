@@ -490,6 +490,15 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   despite `ω_z` spanning nearly `3×` — the sign-anti-correlation pattern
   now holds at `n=4`. Still no correct alternative formula identified;
   no fixture, test, or behavioral change.
+  Re-verified `RB-PHYSICS-001-FR-085` finding J against today's code:
+  `onewheellanding06`'s first dodge hop still ends with the port
+  permanently upside-down (`up.z=-1.000` from `t=6.7084` on) while the
+  recording recovers upright — unresolved by any of `FR-086` through
+  `FR-093`, and sharper than before (a categorical divergence, not
+  numeric drift). Does not fold cleanly into `FR-094`'s own four-dodge
+  sample: the dodge follows an uncontrolled one-wheel bounce, and the
+  entering orientation already diverges before the press. No code or
+  fixture change.
   `RB-PHYSICS-001-FR-088` finding 7 (still open, characterized):
   geometrically bracketed the curve's own footprint (each wheel's
   raycast contact normal via `wheels::raycast_wheels`, not a speed

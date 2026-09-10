@@ -6,6 +6,30 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Checked back on the car that got stuck upside-down. Still stuck.
+**2026-09-10** · `RB-PHYSICS-001-FR-085` finding J (re-verified)
+
+- Months back, a recording showed the simulation landing a flip wrong
+  and ending up stuck on its roof forever, while the real recording
+  drove off normally. A lot of unrelated fixes have landed since then —
+  worth checking whether any of them happened to fix this too.
+- None of them did. Re-ran it against today's code: the real car flips
+  upright and drives away; the simulated one is still pinned exactly
+  upside-down, permanently, the moment it lands.
+- It's actually a bit worse than the original description made it
+  sound. This isn't "off by a few degrees" — it's landing in a
+  completely different final state. One car is driving around, the
+  other is stuck on its roof forever. That's a different flavor of bug
+  than the small numeric drift these recordings usually show.
+- Checked whether this is the same "flip goes in the wrong direction by
+  about 35 degrees" bug documented a few entries back. It's probably
+  related, but can't be cleanly proven here: this particular flip
+  happens right after the car took an uncontrolled bounce off one wheel,
+  so its starting orientation is already a bit off before the flip even
+  begins — unlike the four cleaner examples already nailed down, which
+  all started from an exact orientation match. So this one's left as an
+  open, but now more precisely described, loose end.
+
 ## The unlimited-boost bug wasn't just in one recording
 **2026-09-10** · `RB-PHYSICS-001-FR-088` finding 10
 

@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.124.0
+- Version: 0.125.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7463,7 +7463,39 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     `vy −274` vs `−214` at `4.8`); after the first the port lands on
     its roof at `6.4` and stays (`z = 40.1`, no wheel down) while the
     recording drives off. The clip's plain hops and air rolls track to
-    the second decimal in `ω`.
+    the second decimal in `ω`. **Re-verified (`RB-PHYSICS-001-FR-094`,
+    2026-09-10): still true with today's code, and worse in kind, not
+    just degree.** Re-simulated from a seed at `t=4.0` with the exact
+    `set_car_input`/`step` loop `world::simulate_recorded` uses, tracking
+    the car's own up-axis `z`-component (`+1` upright, `−1` inverted)
+    tick by tick past the first hop: the recording's `up.z` climbs from
+    `≈-0.28` at the dodge to `1.000` by `t=6.7084` (upright, driving at
+    `z≈17`); the port's instead reaches exactly `-1.000` by `t=6.7084`
+    and holds there, unchanged, for the rest of the traced window
+    (`z=40.1`, no wheel ever down again). This is the same fixture and
+    the same qualitative outcome finding J already reported — none of
+    the intervening fixes (`FR-086` through `FR-093`) closed it — but it
+    is a stronger failure mode than ordinary numeric drift: the two cars
+    end up in categorically different final states (driving vs.
+    permanently inverted), not just different positions along a similar
+    trajectory. The recorded input at the press (`t=4.575`) is
+    `pitch=-1, yaw=0` — a backward dodge, not literally diagonal, fired
+    one tick after an uncontrolled one-wheel bounce (recorded velocity
+    jumps from near-zero to `(51.7, 93.7, -11.9)` uu/s the tick before
+    the press) rather than after several ticks of steady, held air
+    control the way `FR-094`'s four corroborated pure-yaw dodges were.
+    Checked whether `FR-094`'s own dodge-direction-miss mechanism
+    explains this cleanly the same way: it does not, cleanly — the
+    entering orientation itself already diverges before the dodge ever
+    fires (`up.z ≈ -0.28` recorded vs `-0.32` simulated the tick after
+    the bounce, not the near-exact match `FR-094`'s isolated dodges
+    start from), so the bounce itself is a confound this occurrence does
+    not let `FR-094`'s press-tick-only method isolate from. Left open
+    under `FR-094`'s own Non-goals (this is exactly the "wider raw
+    corpus's own diagonal, low-`Δv`, or contamination-suspect dodges"
+    case that Non-goals bullet already declines to pursue further) —
+    recorded here as a re-verification and a sharper characterization of
+    finding J itself, not a new mechanism.
   - **K. The ball's goal entry diverges (resolved by `FR-089`).**
     `hittickjump01b` at `10.0–10.25`: the recorded ball enters the `+Y`
     goal (`|y| > 5000` at `10.042`); the port's parts from it by `~990`
@@ -8512,7 +8544,12 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     diagonal, low-`Δv`, or contamination-suspect dodges weren't pursued
     further); any code change, since no correct alternative formula has
     been identified to adopt; the `clean-dodge` fixture's own ratchet,
-    left exactly as `FR-090` set it (already loose enough to cover this).
+    left exactly as `FR-090` set it (already loose enough to cover this);
+    `RB-PHYSICS-001-FR-085` finding J's `onewheellanding06` dodge, whose
+    entering orientation is already skewed by a preceding uncontrolled
+    one-wheel bounce and so does not let this requirement's press-tick-
+    only isolation method apply cleanly (re-verified still open, see
+    finding J's own text).
   - **Acceptance criteria.** The windowed growth diagnostic run and shown
     to contradict the "downstream"/"landing" framing directly, not
     merely asserted; the dodge tick's own recorded and simulated `Δv`
@@ -8528,7 +8565,13 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     future re-simulation work; the open question re-scoped from "an
     unidentified downstream landing effect" to "the translation impulse's
     own direction, on the press tick, for a dodge preceded by held air
-    control" — a narrower, more actionable question for a future pass.
+    control" — a narrower, more actionable question for a future pass;
+    `FR-085` finding J's own "port lands on its roof and stays" claim
+    re-run against today's code and confirmed still true — and sharpened
+    from a numeric residual to a categorical one (upright-and-driving vs.
+    permanently inverted) — with the confound (a preceding one-wheel
+    bounce) that keeps it from being cleanly folded into this
+    requirement's own four-dodge sample identified and stated plainly.
   - **Verification plan.** `480` tests in the workspace, unchanged
     (documentation only; no fixture or code change).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
@@ -10020,6 +10063,25 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.125.0 (2026-09-10): `RB-PHYSICS-001-FR-085` finding J re-verified
+  against today's code (post `FR-086` through `FR-093`): still true,
+  and sharper than before. Re-simulating `onewheellanding06`'s first
+  hop from a `t=4.0` seed, the recording's up-axis reaches `1.000`
+  (upright, driving) by `t=6.7084` while the port's reaches exactly
+  `-1.000` (inverted) at the same timestamp and never recovers. This is
+  the same fixture and outcome finding J already reported, unresolved
+  by any intervening fix; sharpened from a numeric residual to a
+  categorical one (upright vs. permanently inverted). Checked whether
+  `RB-PHYSICS-001-FR-094`'s dodge-direction-miss mechanism explains it
+  cleanly: it does not — the entering orientation already diverges
+  before the dodge press, because the dodge follows an uncontrolled
+  one-wheel bounce rather than steady held air control, unlike `FR-094`'s
+  four isolated dodges. Left open under `FR-094`'s existing Non-goals
+  (the "wider raw corpus's own diagonal... dodges" bullet already
+  declines to pursue this class further); no code change, no fixture
+  change. Workspace tests unchanged at `480`. Temp probe
+  `crates/rb_verify_cli/examples/onewheellanding_probe.rs` deleted after
+  use.
 - 0.124.0 (2026-09-10): `RB-PHYSICS-001-FR-088` finding 10 (the same
   unlimited-boost mismatch found on a second, unrelated fixture):
   `RB-PHYSICS-001-FR-087`'s own `hit-tick-jump.capture.jsonl` holds
