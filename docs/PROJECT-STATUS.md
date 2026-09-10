@@ -2375,6 +2375,23 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-094` added (open, characterized) — `FR-090`'s own
+  unexplained "downstream landing-timing" residual on `clean-dodge`
+  re-examined with a windowed growth diagnostic and a tick-by-tick
+  re-simulation. The premise was wrong on both counts: the divergence
+  opens in the very first `0.2` s window after the dodge (`~380`-`400`
+  uu/s of velocity divergence) and simply integrates forward at a
+  roughly constant rate — not downstream, not about landing. At the
+  dodge press tick, with simulated and recorded cars sharing essentially
+  identical orientation, the port's translation impulse correctly
+  matches its own coded `forwardDir2D`/`rightDir2D` formula, but the
+  recorded impulse's direction is `38°` off that prediction — checked
+  against and ruled out three simpler hypotheses that all fail worse.
+  The dodge was preceded by `~9` ticks of held air-control yaw input
+  while airborne, giving real pre-existing spin before the press — noted
+  as context, not established as the cause. No correct alternative
+  formula identified; no fixture, test, or behavioral change; workspace
+  tests unchanged at `480`. Full workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-093` added (documentation only) — `FR-083` finding
   7 re-measured on its own original fixture (`dodge-derailment`), found
   closed. Re-simulated the fixture from its seed with today's code,
@@ -2837,11 +2854,26 @@
    own at the jump-exit event finding 7 named — closed, apparently by
    `FR-086`/`FR-087`'s own later, unrelated fixes, neither of which ever
    re-checked it; `FR-085` finding E's own `+2.7` residual, measured on a
-   different clip, was not re-verified. Next: isolate `FR-088`'s narrower
-   curve-entry asymmetry, the dodge's landing-timing residual, then
-   `FR-085` findings I/J and, if a plugin-1.1 re-capture of a dodge-free
-   one-wheel landing becomes available, finish `FR-091`/finding 5 with
-   it.
+   different clip, was not re-verified. `FR-088`'s own narrower
+   curve-entry asymmetry was then investigated further: side-by-side,
+   tick-level instrumentation of both `wall-climb-crest` and
+   `boost-wall-entry`'s own curve transitions found them remarkably
+   similar in contact pattern, pushback magnitude/duration, and
+   orientation-error progression — ruling those out more precisely than
+   before, without finding the actual differentiator; still open,
+   parked, revisit later. `FR-090`'s own "downstream landing-timing"
+   residual was picked up next and resolved as `FR-094` (open,
+   characterized): the premise was wrong — a windowed diagnostic shows
+   the divergence opens immediately at the dodge tick, not downstream,
+   and the mechanism is the translation impulse's own direction missing
+   by `38°` from the coded formula's prediction, not a landing-timing
+   effect. No correct alternative formula found yet. Next: return to
+   `FR-088`'s curve-entry asymmetry with a properly geometric (not
+   speed-threshold) isolation of the curve's own footprint, or isolate
+   `FR-094`'s `38°` direction miss further (starting with the clip's
+   mirrored second dodge), then `FR-085` findings I/J and, if a
+   plugin-1.1 re-capture of a dodge-free one-wheel landing becomes
+   available, finish `FR-091`/finding 5 with it.
 
 ## Validation
 
@@ -3306,6 +3338,44 @@
   `41.217` uu (max `182.382`) — inside the existing `< 85` uu / `< 50` uu
   ratchet, close to but not identical to the `~74`/`~42` the test's own
   comment cites from `FR-085`'s time.
+- `RB-PHYSICS-001-FR-088` curve-asymmetry side-by-side probe (2026-09-10,
+  this sandbox): `wall-climb-crest.capture.jsonl` and
+  `boost-wall-entry.capture.jsonl` each re-seeded and stepped
+  tick-by-tick through their own wall-curve transitions, instrumented
+  with `PhysicsWorld::car_wheels` (contact pattern, summed
+  `extra_pushback`) and `Quat::angle_to` (orientation error vs.
+  recorded). Both hold `4`/`4` wheels in contact throughout; both show a
+  sustained pushback burst of comparable peak magnitude
+  (`~14000`-`15000` uu) over a comparable duration (`~29`-`30` ticks);
+  both show a comparable orientation-error progression (rising from
+  near-`0` to a `~0.03`-`0.07` rad peak through the transition). A naive
+  speed-threshold-based duration estimate (time for simulated speed to
+  cross a fixed value) does not reproduce `FR-088`'s own cited transition
+  durations (`0.209`/`0.217` s), suggesting that figure used a
+  geometrically-defined curve footprint (which static shape the wheel's
+  own raycast hits), not a speed threshold — not reproduced here. No
+  differentiator between the two fixtures' own asymmetry identified;
+  parked for a later pass.
+- `RB-PHYSICS-001-FR-094` dodge-direction re-simulation (2026-09-10, this
+  sandbox): `clean-dodge.capture.jsonl` re-seeded via
+  `PhysicsWorld::from_frame` and stepped tick-by-tick with recorded
+  input. `score_capture_growth` (`0.2` s windows) shows mean car position
+  divergence climbing from `36.6` uu at `t=6.475` to `754.6` uu by
+  `t=8.475`, with mean velocity divergence already `~380`-`400` uu/s in
+  the very first post-dodge window and roughly flat afterward — growth
+  from the dodge onward, not a landing-specific jump. At the dodge tick
+  (`t=6.4833→6.4917`, pure `yaw=-1`), simulated and recorded orientation
+  match to five decimal places (`forward=(0.74658,0.66524,...)` both).
+  Recorded `Δv=(567.179,-104.240,-5.430)` normalizes to
+  `(0.98366,-0.18079)`; the coded `dodge_right_2d` formula predicts
+  `(0.66524,-0.74658)` (which the simulated `Δv`, normalized to
+  `(0.66582,-0.74611)`, matches almost exactly) — `37.9°` between
+  recorded and predicted. Checked and ruled out: `+forward2d` (`52.1°`
+  off), `+right2d` (`142°` off, i.e. sign-flipped), a velocity-direction-
+  based right2D (`34.6°` off). `input.yaw=-1`/`steer=-1` were held for
+  `~9` ticks (`t=6.375`-`6.475`, `jump=false` throughout) before the
+  actual double-jump press, during which recorded `ω_z` climbed from `0`
+  to `≈-0.91` rad/s from ordinary air control.
 
 ## Risks and decisions needed
 

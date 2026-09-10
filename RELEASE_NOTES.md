@@ -6,6 +6,44 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Not the landing — the dodge itself, and by 38°
+**2026-09-10** · `RB-PHYSICS-001-FR-094` (open, characterized)
+
+- `RB-PHYSICS-001-FR-090` fixed the flip's rotational axis-split, and
+  noticed — but never chased — a strange side effect: the fix improved
+  rotation accuracy but made car position and velocity divergence get
+  slightly *worse* on `clean-dodge.capture.jsonl`. Guessed at the time:
+  "plausibly a downstream effect of the corrected spin changing this
+  maneuver's landing timing." Picked back up here.
+- A windowed divergence diagnostic across the whole run shows that guess
+  was wrong on both counts. The divergence doesn't show up downstream —
+  it's already there, at full strength, in the very first `0.2` s window
+  after the dodge. And it isn't about landing — nothing distinguishes
+  the eventual landing tick from any other; the gap just accumulates at
+  a steady rate from the dodge onward.
+- Re-simulating the exact dodge tick found the real mechanism: with the
+  simulated and recorded cars sharing essentially identical orientation
+  (matching to five decimal places), the port's dodge impulse correctly
+  points where its own coded formula says it should — but the real
+  recorded impulse points `38°` away from that.
+- Checked the obvious alternative explanations for that `38°` and ruled
+  all three out: it isn't a simple sign error (using the wrong axis
+  outright misses by `52°` or `142°`), and it isn't a mix-up between the
+  car's facing direction and its direction of travel (a velocity-based
+  version of the same formula misses by `35°`, no better).
+- One piece of context, not yet shown to be the cause: the player had
+  been holding the dodge's own stick direction for about `9` ticks
+  beforehand as ordinary in-air steering, before actually pressing the
+  second jump that turns it into a dodge — so the car already had real
+  spin going into the press, unlike a dodge fired from a dead stop.
+- No fix here — no correct alternative formula has been found yet, so
+  there's nothing to change in the code. What's different now is the
+  question itself: not "an unexplained downstream effect," but "why does
+  the dodge's own translation impulse point `38°` off, on the press
+  tick, for a dodge preceded by held air control."
+
+---
+
 ## Finding 7 quietly closed itself
 **2026-09-10** · `RB-PHYSICS-001-FR-093` (documentation only)
 

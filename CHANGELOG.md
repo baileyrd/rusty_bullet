@@ -427,6 +427,22 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   `+2.7` residual, measured on a different clip
   (`onewheellanding06`), was not re-checked here. No fixture, test, or
   behavioral change.
+  `RB-PHYSICS-001-FR-094` (open, characterized): `RB-PHYSICS-001-FR-090`'s
+  own unexplained "downstream landing-timing" residual on `clean-dodge`
+  re-examined with a windowed growth diagnostic and a tick-by-tick
+  re-simulation. The premise was wrong: the divergence opens in the very
+  first `0.2` s window after the dodge, not downstream, and stays at a
+  roughly constant `~380`-`400` uu/s of velocity divergence rather than
+  spiking at any landing. At the dodge tick, with simulated and recorded
+  orientation matching to five decimal places, the port's translation
+  impulse correctly reproduces its own coded `forwardDir2D`/`rightDir2D`
+  formula, but the recorded impulse's direction is `38°` off that
+  prediction — checked against and ruled out three simpler alternative
+  direction hypotheses that all fail worse. The dodge was preceded by
+  `~9` ticks of held air-control yaw input while airborne, giving real
+  pre-existing spin before the press, noted as context rather than an
+  established cause. No correct alternative formula identified; no
+  fixture, test, or behavioral change.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

@@ -1,6 +1,6 @@
 # RB-PHYSICS-001 — Physics Core Port
 
-- Version: 0.116.0
+- Version: 0.117.0
 - Status: In Progress (sphere-vs-plane, box-vs-plane, sphere-vs-box
   (ball-vs-car), box-vs-box (car-vs-car), body-vs-arena-wall, and
   ball-and-car-vs-curved-fillet collision all implemented, tested, and wired into a
@@ -7886,6 +7886,11 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     corrected spin changing this maneuver's landing timing or
     orientation later in its long, already-chaotic tail, not itself
     decomposed. The ball is unaffected either way (`0.044`/`0.061` uu).
+    (Re-characterized by `RB-PHYSICS-001-FR-094`: not downstream and not
+    about landing timing at all — a windowed diagnostic shows the
+    divergence opening immediately at the dodge tick itself, in the
+    translation impulse's own direction, `38°` off the coded formula's
+    prediction.)
   - **Updated fixture.** `clean-dodge.capture.jsonl` (`279` frames,
     `t=6.275`–`8.6`, the first dodge and its landing) keeps its existing
     ratchet test, bounds and comment updated to the post-fix numbers
@@ -8137,6 +8142,84 @@ FR-020/FR-021/FR-022/FR-023/FR-024/FR-025/FR-026/FR-027/FR-028/FR-029.
     there was nothing left to change.
   - **Verification plan.** `480` tests in the workspace, unchanged
     (documentation only).
+- `RB-PHYSICS-001-FR-094` (the dodge's "landing-timing" residual is
+  really an immediate translation-direction miss — `FR-090`'s own
+  unexplained residual, re-characterized; open, characterized): `FR-090`
+  found that fixing the flip's rotational axis-split moved
+  `clean-dodge.capture.jsonl`'s mean car position/velocity divergence
+  slightly the *wrong* way (`351.0 → 363.8` uu, `336.5 → 381.4` uu/s) and
+  guessed this was "plausibly a downstream effect of the corrected spin
+  changing this maneuver's landing timing or orientation later in its
+  long, already-chaotic tail" — never isolated. Re-simulated the fixture
+  from its seed with today's code and ran `score_capture_growth` (`0.2` s
+  windows) across the whole run.
+  - **The premise was wrong: it isn't downstream, and it isn't about
+    landing timing.** The windowed diagnostic shows mean car position
+    divergence climbing almost linearly from `36.6` uu at `t=6.475` (the
+    very first window after the dodge) to `754.6` uu by `t=8.475`, with
+    mean *velocity* divergence already at `~380`–`400` uu/s in that first
+    window and staying roughly flat there for the rest of the run. That
+    is the signature of a divergence that opens at the dodge itself and
+    then simply integrates forward through an otherwise-accurate flight
+    — not one that appears later, at a landing.
+  - **The actual mechanism: the translation impulse's *direction* misses
+    by `38°`, not its magnitude.** Re-simulated tick-by-tick
+    (`PhysicsWorld::from_frame` plus the `set_car_input`/`step` loop
+    `world::simulate_recorded` uses) and compared the exact dodge tick
+    (`t = 6.4833 → 6.4917`, a pure `yaw = -1` press with `pitch = roll =
+    0`, matching `FR-090`'s own "first dodge"). The simulated and
+    recorded cars share essentially identical orientation entering the
+    tick (`forward = (0.74658, 0.66524, ...)` to five decimal places,
+    both — this isn't a pose-tracking error). `apply_driven_forces`'s
+    `dodge_right_2d` construction (RocketSim's own confirmed
+    `forwardDir2D`/`rightDir2D`) predicts an impulse direction of
+    `(0.6652, -0.7466)`; the port's own simulated `Δv` matches that
+    prediction almost exactly (`(0.6658, -0.7461)`, as it should — the
+    port is a correct implementation of its own coded formula). The
+    *recorded* `Δv = (567.2, -104.2, -5.4)` normalizes to `(0.9835,
+    -0.1808)` — `37.9°` away from the formula's prediction. Checked and
+    ruled out as simpler explanations: the recorded direction doesn't
+    match `+forward2d` (`52°` off) or `+right2d` (`142°` off) either, and
+    it doesn't match the car's *velocity*-direction-based right2D any
+    better (`34.6°` off) — this isn't a sign error or an orientation-
+    vs-velocity mixup on the coded formula's own terms. Magnitude is
+    close to already-expected (recorded `576.7` uu/s vs the port's
+    `643.9`, an `~12%` gap consistent with existing, already-acknowledged
+    dodge-scale residuals) — the `38°` direction miss is the new part.
+  - **Context, not yet shown to be the cause.** `input.yaw = -1` (and
+    `steer = -1`) had already been held for `~9` ticks as ordinary
+    airborne *air control* (`jump = false` throughout, ruling out any
+    dodge) before the actual double-jump press at `6.4833` — the
+    recorded car had already picked up real yaw rate (`ω_z ≈ -0.91`
+    rad/s) and rotated measurably by the time the dodge fires, matching
+    `FR-090`'s own aside that this dodge carried "a completely different
+    pre-existing spin" from its mirrored counterpart. Whether that
+    pre-existing air-control rotation is *why* the real game's dodge
+    direction departs from the orientation-based formula, or is
+    unrelated, is not established here — only that the departure is
+    real, precisely quantified, and present on the press tick itself.
+  - **Non-goals (this requirement).** The correct alternative formula (a
+    stick-relative, velocity-relative, or pre-air-control-orientation
+    basis were all checked as simple hypotheses and ruled out; something
+    more specific may combine two of these, or the real mechanism may be
+    orthogonal to all of them); whether the clip's second, mirrored dodge
+    (`FR-090`'s own "sixth dodge") or any other real dodge preceded by
+    held air-control input shows the same signature (not checked); any
+    code change, since no correct alternative formula has been
+    identified to adopt; the `clean-dodge` fixture's own ratchet, left
+    exactly as `FR-090` set it (already loose enough to cover this).
+  - **Acceptance criteria.** The windowed growth diagnostic run and shown
+    to contradict the "downstream"/"landing" framing directly, not
+    merely asserted; the dodge tick's own recorded and simulated `Δv`
+    compared with matching, verified-identical pre-dodge orientation
+    ruling out a pose-tracking artifact; three alternative direction
+    hypotheses checked numerically and ruled out, not just the one that
+    happened to fail; the open question re-scoped from "an unidentified
+    downstream landing effect" to "the translation impulse's own
+    direction, on the press tick, for a dodge preceded by held air
+    control" — a narrower, more actionable question for a future pass.
+  - **Verification plan.** `480` tests in the workspace, unchanged
+    (documentation only; no fixture or code change).
 - `RB-PHYSICS-001-NFR-001` (implemented): The physics core doesn't force
   Bullet-specific data modeling into `rb_domain` — `rb_domain::state`
   stays a plain state DTO plus general-purpose vector/quaternion algebra;
@@ -9626,6 +9709,27 @@ See [docs/traceability/TRACEABILITY.md](../../traceability/TRACEABILITY.md).
 
 ## Change history
 
+- 0.117.0 (2026-09-10): `RB-PHYSICS-001-FR-094` added (open,
+  characterized) — `RB-PHYSICS-001-FR-090`'s own unexplained "downstream
+  landing-timing" residual on `clean-dodge.capture.jsonl` re-examined
+  with a windowed growth diagnostic and a tick-by-tick re-simulation.
+  The premise was wrong on both counts: the divergence isn't downstream
+  (it opens in the very first `0.2` s window after the dodge, at
+  `~380`–`400` uu/s of velocity divergence, and simply integrates
+  forward at a roughly constant rate for the rest of the run) and isn't
+  about landing timing (nothing distinguishes the eventual landing tick
+  from the ones around it). The actual mechanism: at the dodge press
+  tick, with the simulated and recorded cars sharing essentially
+  identical orientation, the port's translation impulse correctly
+  reproduces its own coded `forwardDir2D`/`rightDir2D` formula, but the
+  *recorded* impulse's direction is `38°` off that formula's prediction
+  — ruled out against three simpler hypotheses (`+forward2d`,
+  `+right2d`, a velocity-based right2D) that all fail worse. The dodge
+  was preceded by `~9` ticks of held air-control yaw input while
+  airborne, giving the car real pre-existing spin before the press —
+  noted as context, not established as the cause. No correct alternative
+  formula identified; no fixture, test, or code change. Workspace tests
+  unchanged at `480`.
 - 0.116.0 (2026-09-10): `RB-PHYSICS-001-FR-093` added (documentation
   only) — `RB-PHYSICS-001-FR-083` finding 7 re-measured on its own
   original fixture (`dodge-derailment.capture.jsonl`) by re-simulating
