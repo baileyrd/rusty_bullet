@@ -472,6 +472,24 @@ Format: Added / Changed / Deprecated / Removed / Fixed / Security, newest first.
   magnitude — reported as observed on `n=2`, not established as a
   mechanism. Still no correct alternative formula identified; no
   fixture, test, or behavioral change.
+  Scanned the wider raw fixture corpus for `RB-PHYSICS-001-FR-094` and
+  found two more independent pure-yaw dodges preceded by held
+  air-control input: `clean_dodge04.jsonl`'s own third dodge (`t=29.925`,
+  `yaw=-1`, `ω_z≈-2.77` rad/s) and `hit_tick_test.jsonl`'s dodge
+  (`t=13.0`, `yaw=+1`, `ω_z≈+1.04` rad/s). Re-simulating the second first
+  hit a seed-boundary artifact: seeding at `t=12.8` cut through an
+  already-held ground-jump input (pressed `t=12.75`), and the fresh
+  world's zeroed `car_jump_held` misread it as a new rising edge, firing
+  a spurious second jump impulse (a `~200` uu/s simulated-vs-recorded
+  `z`-velocity gap despite matching orientation); re-seeding at `t=12.7`,
+  before the real press, fixed it. Both new dodges, cleanly re-simulated,
+  show matching orientation at the press tick and a `32.79°`/`32.76°`
+  simulated-vs-recorded direction miss, closely matching the first two
+  (`37.9°`/`33.6°`). All four dodges' signed corrections are opposite in
+  sign from their own pre-existing spin's sign, clustering `32.8°`-`37.9°`
+  despite `ω_z` spanning nearly `3×` — the sign-anti-correlation pattern
+  now holds at `n=4`. Still no correct alternative formula identified;
+  no fixture, test, or behavioral change.
 - `rb_domain::divergence::score` now also scores car position/rotation/
   velocity divergence (`RB-VERIFY-003-FR-002`), matching cars between
   sequences by `player_id`. New `Quat::angle_to` computes rotation

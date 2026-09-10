@@ -2375,6 +2375,25 @@
   diagnosis. `rb_physics_bullet` 389 → 396 (7 new `wheels.rs` tests),
   workspace 450 → 457; ratchet `< 110` uu car. `FR-066` fully
   superseded. Full workspace `fmt`/`clippy`/`test` green.
+- `RB-PHYSICS-001-FR-094` extended once more (still open, characterized)
+  — scanned the wider raw fixture corpus (not just `clean_dodge04`) and
+  found two more independent pure-yaw dodges preceded by held air-control
+  input: `clean_dodge04`'s own third dodge (`t=29.925`, `yaw=-1`,
+  `ω_z≈-2.77` rad/s) and `hit_tick_test`'s dodge (`t=13.0`, `yaw=+1`,
+  `ω_z≈+1.04` rad/s). Re-simulating the second hit a seed-boundary
+  artifact — seeding at `t=12.8` cut through an already-held ground-jump
+  input, and the fresh world's zeroed `car_jump_held` misread it as a new
+  press, firing a spurious jump impulse (`~200` uu/s simulated-vs-recorded
+  `z`-velocity gap); moving the seed to `t=12.7`, before the real press,
+  resolved it. Both new dodges, cleanly re-simulated, show matching
+  orientation at the press tick and a `32.79°`/`32.76°`
+  simulated-vs-recorded direction miss, closely matching the first two
+  (`37.9°`/`33.6°`). All four dodges' signed corrections are opposite in
+  sign from their own pre-existing spin's sign, clustering `32.8°`-`37.9°`
+  despite `ω_z` spanning nearly `3×` — the sign-anti-correlation pattern
+  now holds at `n=4`. No correct alternative formula identified; no
+  fixture, test, or behavioral change; workspace tests unchanged at
+  `480`. Full workspace `fmt`/`clippy`/`test` green.
 - `RB-PHYSICS-001-FR-094` extended further (still open, characterized) —
   three more specific direction hypotheses checked against both dodges
   and ruled out: an orientation-snapshot-timing artifact (neither
@@ -2915,14 +2934,19 @@
    pattern instead: the signed correction from predicted to recorded
    direction is opposite in sign from the pre-existing spin's own sign on
    both dodges, though its magnitude doesn't track the spin's magnitude.
-   Still no correct alternative formula identified. Next: return to
-   `FR-088`'s curve-entry asymmetry with a properly geometric (not
-   speed-threshold) isolation of the curve's own footprint, or check the
-   sign-anti-correlation pattern against a third real dodge (with a
-   third, independent pre-existing spin) to see if it holds or was
-   coincidence on `n=2`, then `FR-085` findings I/J and, if a plugin-1.1
-   re-capture of a dodge-free one-wheel landing becomes available, finish
-   `FR-091`/finding 5 with it.
+   Scanning the wider raw fixture corpus then turned up two more
+   independent pure-yaw dodges, corroborating the sign-anti-correlation
+   pattern at `n=4` (all four opposite the spin's own sign, magnitudes
+   clustering `32.8°`-`37.9°` despite `ω_z` spanning nearly `3×`) — and,
+   along the way, surfacing and fixing a seed-boundary re-simulation
+   artifact (a still-held jump input misread as a fresh press when the
+   seed cuts through it). Still no correct alternative formula
+   identified. Next: return to `FR-088`'s curve-entry asymmetry with a
+   properly geometric (not speed-threshold) isolation of the curve's own
+   footprint, or keep hunting the actual mechanism behind `FR-094`'s now
+   `n=4`-corroborated sign-anti-correlation pattern, then `FR-085`
+   findings I/J and, if a plugin-1.1 re-capture of a dodge-free one-wheel
+   landing becomes available, finish `FR-091`/finding 5 with it.
 
 ## Validation
 
@@ -3467,6 +3491,31 @@
   spin magnitude (`0.91` vs `2.86` rad/s, `>3×` apart, vs. `37.9°`/`35.1°`,
   nearly equal) — reported as an `n=2` observation, not a confirmed
   mechanism.
+- `RB-PHYSICS-001-FR-094` fourth-dodge corroboration (2026-09-10, this
+  sandbox): scanned every raw fixture under
+  `crates/rb_capture_ingest/fixtures/raw/` for double-jump presses with
+  nonzero `pitch`/`yaw`, airborne, with a meaningfully-sized recorded
+  `Δv` (excluding the `hittickjump01*` clips' low-`Δv` events as likely
+  ball-hit-contaminated, not clean dodges). Found two more pure-yaw
+  dodges: `clean_dodge04.jsonl` `t=29.925` (`yaw=-1`, `ω_z≈-2.7699`
+  rad/s, held since `t≈29.75`) and `hit_tick_test.jsonl` `t=13.0000`
+  (`yaw=+1`, `ω_z≈+1.0370` rad/s, held since `t≈12.89`, ground jump at
+  `t=12.75`). Re-simulating the `hit_tick_test` dodge from seed `t=12.8`
+  first produced a spurious result (`sim v0.z=477.83` vs `rec v0.z
+  =280.54`, `diff=57.21°`) traced to seeding mid-hold of the ground-jump
+  input (pressed `t=12.75`): `PhysicsWorld::from_frame` has no
+  `car_jump_held` history, so the fresh world read the still-`true`
+  input as a new rising edge and fired a second jump impulse. Re-seeding
+  at `t=12.7` (before the real press) fixed it: `sim v0.z=283.32` now
+  matches `rec v0.z=280.54`, `angle_to≈0`, `diff=32.76°`
+  (`sim_dv_angle=-34.25°`, `rec_dv_angle=-67.01°`). The `clean_dodge04`
+  dodge, seeded cleanly at `t=29.7` (before its own `t≈29.75` ground
+  jump) from the start, gave `angle_to≈0`, `diff=32.79°`
+  (`sim_dv_angle=-4.63°`, `rec_dv_angle=28.16°`). Signed corrections for
+  all four dodges: `+37.883°` (`ω_z≈-0.9866`), `-35.111°`
+  (`ω_z≈+2.8631`), `+32.877°` (`ω_z≈-2.7699`), `-32.795°`
+  (`ω_z≈+1.0370`) — opposite sign from `ω_z`'s own sign on all four,
+  magnitude clustering `32.8°`-`37.9°` despite `ω_z` spanning nearly `3×`.
 
 ## Risks and decisions needed
 

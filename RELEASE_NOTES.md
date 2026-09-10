@@ -6,6 +6,39 @@ keyed by the commit/PR that shipped them.
 
 ---
 
+## Two more dodges, one bug in the checking method itself
+**2026-09-10** · `RB-PHYSICS-001-FR-094` (still open, characterized)
+
+- The sign-anti-correlation pattern from last entry rested on two
+  dodges. Rather than keep guessing at mechanisms, the obvious move was
+  to go find more real dodges and see if it holds up.
+- Widened the search past the one clip this whole investigation had been
+  using, across every raw recording available, looking for any double-jump
+  press with a real stick direction, done in the air, with a normal-sized
+  velocity kick (filtering out a few low-magnitude candidates that turned
+  out to be ball-hit-contaminated, not clean dodges). Turned up two more
+  pure-sideways dodges, each with its own held-stick-then-press setup just
+  like the first two.
+- Checking the second of these caught a real bug in the *checking method*,
+  not the game: re-simulating from a seed point that happened to land
+  *while the ground jump button was still held down* made the fresh
+  simulation think that held button was a brand-new press, firing a second
+  jump it shouldn't have. Nothing wrong with the port's actual jump logic —
+  just a sloppy seed choice in this analysis. Moving the seed earlier, to
+  before the real press, fixed it cleanly.
+- With that fixed, both new dodges show exactly the same signature as the
+  first two: matching orientation, no pose-tracking issue, and a
+  translation-direction miss in the low-`30s`s of degrees. All four dodges
+  now agree: the miss's *direction* always fights the car's existing spin,
+  and its *size* barely moves even though the spin itself varies by
+  `3×` between them.
+- Four independent, real examples land in a tight band. That's a real
+  pattern now, not a coincidence of one clip — though it's still a
+  pattern in search of a mechanism. No fix yet; the useful outcome this
+  round is having enough data to trust the shape of the problem, plus
+  one now-documented pitfall for anyone re-simulating from a seed near a
+  held button press.
+
 ## Three more guesses ruled out, one curious pattern left standing
 **2026-09-10** · `RB-PHYSICS-001-FR-094` (still open, characterized)
 
