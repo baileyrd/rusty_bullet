@@ -5,6 +5,7 @@ members = [
     "crates/rb_replay_ingest",
     "crates/rb_capture_ingest",
     "crates/rb_physics_bullet",
+    "crates/rb_scenario",
     "crates/rb_verify_cli",
 ]
 
