@@ -302,6 +302,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rb_scenario"
+version = "0.1.0"
+dependencies = [
+ "rb_domain",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rb_verify_cli"
 version = "0.1.0"
 dependencies = [
@@ -309,6 +318,7 @@ dependencies = [
  "rb_domain",
  "rb_physics_bullet",
  "rb_replay_ingest",
+ "rb_scenario",
 ]
 
 [[package]]
