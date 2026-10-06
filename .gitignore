@@ -14,3 +14,6 @@
 
 # Standalone tape-bot package build output.
 /tools/rb_tape_bot/target/
+
+# Personal Claude Code overrides
+.claude/settings.local.json
