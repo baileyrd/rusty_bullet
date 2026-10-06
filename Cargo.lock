@@ -286,6 +286,14 @@ name = "rb_domain"
 version = "0.1.0"
 
 [[package]]
+name = "rb_env"
+version = "0.1.0"
+dependencies = [
+ "rb_domain",
+ "rb_physics_bullet",
+]
+
+[[package]]
 name = "rb_physics_bullet"
 version = "0.1.0"
 dependencies = [
@@ -316,6 +324,7 @@ version = "0.1.0"
 dependencies = [
  "rb_capture_ingest",
  "rb_domain",
+ "rb_env",
  "rb_physics_bullet",
  "rb_replay_ingest",
  "rb_scenario",
