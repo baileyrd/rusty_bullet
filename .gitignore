@@ -17,3 +17,7 @@
 
 # Personal Claude Code overrides
 .claude/settings.local.json
+
+# Python bytecode from the analysis tools
+__pycache__/
+*.pyc
