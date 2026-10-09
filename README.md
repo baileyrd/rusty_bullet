@@ -1,5 +1,10 @@
 # rusty_bullet
 
+> **This repository is frozen.** Development continues in
+> [Rusty-Mill/rusty_mill](https://github.com/Rusty-Mill/rusty_mill) under
+> `crates/apps/rocket_league/`, with history preserved. The unmerged branch
+> `claude/rocket-league-server-clone-u74q45` is kept here for reference only.
+
 A from-scratch Rust reimplementation of Rocket League's client/server
 physics and netcode architecture. Two reasons this exists: (1) the author
 hits persistent online lag Psyonix hasn't fixed, and the fastest way to find
